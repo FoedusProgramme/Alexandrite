@@ -15,7 +15,6 @@ import org.unitedsoftware.alexandrite.internal.floor.StandardPlaces
 import org.unitedsoftware.alexandrite.internal.floor.credentialPlaces
 import org.unitedsoftware.alexandrite.internal.floor.leveled
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
-import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
@@ -25,16 +24,12 @@ import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.di.key
-import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
-import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
-import java.nio.file.Files
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermissions
 
 /** The hard floor of every tool, whose places follow `agent.floor` while the runtime runs. */
 @Singleton
@@ -65,17 +60,27 @@ internal class AgentFloor(
     override fun checkRead(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
         check(path, agent, conversation, tree = false) { it.checkRead(path, agent) }
 
-    override fun checkWrite(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
-        check(path, agent, conversation, tree = false) { it.checkWrite(path) }
+    /** [agent]'s own persona files are carved out of a refusal. */
+    override fun checkWrite(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck {
+        val check = check(path, agent, conversation, tree = false) { it.checkWrite(path) }
+        if (check !is FloorCheck.Denied || agent == null) return check
+        return checkPersonaWrite(path, agent).takeUnless { it is FloorCheck.Denied } ?: check
+    }
 
     override fun checkTree(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck =
         check(path, agent, conversation, tree = true) { it.checkTree(path) }
 
+    override val protectsAnything: Boolean
+        get() = levels.config.let { it.deny.isNotEmpty() || it.ask.isNotEmpty() }
+
+    /** The groups and paths of the floor in force. */
+    val entries: FloorConfig get() = levels.config
+
     /** The places that a sandbox keeps commands out of: those the floor refuses, then those it asks a person about. */
     fun sandboxPlaces(): Pair<List<Path>, List<Path>> = levels.let { it.denied to it.asked }
 
-    /** [path] (absolute) made canonical and checked for a write by the persona tool of [agent]. */
-    fun checkPersonaWrite(path: Path, agent: AgentId): FloorCheck {
+    /** [path] (absolute) made canonical and checked for a write of a persona file of [agent]. */
+    private fun checkPersonaWrite(path: Path, agent: AgentId): FloorCheck {
         val levels = levels
         return leveled(levels.deny.checkPersonaWrite(path, agent)) { levels.ask.checkPersonaWrite(path, agent) }
             .toCheck()
@@ -115,6 +120,7 @@ internal class AgentFloor(
 
     /** The floors of [config]; throws a [ConfigException] for places that cannot be protected. */
     private fun levels(config: FloorConfig, quiet: Boolean): Levels = Levels(
+        config,
         level(config.deny, DENY_KEY, quiet),
         level(config.ask, ASK_KEY, quiet = true),
         places(config.deny, DENY_KEY),
@@ -155,7 +161,13 @@ internal class AgentFloor(
     }
 
     /** The floor that refuses and the one that asks a person, with the paths of each. */
-    private class Levels(val deny: HostFloor, val ask: HostFloor, val denied: List<Path>, val asked: List<Path>)
+    private class Levels(
+        val config: FloorConfig,
+        val deny: HostFloor,
+        val ask: HostFloor,
+        val denied: List<Path>,
+        val asked: List<Path>,
+    )
 }
 
 /** The path that [this] lets a call use, once a person allows it where the floor asks one; null when it refuses. */
@@ -169,12 +181,6 @@ internal val FloorCheck.canonical: Path?
 /** Why only a person may allow a call that reaches [path], which the floor [check] asks a person about. */
 internal fun askedPlace(path: Path, check: FloorCheck.Ask): String =
     "$path is in a place the floor asks a person about (${check.reason})"
-
-/** Refuses the call of [context] when [person] says why only a person may allow it and nobody did. */
-internal fun checkPerson(person: String?, context: ToolContext) {
-    if (person == null || context.clearance?.kind == ClearanceKind.HUMAN) return
-    throw ToolRefusal("$person, and no person allowed this call.", blocked = true)
-}
 
 /** The floor of each agent, which lets that agent alone read its persona directory. */
 internal class HostFloor(
@@ -322,18 +328,6 @@ internal fun alexandritePlaces(paths: HostPaths): List<Path> =
     listOfNotNull(paths.configFile?.parent, paths.configTarget, paths.configBackup) +
         listOf(paths.dataRoot, paths.pluginDataRoot, paths.cacheRoot) + paths.protected
 
-/** [agent]'s persona directory as [places] gives it, created owner-only when missing, null where the host keeps none. */
-internal fun openPersonaDirectory(places: AgentPlaces, agent: AgentId): Path? {
-    val directory = places.personaDirectory(agent) ?: return null
-    if (Files.isDirectory(directory)) return directory
-    if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
-        Files.createDirectories(directory, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(OWNER)))
-    } else {
-        Files.createDirectories(directory)
-    }
-    return directory
-}
-
 /** The paths written at [key], each absolute, under `~/` (the [home]), or relative to the config's directory. */
 internal fun operatorPlaces(
     paths: HostPaths,
@@ -388,9 +382,6 @@ private const val FLOOR_PATH = "floor"
 private const val DENY_KEY = "agent.floor.deny"
 
 private const val ASK_KEY = "agent.floor.ask"
-
-/** Where the agents' persona directories lie in the config directory. */
-private const val OWNER = "rwx------"
 
 private const val UNKNOWN_HOME = "every path, as the home directory is unknown"
 

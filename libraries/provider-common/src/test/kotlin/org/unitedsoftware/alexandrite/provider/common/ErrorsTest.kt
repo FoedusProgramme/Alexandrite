@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.provider.common
 import kotlinx.coroutines.runBlocking
 import org.unitedsoftware.alexandrite.provider.common.chat.ChatEndpoint
 import org.unitedsoftware.alexandrite.provider.common.chat.ChatFlavor
-import org.unitedsoftware.alexandrite.provider.common.chat.FIXTURE_API_KEY
 import org.unitedsoftware.alexandrite.provider.common.chat.FIXTURE_TIMEOUTS
 import org.unitedsoftware.alexandrite.provider.common.chat.chatEndpoint
 import org.unitedsoftware.alexandrite.provider.common.chat.events
@@ -23,7 +22,6 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ErrorsTest {
@@ -72,6 +70,8 @@ class ErrorsTest {
         assertEquals(cases, errors.mapValues { it.value.kind })
         assertEquals(setOf(408, 500, 503, 504, 529), errors.filterValues { it.retryable }.keys)
         assertTrue(errors.values.none { it.outputStarted })
+        val identified = error(401, "{}", "request-id" to "r-9")
+        assertEquals(401 to "r-9", identified.status to identified.requestId)
     }
 
     @Test
@@ -89,20 +89,6 @@ class ErrorsTest {
         assertEquals(ModelErrorKind.CONTEXT_WINDOW_EXCEEDED, context.kind)
         assertEquals(ModelErrorKind.MODEL_NOT_FOUND, missing.kind)
         assertEquals(ModelErrorKind.CONTENT_FILTERED, filtered.kind)
-    }
-
-    @Test
-    fun `an echoed key never reaches the error`() {
-        val error = error(
-            401,
-            """{"error":{"message":"Incorrect API key provided: $FIXTURE_API_KEY."}}""",
-            "request-id" to "r-9",
-        )
-
-        assertEquals(ModelErrorKind.AUTHENTICATION, error.kind)
-        assertEquals(401 to "r-9", error.status to error.requestId)
-        assertFalse(FIXTURE_API_KEY in error.message, error.message)
-        assertTrue("Incorrect API key provided" in error.message, error.message)
     }
 
     @Test

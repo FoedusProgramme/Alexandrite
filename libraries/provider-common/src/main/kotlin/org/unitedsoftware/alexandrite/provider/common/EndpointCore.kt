@@ -23,10 +23,8 @@ internal class EndpointCore(
     own: Map<String, String> = emptyMap(),
     /** The header that the wire API carries the API key in. */
     authHeader: String = EndpointSettings.DEFAULT_AUTH_HEADER,
-    /** Headers that the endpoint sets on some requests itself. */
-    providerHeaders: Set<String> = emptySet(),
 ) : AutoCloseable {
-    private val connection = EndpointConnection(settings, own, authHeader, providerHeaders)
+    private val connection = EndpointConnection(settings, own, authHeader)
     private val catalog = ModelCatalog(id, settings, listing, dialect, connection)
 
     /** The models, which search the web natively when [nativeSearch] holds. */

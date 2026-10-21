@@ -2,14 +2,15 @@ package org.unitedsoftware.alexandrite.agent.permission
 
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
+import org.unitedsoftware.alexandrite.agent.control.Grant
 import org.unitedsoftware.alexandrite.agent.control.Granter
+import org.unitedsoftware.alexandrite.agent.control.SessionGrants
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
+import org.unitedsoftware.alexandrite.agent.control.grantKey
 import org.unitedsoftware.alexandrite.agent.sandbox.networkRule
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
@@ -27,7 +28,6 @@ import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
-import org.unitedsoftware.alexandrite.sdk.store.ConversationState
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.StoredRecord
@@ -48,7 +48,7 @@ internal interface CallRules {
     /** Whether an allow rule lets [call] run. */
     suspend fun allowed(call: CheckedCall): Boolean
 
-    /** What an approver of [call] may allow for good, empty when nothing. */
+    /** What an approver of [call] may allow for good, empty when nothing, as for a write of an instruction place. */
     suspend fun grantable(call: CheckedCall): List<RuleSubject>
 
     /** Lets the calls that [subjects] cover run in the session of [call], as [by] allowed. */
@@ -75,7 +75,15 @@ internal class AgentCallRules(
 ) : CallRules,
     ConversationSeals,
     Lifecycle {
-    private val grants = records.collection<GrantedRule>(COLLECTION)
+    private val grants = SessionGrants(
+        records.collection<GrantedRule>(COLLECTION),
+        "allow rules",
+        GrantedRule::conversation,
+        GrantedRule::by,
+        ::subject,
+    )
+
+    private val granted: List<Grant<RuleSubject>> get() = grants.all
 
     private val declared: Map<AgentId, Declared> = directory.agents.associate { agent ->
         val home = homeDirectory()
@@ -85,12 +93,6 @@ internal class AgentCallRules(
             permission.deny.map { RuleEntry.parse(it, home) },
         )
     }
-
-    /** Held from reading the granted rules until a change of them is applied. */
-    private val writing = Mutex()
-
-    @Volatile
-    private var granted: List<Granted> = emptyList()
 
     init {
         for ((agent, rules) in declared) {
@@ -106,14 +108,7 @@ internal class AgentCallRules(
     }
 
     override suspend fun onStart() {
-        val kept = mutableListOf<Granted>()
-        for (record in grants.list()) {
-            val rule = record.value
-            val live = conversations.conversation(rule.conversation)?.state == ConversationState.ACTIVE
-            val loaded = if (live) granted(record) else null
-            if (loaded == null) grants.remove(record.key) else kept += loaded
-        }
-        writing.withLock { granted = kept }
+        grants.load(conversations)
     }
 
     override suspend fun denied(call: CheckedCall): String? {
@@ -123,10 +118,11 @@ internal class AgentCallRules(
         return entry?.let { "the operator's rule $it denies it" }
     }
 
-    override suspend fun allowed(call: CheckedCall): Boolean =
+    override suspend fun allowed(call: CheckedCall): Boolean = call.instruction == null &&
         call.containment?.hosts.isNullOrEmpty() && uncovered(call, offered = false)?.isEmpty() == true
 
     override suspend fun grantable(call: CheckedCall): List<RuleSubject> {
+        if (call.instruction != null) return emptyList()
         if (mode(call.call) == PermissionMode.MANUAL) return emptyList()
         val containment = call.containment
         val hosts = containment?.hosts.orEmpty().takeIf { Principal.of(call.call.turn) == Principal.OPERATOR }
@@ -157,12 +153,8 @@ internal class AgentCallRules(
         val conversation = session(turn)
         val key = key(conversation, subject)
         try {
-            writing.withLock {
-                val value = GrantedRule(conversation, subject.tool, subject.tokens, subject.display, Granter(by))
-                val record = grants.put(key, value, by.address)
-                granted =
-                    granted.filterNot { it.key == key } + Granted(key, conversation, subject, record.createdAt, by)
-            }
+            val value = GrantedRule(conversation, subject.tool, subject.tokens, subject.display, Granter(by))
+            grants.put(key, value, subject, by)
         } catch (e: Exception) {
             currentCoroutineContext().ensureActive()
             logger.warn(
@@ -185,8 +177,7 @@ internal class AgentCallRules(
 
     override fun inForce(agent: AgentId, conversation: ConversationId): List<AllowRule> {
         val declaredRules = declared[agent]?.allow.orEmpty().map { Listed(it.subject, true, null, null) }
-        val grantedRules = granted.filter { it.conversation == conversation }
-            .map { Listed(it.subject, false, it.at, it.by) }
+        val grantedRules = grants.of(conversation).map { Listed(it.value, false, it.at, it.by) }
         return (declaredRules + grantedRules).mapIndexed { index, rule ->
             val subject = rule.subject
             val shown = RuleSubject(subject.tool, subject.tokens, ReviewText.escape(subject.display))
@@ -197,18 +188,13 @@ internal class AgentCallRules(
     override suspend fun revoke(agent: AgentId, conversation: ConversationId, number: Int, by: ChatUser?): Revocation {
         val allow = declared[agent]?.allow.orEmpty()
         if (number in 1..allow.size) return Revocation(removed = false, declared = true)
-        val rule = writing.withLock {
-            val rule = granted.filter { it.conversation == conversation }.getOrNull(number - allow.size - 1)
-                ?: return Revocation(removed = false, declared = false)
-            grants.remove(rule.key)
-            granted = granted - rule
-            rule
-        }
-        val still = allow.any { it.allows(rule.subject) }
+        val rule = grants.remove(conversation) { it.getOrNull(number - allow.size - 1) }?.value
+            ?: return Revocation(removed = false, declared = false)
+        val still = allow.any { it.allows(rule) }
         logger.info(
             "The allow rule '{}' of {} in conversation {} is revoked by {}{}",
-            rule.subject.display,
-            rule.subject.tool,
+            rule.display,
+            rule.tool,
             conversation,
             by?.address ?: "the host",
             if (still) ": the config still allows its calls" else "",
@@ -218,19 +204,7 @@ internal class AgentCallRules(
 
     /** Ends the rules granted in [conversation], which was sealed. */
     override suspend fun sealed(conversation: ConversationId) {
-        val ended = writing.withLock {
-            val ended = granted.filter { it.conversation == conversation }
-            granted = granted - ended.toSet()
-            ended
-        }
-        if (ended.isEmpty()) return
-        try {
-            for (rule in ended) grants.remove(rule.key)
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn("Cannot remove the allow rules of sealed conversation {}: {}", conversation, e.toString())
-        }
-        logger.info("The {} allow rule(s) of conversation {} end with it", ended.size, conversation)
+        grants.sealed(conversation)
     }
 
     /**
@@ -247,11 +221,9 @@ internal class AgentCallRules(
         val command = call.review.preview as? ReviewPreview.Command
         if (command?.opaque == true) return null
         if (command == null || command.segments.isEmpty()) {
+            if (!offered && allow.any { it.allows(name, call.review) }) return emptyList()
             val subject = call.review.rule?.takeIf { it.tool == name } ?: return null
-            val covered = !offered && (
-                allow.any { it.allows(name, call.review) } ||
-                    granted.any { it.conversation == session && it.covers(subject) }
-                )
+            val covered = !offered && granted.any { it.conversation == session && it.covers(subject) }
             return if (covered) emptyList() else listOf(subject)
         }
         val left = mutableListOf<RuleSubject>()
@@ -269,29 +241,10 @@ internal class AgentCallRules(
     private suspend fun mode(call: GateCall): PermissionMode =
         settings.callMode(call, directory, clock, unread = PermissionMode.MANUAL).first
 
-    /** The rule of [record], null when it cannot be read. */
-    private fun granted(record: StoredRecord<GrantedRule>): Granted? {
-        val rule = record.value
-        val subject = try {
-            RuleSubject(rule.tool, rule.tokens, rule.display)
-        } catch (e: IllegalArgumentException) {
-            logger.warn("The allow rule {} is dropped: {}", record.key, e.message)
-            return null
-        }
-        return Granted(record.key, rule.conversation, subject, record.createdAt, rule.by?.user())
-    }
+    private fun Grant<RuleSubject>.covers(other: RuleSubject): Boolean =
+        other.tool == value.tool && other.tokens == value.tokens
 
     private class Declared(val allow: List<RuleEntry>, val deny: List<RuleEntry>)
-
-    private class Granted(
-        val key: String,
-        val conversation: ConversationId,
-        val subject: RuleSubject,
-        val at: Instant,
-        val by: ChatUser?,
-    ) {
-        fun covers(other: RuleSubject): Boolean = other.tool == subject.tool && other.tokens == subject.tokens
-    }
 
     private class Listed(val subject: RuleSubject, val declared: Boolean, val at: Instant?, val by: ChatUser?)
 
@@ -309,6 +262,17 @@ private class GrantedRule(
     val by: Granter? = null,
 )
 
+/** The rule of [record], null when it cannot be read. */
+private fun subject(record: StoredRecord<GrantedRule>): RuleSubject? {
+    val rule = record.value
+    return try {
+        RuleSubject(rule.tool, rule.tokens, rule.display)
+    } catch (e: IllegalArgumentException) {
+        logger.warn("The allow rule {} is dropped: {}", record.key, e.message)
+        null
+    }
+}
+
 /** The record key of the rule of [subject] in [conversation]. */
 private fun key(conversation: ConversationId, subject: RuleSubject): String {
     val digest = sha256Digest()
@@ -316,7 +280,7 @@ private fun key(conversation: ConversationId, subject: RuleSubject): String {
         digest.update(part.toByteArray())
         digest.update(0.toByte())
     }
-    return "$conversation/" + hex(digest.digest())
+    return grantKey(conversation, hex(digest.digest()))
 }
 
 private val logger = LoggerFactory.getLogger(AgentCallRules::class.java)

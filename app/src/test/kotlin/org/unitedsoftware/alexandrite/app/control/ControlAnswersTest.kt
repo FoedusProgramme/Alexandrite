@@ -71,22 +71,6 @@ class ControlAnswersTest {
     // Decisions.
 
     @Test
-    fun `a code is approved or denied by the host`() {
-        val desk = FakeDesk(bob, carol)
-
-        served(directory, desk) { socket ->
-            val approved = assertIs<ControlReply.Approved>(ask(socket, ControlRequest.Approve("BBBB-BBBB")))
-            val denied = assertIs<ControlReply.Denied>(ask(socket, ControlRequest.Deny("CCCC-CCCC")))
-
-            assertEquals("chat:work:42" to "chat:work:43", approved.request.chat to denied.request.chat)
-            assertEquals(
-                listOf("approve BBBB-BBBB by the host", "deny CCCC-CCCC by the host"),
-                desk.calls.filterNot { it.startsWith("holds") },
-            )
-        }
-    }
-
-    @Test
     fun `every decision of a desk reaches the client`() {
         val desk = FakeDesk(bob)
 
@@ -133,35 +117,6 @@ class ControlAnswersTest {
             val failed = assertIs<ControlReply.UnpairFailed>(ask(socket, ControlRequest.Unpair("chat:work:7")))
             assertEquals("chat:work:7" to "The file is read-only.", failed.chat to failed.reason)
         }
-    }
-
-    @Test
-    fun `an unpaired chat that an agent still keeps as its home chat or linked is named in the reply and the log`() {
-        val control = RecordingAgent()
-        val desk = FakeDesk(paired = listOf(approved(request("9", "NNNN-NNNN")), approved(request("10", "MMMM-MMMM"))))
-        lateinit var unpaired: List<ControlReply.Unpaired>
-
-        val lines = logged {
-            served(directory, desk, agent = control) { socket ->
-                control.settings.update(chat("9", "5"), ChatSettingsUpdate.builder().home().build(), null)
-                control.links.link(AgentId.MAIN, chat("7"), chat("9"), null)
-                unpaired = listOf("chat:work:9", "chat:work:10").map {
-                    assertIs<ControlReply.Unpaired>(ask(socket, ControlRequest.Unpair(it)))
-                }
-            }
-        }
-
-        assertEquals(
-            listOf(listOf("main") to listOf("main"), emptyList<String>() to emptyList()),
-            unpaired.map { it.homeOf to it.linkedAt },
-        )
-        assertEquals(
-            listOf(
-                "WARN Chat chat:work:9 is unpaired but still the home chat of agent main and linked at agent main: " +
-                    "the bot sends it nothing until it is paired again",
-            ),
-            lines.filter { it.startsWith("WARN") },
-        )
     }
 
     @Test

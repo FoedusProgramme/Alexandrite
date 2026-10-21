@@ -130,7 +130,7 @@ class ShortcutsTest {
         assertEquals("ALEXANDRITE_TELEGRAM_MAIN_TOKEN=$token\n", Files.readString(cli.secrets))
         assertEquals(
             """{"botToken":"${'$'}{env:ALEXANDRITE_TELEGRAM_MAIN_TOKEN}",""" +
-                """"adminUserIds":[1001],"allowedChats":[1001]}""",
+                """"adminUserIds":[1001]}""",
             "${file().at("channels.telegram.instances.main")}",
         )
         assertEquals("""{"home":"1001"}""", "${file().objectAt("agent.agents.main.channels")["telegram:main"]}")

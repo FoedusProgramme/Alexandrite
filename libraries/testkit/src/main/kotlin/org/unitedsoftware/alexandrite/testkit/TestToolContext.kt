@@ -99,7 +99,12 @@ public class TestToolContext internal constructor(
     override fun untrusted(reason: String) {
         checkOpen()
         reasons.add(reason)
+        tainted = true
     }
+
+    /** Whether the turn's conversation took in untrusted content, as a test sets it or the call reports some. */
+    @Volatile
+    override var tainted: Boolean = false
 
     /** Ends the call, after which the context's members throw [IllegalStateException]. */
     public fun end() {

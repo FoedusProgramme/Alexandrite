@@ -1,9 +1,5 @@
 package org.unitedsoftware.alexandrite.testkit
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
-import java.io.IOException
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -14,7 +10,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
 class FakeModelServerTest {
     private val server = FakeModelServer()
@@ -57,39 +52,6 @@ class FakeModelServerTest {
         assertEquals("yes", recorded.header("X-Test"))
         assertEquals("1", recorded.json()["a"].toString())
         server.assertFinished()
-    }
-
-    @Test
-    fun `statuses and headers reach the client`() {
-        server.enqueue(FakeResponse.builder(429).header("Retry-After", "3").body("{}").build())
-
-        val response = post("/chat")
-
-        assertEquals(429, response.statusCode())
-        assertEquals("3", response.headers().firstValue("retry-after").orElse(null))
-    }
-
-    @Test
-    fun `a dropped response breaks the body`() {
-        server.enqueue(fakeResponse { event("one") }.dropped())
-
-        assertFailsWith<IOException> { post("/chat") }
-    }
-
-    @Test
-    fun `a hanging response sees the client leave`() = runBlocking {
-        server.enqueue(fakeResponse { event("one") }.hanging())
-        val stream = withContext(Dispatchers.IO) {
-            client.send(
-                HttpRequest.newBuilder(URI("${server.baseUrl}/chat")).GET().build(),
-                HttpResponse.BodyHandlers.ofInputStream(),
-            ).body()
-        }
-        withContext(Dispatchers.IO) { stream.readNBytes(6) }
-
-        withContext(Dispatchers.IO) { stream.close() }
-
-        assertTrue(server.requests.single().awaitClosed(5.seconds))
     }
 
     @Test

@@ -39,16 +39,6 @@ class ActivityBoardTest {
     }
 
     @Test
-    fun `the calls of a segment share a message, and a delegation and its run's calls get their own`() {
-        board.record(started("a"), 0)
-        board.record(delegation(), 0)
-        board.record(started("b"), 0)
-        board.record(started("c", run), 0)
-
-        assertEquals(listOf(listOf("a", "b"), listOf("delegate"), listOf("c")), layout())
-    }
-
-    @Test
     fun `a detached run's calls join its delegation's message, whose own updates are then ignored`() {
         board.record(delegation(), 0)
         board.takeAll()

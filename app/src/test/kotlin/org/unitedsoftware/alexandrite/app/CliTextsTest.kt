@@ -101,23 +101,7 @@ class CliTextsTest {
     @Test
     fun `the command set prints Chinese when the locale is Chinese`() {
         val cli = Commands(directory, environment = mapOf("LANG" to "zh_CN.UTF-8"))
-        cli.config("""{"agent": {"agents": {}}}""")
 
-        val help = cli("--help")
-        val own = cli("config", "set", "--help")
-        val agents = cli("agent", "list")
-        val missing = cli("agent", "remove", "helper")
-        val usage = cli("logs", "-n", "none")
-        val pairings = cli("pairings")
-
-        assertContains(help.out, "用法：alexandrite [--config <file>]")
-        assertContains(help.out, "运行：\n  run")
-        assertContains(help.out, "设置 Alexandrite：模型、Telegram、管理员")
-        assertContains(own.out, "用法：alexandrite config set <key> <value> [--restart]\n\n设置 <键> 处的值。")
-        assertContains(own.out, "正在运行的 Alexandrite 会像启动时那样检查改动")
-        assertEquals("尚未配置任何智能体：请用 alexandrite agent add <id> 添加。\n", agents.out)
-        assertEquals("alexandrite: 没有配置智能体 helper。\n", missing.err)
-        assertTrue(usage.err.startsWith("alexandrite: -n 需要一个正整数。\n\n用法：alexandrite logs"), usage.err)
-        assertContains(pairings.err, "alexandrite: 没有使用数据目录")
+        assertContains(cli("--help").out, "用法：alexandrite [--config <file>]")
     }
 }

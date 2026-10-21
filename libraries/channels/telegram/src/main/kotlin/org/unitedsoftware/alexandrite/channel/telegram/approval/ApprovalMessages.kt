@@ -3,7 +3,7 @@ package org.unitedsoftware.alexandrite.channel.telegram.approval
 import org.unitedsoftware.alexandrite.internal.collection.BoundedMap
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 
-/** The messages that showed the latest approval requests, by Telegram chat and message id. */
+/** The messages that showed the latest approval requests and trust offers, by Telegram chat and message id. */
 @ChannelInstanceScoped
 internal class ApprovalMessages {
     private val requests = BoundedMap<Pair<Long, Long>, Request>(KEPT, accessOrder = false)
@@ -18,11 +18,12 @@ internal class ApprovalMessages {
      */
     fun quoted(chat: Long, message: Long): String? {
         val request = synchronized(requests) { requests[chat to message] } ?: return null
-        return "Alexandrite's approval request ${request.id} for ${request.tool} (${request.state})"
+        val tool = request.tool ?: return "Alexandrite's trust offer ${request.id} (${request.state})"
+        return "Alexandrite's approval request ${request.id} for $tool (${request.state})"
     }
 
-    /** A request as its messages show it. */
-    class Request(val id: String, val tool: String) {
+    /** A request as its messages show it, a trust offer when it names no [tool]. */
+    class Request(val id: String, val tool: String?) {
         /** How the request stands, as a quote of one of its messages tells. */
         @Volatile
         var state: String = "waiting"

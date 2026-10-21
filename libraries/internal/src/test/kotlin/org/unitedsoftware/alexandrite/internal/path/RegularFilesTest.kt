@@ -26,9 +26,18 @@ class RegularFilesTest {
         }
         assumeTrue(made, "no mkfifo")
 
-        assertEquals("Notes.", openRegularFile(file).use { String(it.readAllBytes()) })
+        assertEquals("Notes.", openRegularFile(file, oneLink = true).use { String(it.readAllBytes()) })
         assertTimeoutPreemptively(Duration.ofSeconds(5)) {
-            assertFailsWith<NotRegularFileException> { openRegularFile(fifo) }
+            assertFailsWith<NotRegularFileException> { openRegularFile(fifo, oneLink = false) }
         }
+    }
+
+    @Test
+    fun `a file with a second hard link opens only when one link is not asked for`() {
+        val file = Files.writeString(directory.resolve("notes.md"), "Notes.")
+        Files.createLink(directory.resolve("other.md"), file)
+
+        assertFailsWith<NotRegularFileException> { openRegularFile(file, oneLink = true) }
+        assertEquals("Notes.", openRegularFile(file, oneLink = false).use { String(it.readAllBytes()) })
     }
 }

@@ -196,4 +196,30 @@ class RuleEntryTest {
         )
         assertEquals(listOf(true, false, false), listOf(shell, gradle, files).map { it.anyCode })
     }
+
+    @Test
+    fun `a trust rule may give another tool one host, which covers it and its subdomains`() {
+        val docs = RuleEntry.parse("web.fetch(Docs.Example.org)", null, trust = true)
+
+        assertEquals(
+            listOf(true, true, false, false, false, false),
+            listOf(
+                docs.trustsHost("web.fetch", "docs.example.org"),
+                docs.trustsHost("web.fetch", "api.docs.example.org."),
+                docs.trustsHost("web.fetch", "example.org"),
+                docs.trustsHost("web.fetch", "evildocs.example.org"),
+                docs.trustsHost("web.search", "docs.example.org"),
+                docs.trusts("web.fetch", null),
+            ),
+        )
+        assertEquals(
+            "gives web.fetch something other than a host in parentheses: write a host, such as " +
+                "\"web.fetch(example.com)\", or the tool alone",
+            RuleEntry.problem("web.fetch(https://example.org/a)", trust = true),
+        )
+        assertEquals(
+            "gives an argument prefix to a tool other than command.exec: write the tool alone",
+            RuleEntry.problem("web.fetch(example.org)"),
+        )
+    }
 }

@@ -11,6 +11,60 @@ public val DEFAULT_PROTECT: List<String> = listOf(
     ALEXANDRITE_PLACES,
 )
 
+/** The sandbox type of no sandbox. */
+public const val HOST_SANDBOX: String = "host"
+
+/** The sandbox type of the platform's sandbox. */
+public const val AUTO_SANDBOX: String = "auto"
+
+/** A sandbox's `protect` entries: [names] at any depth, [paths] as written, and whether they hold [ALEXANDRITE_PLACES]. */
+public class Protect private constructor(
+    public val names: List<String>,
+    public val paths: List<String>,
+    public val alexandrite: Boolean,
+) {
+    public companion object {
+        /** The entries of [protect], those of [DEFAULT_PROTECT] when it is null. */
+        public fun of(protect: List<String>?): Protect {
+            val entries = protect ?: DEFAULT_PROTECT
+            val (names, paths) = entries.filterNot { it == ALEXANDRITE_PLACES }
+                .partition { !it.startsWith("/") && !it.startsWith("~") }
+            return Protect(names, paths, ALEXANDRITE_PLACES in entries)
+        }
+    }
+}
+
+/**
+ * The one of [environments] that a sandbox [type] selects: none for [HOST_SANDBOX], the platform's for [AUTO_SANDBOX]
+ * where it is available, else none after telling [missing] why. Throws an [IllegalArgumentException] for a named one
+ * that is missing or unavailable.
+ */
+public fun <E : Any> selectEnvironment(
+    type: String,
+    environments: List<E>,
+    name: (E) -> String,
+    available: (E) -> Boolean,
+    missing: (why: String) -> Unit,
+): E? = when (type) {
+    HOST_SANDBOX -> null
+
+    AUTO_SANDBOX -> {
+        val platform = platformEnvironment()
+        environments.firstOrNull { name(it) == platform && available(it) }.also { found ->
+            if (found == null) missing(platform?.let { "the $it sandbox is not available" } ?: "this platform has none")
+        }
+    }
+
+    else -> {
+        val named = requireNotNull(environments.firstOrNull { name(it) == type }) {
+            "no plugin contributes the sandbox '$type'. Sandboxes: " +
+                environments.joinToString { name(it) }.ifEmpty { "none" } + "."
+        }
+        require(available(named)) { "the sandbox '$type' is not available on this host" }
+        named
+    }
+}
+
 /** The execution environment that a sandbox of type `auto` runs in on the platform [os], null where there is none. */
 public fun platformEnvironment(os: String = System.getProperty("os.name").orEmpty()): String? = when {
     os.startsWith("Mac") -> "seatbelt"

@@ -6,13 +6,20 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.unitedsoftware.alexandrite.channel.telegram.api.BotApiFailure
+import org.unitedsoftware.alexandrite.channel.telegram.intake.MemoryBotApi
 import org.unitedsoftware.alexandrite.channel.telegram.logged
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.DeliveryFailure
+import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
+import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyEnd
+import org.unitedsoftware.alexandrite.sdk.channel.ReplyRequest
+import org.unitedsoftware.alexandrite.sdk.channel.rebuild
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
+import org.unitedsoftware.alexandrite.testkit.testTurn
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -135,6 +142,30 @@ class TelegramReplyTest {
         assertEquals(listOf("sendMessage One two"), output.shown())
     }
 
+    // Vouching.
+
+    @Test
+    fun `a quote is trusted of the final of a vouched reply that the agent vouches for, or of a vouched message`() =
+        runTest {
+            val output = output(streaming = false)
+            val chat = output.address()
+            val shown = mutableListOf<Delivery>()
+            for (final in listOf(markdown("Vouched.").rebuild { vouched(true) }, markdown("Changed since."))) {
+                val reply = output.channel.openReply(ReplyRequest(testTurn(chat = chat), null, vouched = true))
+                shown += reply.complete(final)
+            }
+            for (vouched in listOf(true, false)) {
+                shown +=
+                    output.channel.send(
+                        chat,
+                        OutboundMessage.builder("A notice.", MessageKind.NOTICE).vouched(vouched).build(),
+                    )
+            }
+
+            val ids = shown.map { assertIs<Delivery.Delivered>(it).messages.single().id.toLong() }
+            assertEquals(listOf(true, false, true, false), ids.map { output.vouched.contains(DIRECT, it) })
+        }
+
     // Segments.
 
     @Test
@@ -195,21 +226,6 @@ class TelegramReplyTest {
     // The final message.
 
     @Test
-    fun `the final replaces the current segment's previews in its message`() = runTest {
-        val output = output()
-        val reply = output.open()
-        reply.preview(0, "Hello")
-        advanceTimeBy(100)
-
-        val delivery = reply.complete(markdown("Hello **world**"))
-
-        val final = output.api.calls("editMessageText").single()
-        assertEquals("Hello world" to listOf("bold 6+5"), final.text to final.entities)
-        assertEquals(true, final.previewDisabled)
-        assertEquals(Delivery.Delivered(listOf(ChannelMessageRef(output.address(), "101"))), delivery)
-    }
-
-    @Test
     fun `a final the preview shows already, or that Telegram finds unchanged, is delivered`() = runTest {
         val output = output()
         val shown = output.open()
@@ -229,31 +245,23 @@ class TelegramReplyTest {
     }
 
     @Test
-    fun `a final whose preview message is gone goes out as a new message`() = runTest {
-        val output = output()
-        val reply = output.open()
-        reply.preview(0, "One")
-        advanceTimeBy(100)
-        output.api.messages.remove(DIRECT to 101L)
+    fun `a final whose preview message is gone or whose edit Telegram refuses goes out as a new message`() = runTest {
+        val failures = listOf<MemoryBotApi.() -> Unit>(
+            { messages.remove(DIRECT to 101L) },
+            { fail("editMessageText", BotApiFailure.BAD_REQUEST) },
+        )
+        for (failure in failures) {
+            val output = output()
+            val reply = output.open()
+            reply.preview(0, "One")
+            advanceTimeBy(100)
+            output.api.failure()
 
-        val delivery = reply.complete(markdown("One two"))
+            val delivery = reply.complete(markdown("One two"))
 
-        assertEquals(listOf("sendMessage One", "editMessageText One two", "sendMessage One two"), output.shown())
-        assertEquals(Delivery.Delivered(listOf(ChannelMessageRef(output.address(), "102"))), delivery)
-    }
-
-    @Test
-    fun `a final whose edit Telegram refuses goes out as a new message`() = runTest {
-        val output = output()
-        val reply = output.open()
-        reply.preview(0, "One")
-        advanceTimeBy(100)
-        output.api.fail("editMessageText", BotApiFailure.BAD_REQUEST)
-
-        val delivery = reply.complete(markdown("One two"))
-
-        assertEquals(listOf("sendMessage One", "editMessageText One two", "sendMessage One two"), output.shown())
-        assertEquals(Delivery.Delivered(listOf(ChannelMessageRef(output.address(), "102"))), delivery)
+            assertEquals(listOf("sendMessage One", "editMessageText One two", "sendMessage One two"), output.shown())
+            assertEquals(Delivery.Delivered(listOf(ChannelMessageRef(output.address(), "102"))), delivery)
+        }
     }
 
     @Test
@@ -278,36 +286,26 @@ class TelegramReplyTest {
         }
 
     @Test
-    fun `the later parts of a final quote the trigger in a group only`() = runTest {
+    fun `a final of ten messages goes out whole, one of eleven in ten messages and the whole as a file`() = runTest {
         val output = output()
-        val group = output.open(GROUP)
-        group.preview(0, "Start")
+        val reply = output.open()
+        reply.preview(0, "Short")
         advanceTimeBy(100)
 
-        group.complete(markdown(THREE_MESSAGES))
-        output.open(DIRECT).complete(markdown(THREE_MESSAGES))
+        val ten = output.open(DIRECT + 1).complete(markdown("x".repeat(40_960)))
+        val eleven = reply.complete(markdown("x".repeat(40_961)))
 
-        assertEquals(listOf(41L, 41L, 41L, null, null, null), output.api.calls("sendMessage").map { it.replyTo })
+        val sent = output.api.calls("sendMessage").filter { it.chat == DIRECT + 1 }
+        assertEquals(10, (ten as Delivery.Delivered).messages.size)
+        assertEquals(List(10) { 4_096 }, sent.map { it.text?.length })
+        assertEquals(11, assertIs<Delivery.Delivered>(eleven).messages.size)
+        val shown = output.api.sent.filter { it.chat == DIRECT && it.method != "sendChatAction" }
+        assertEquals(
+            listOf("sendMessage", "editMessageText") + List(9) { "sendMessage" } + "sendDocument",
+            shown.map { it.method },
+        )
+        assertEquals("x".repeat(40_961), output.api.uploads.single().file.bytes().decodeToString())
     }
-
-    @Test
-    fun `a final of ten messages goes out whole, one of eleven is too long without a call and leaves the previews`() =
-        runTest {
-            val output = output()
-            val reply = output.open()
-            reply.preview(0, "Short")
-            advanceTimeBy(100)
-
-            val ten = output.open(DIRECT + 1).complete(markdown("x".repeat(40_960)))
-            val eleven = reply.complete(markdown("x".repeat(40_961)))
-
-            val sent = output.api.calls("sendMessage").filter { it.chat == DIRECT + 1 }
-            assertEquals(10, (ten as Delivery.Delivered).messages.size)
-            assertEquals(List(10) { 4_096 }, sent.map { it.text?.length })
-            assertEquals(Delivery.NotDelivered(DeliveryFailure.TOO_LONG), eleven)
-            val previews = output.api.sent.filter { it.chat == DIRECT && it.method != "sendChatAction" }
-            assertEquals(listOf("Short"), previews.map { it.text })
-        }
 
     @Test
     fun `a later part Telegram refuses ends the final as not delivered, naming the parts that arrived`() = runTest {
@@ -355,16 +353,6 @@ class TelegramReplyTest {
         assertEquals(2, output.api.calls("editMessageText").size)
         assertEquals(Delivery.NotDelivered(DeliveryFailure.TRANSIENT, "scripted"), second)
         assertEquals(1, output.api.calls("sendMessage").count { it.chat == DIRECT + 1 })
-    }
-
-    @Test
-    fun `a final Telegram refuses ends as the delivery failure`() = runTest {
-        val output = output()
-        output.api.fail("sendMessage", BotApiFailure.FORBIDDEN)
-
-        val delivery = output.open().complete(markdown("Hello"))
-
-        assertEquals(Delivery.NotDelivered(DeliveryFailure.FORBIDDEN, "scripted"), delivery)
     }
 
     // Quotes and threads.

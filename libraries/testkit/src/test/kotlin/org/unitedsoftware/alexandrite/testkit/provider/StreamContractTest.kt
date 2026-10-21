@@ -53,56 +53,30 @@ class StreamContractTest {
     }
 
     @Test
-    fun `deltas that do not add up to their part are caught`() {
-        val message =
-            broken(
-                listOf(
-                    ModelEvent.TextDelta(0, "Hel"),
-                    ModelEvent.PartCompleted(0, TextPart("Help")),
-                    completed(TextPart("Help")),
-                ),
-            )
-
-        assertTrue("text deltas" in message, message)
-    }
-
-    @Test
-    fun `a delta after its part completed is caught`() {
-        val message = broken(
-            listOf(ModelEvent.PartCompleted(0, TextPart("a")), ModelEvent.TextDelta(0, "b"), completed(TextPart("a"))),
+    fun `a broken stream is caught with what broke it`() {
+        val quiet = ModelException(ModelError.builder(ModelErrorKind.CONNECTION, "Gone.").build())
+        val cases = listOf(
+            "text deltas" to listOf(
+                ModelEvent.TextDelta(0, "Hel"),
+                ModelEvent.PartCompleted(0, TextPart("Help")),
+                completed(TextPart("Help")),
+            ),
+            "after its part completed" to listOf(
+                ModelEvent.PartCompleted(0, TextPart("a")),
+                ModelEvent.TextDelta(0, "b"),
+                completed(TextPart("a")),
+            ),
+            "completed message's parts" to listOf(ModelEvent.PartCompleted(0, TextPart("a")), completed(TextPart("b"))),
+            "has not started" to
+                listOf(ModelEvent.ToolArgumentsDelta(0, "{}"), ModelEvent.PartCompleted(0, call), completed(call)),
+            "without a Completed event" to listOf(ModelEvent.TextDelta(0, "a")),
         )
 
-        assertTrue("after its part completed" in message, message)
-    }
-
-    @Test
-    fun `a message that differs from its completed parts is caught`() {
-        val message = broken(listOf(ModelEvent.PartCompleted(0, TextPart("a")), completed(TextPart("b"))))
-
-        assertTrue("completed message's parts" in message, message)
-    }
-
-    @Test
-    fun `arguments before the call starts are caught`() {
-        val message =
-            broken(listOf(ModelEvent.ToolArgumentsDelta(0, "{}"), ModelEvent.PartCompleted(0, call), completed(call)))
-
-        assertTrue("has not started" in message, message)
-    }
-
-    @Test
-    fun `a stream without its terminal event is caught`() {
-        val message = broken(listOf(ModelEvent.TextDelta(0, "a")))
-
-        assertTrue("without a Completed event" in message, message)
-    }
-
-    @Test
-    fun `a failure must say whether output started`() {
-        val quiet = ModelException(ModelError.builder(ModelErrorKind.CONNECTION, "Gone.").build())
-
+        for ((expected, events) in cases) {
+            val message = broken(events)
+            assertTrue(expected in message, message)
+        }
         val message = broken(listOf(ModelEvent.TextDelta(0, "a")), quiet)
-
         assertTrue("outputStarted" in message, message)
     }
 }

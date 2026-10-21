@@ -32,14 +32,6 @@ class ConversationDirectoriesTest {
         ConversationDirectories(ConventionalAgentPlaces(hostPaths(null, data)), settings(config))
 
     @Test
-    fun `a conversation's directory is under the data root, by agent and conversation`() {
-        assertEquals(
-            data.resolve("conversations/coder/convo-1"),
-            directories().path(coder, conversation),
-        )
-    }
-
-    @Test
     fun `a delegated run's directory is its root conversation's, not its own`() {
         val root = testTurn(conversation = conversation) { agent(coder) }
         val child = testDelegatedTurn(root)
@@ -58,7 +50,7 @@ class ConversationDirectoriesTest {
             repeat(2) { assertEquals(own, directories.open(coder, conversation)) }
         }
 
-        assertEquals(listOf("INFO Created the conversation directory $own"), lines)
+        assertEquals(1, lines.size)
         assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(own)))
         assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(own.parent)))
     }

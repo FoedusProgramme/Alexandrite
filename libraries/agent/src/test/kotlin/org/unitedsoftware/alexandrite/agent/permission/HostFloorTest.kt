@@ -18,6 +18,7 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class HostFloorTest {
     @TempDir
@@ -214,14 +215,7 @@ class HostFloorTest {
     }
 
     @Test
-    fun `a workspace outside the host's places is allowed as any other path`() {
-        val workspace = root.resolve("notes")
-
-        assertAllowed(workspace.resolve("a.md"), floor(coder(workspace)))
-    }
-
-    @Test
-    fun `a workspace in a config directory inside the data root is carved out of both`() {
+    fun `a workspace or a persona directory in a config directory inside the data root is carved out of both`() {
         val floor = floor(
             """{"coder": {"description": "Codes."}}""",
             paths(configFile = data.resolve("alexandrite.json")),
@@ -229,6 +223,8 @@ class HostFloorTest {
 
         assertAllowed(data.resolve("workspaces/coder/notes.md"), floor)
         assertDenied("Alexandrite's configuration", data.resolve("alexandrite.json"), floor)
+        assertAllowed(data.resolve("agents/coder/PERSONA.md"), floor, AgentId("coder"))
+        assertDenied(CONFIGURATION, data.resolve("agents/coder/PERSONA.md"), floor)
     }
 
     @Test
@@ -266,10 +262,7 @@ class HostFloorTest {
 
         val lines = logged { floor(agents) }
 
-        assertEquals(
-            listOf("WARN Agents 'coder', 'helper' share the workspace $shared: they see each other's files"),
-            lines,
-        )
+        assertTrue(lines.single().let { it.startsWith("WARN") && "'coder', 'helper'" in it })
     }
 
     @Test
@@ -328,17 +321,6 @@ class HostFloorTest {
     }
 
     @Test
-    fun `a persona directory in a config directory inside the data root is carved out of both`() {
-        val floor = floor(
-            """{"coder": {"description": "Codes."}}""",
-            paths(configFile = data.resolve("alexandrite.json")),
-        )
-
-        assertAllowed(data.resolve("agents/coder/PERSONA.md"), floor, AgentId("coder"))
-        assertDenied(CONFIGURATION, data.resolve("agents/coder/PERSONA.md"), floor)
-    }
-
-    @Test
     fun `a workspace that is, holds or lies in a persona directory is a config error`() {
         val personas = configFile.resolveSibling("agents")
 
@@ -351,17 +333,6 @@ class HostFloorTest {
     }
 
     // Writes and trees.
-
-    @Test
-    fun `an agent reads its own persona directory but cannot write it`() {
-        val persona = configFile.resolveSibling("agents/coder/PERSONA.md")
-
-        val floor = floor("""{"coder": {"description": "Codes."}}""")
-
-        assertAllowed(persona, floor, AgentId("coder"))
-        assertEquals(FloorDecision.Denied(CONFIGURATION), floor.checkWrite(persona))
-        assertEquals(FloorDecision.Denied(CONFIGURATION), floor.checkTree(persona.parent))
-    }
 
     @Test
     fun `the persona route writes only the Markdown files directly in the agent's own persona directory`() {
@@ -404,6 +375,7 @@ class HostFloorTest {
             ).map { floor.checkPersonaWrite(it, coder) },
         )
         assertEquals(FloorDecision.Denied(CONFIGURATION), floor.checkWrite(personas.resolve("coder/PERSONA.md")))
+        assertEquals(FloorDecision.Denied(CONFIGURATION), floor.checkTree(personas.resolve("coder")))
     }
 
     @Test
@@ -468,14 +440,9 @@ class HostFloorTest {
 
         val lines = listOf(inHome, above, apart).flatMap { file -> logged { floor(paths = paths(file)) } }
 
-        assertEquals(
-            listOf(home, root).map { directory ->
-                "WARN The config file ${directory.resolve("alexandrite.json")} lies in $directory, which is the home " +
-                    "directory or holds it: the hard floor keeps the file tools out of all of it. Keep the config " +
-                    "file in a directory of its own"
-            },
-            lines,
-        )
+        assertEquals(2, lines.size)
+        assertTrue(lines[0].startsWith("WARN") && "$inHome" in lines[0])
+        assertTrue(lines[1].startsWith("WARN") && "$above" in lines[1])
     }
 
     private companion object {

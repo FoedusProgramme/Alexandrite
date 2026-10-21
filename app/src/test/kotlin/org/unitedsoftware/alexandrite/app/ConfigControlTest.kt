@@ -16,7 +16,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
-import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.UsageReports
 import java.io.ByteArrayOutputStream
@@ -98,7 +98,7 @@ class ConfigControlTest {
             apis = listOf(
                 services.getOrNull<TurnControl>(),
                 services.getOrNull<ConversationControl>(),
-                services.getOrNull<TrustedFolders>(),
+                services.getOrNull<TrustControl>(),
                 services.getOrNull<PermissionRules>(),
                 services.getOrNull<UsageReports>(),
                 agentApis(services),

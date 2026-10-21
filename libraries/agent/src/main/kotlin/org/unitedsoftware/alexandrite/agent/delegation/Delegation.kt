@@ -7,9 +7,9 @@ import org.unitedsoftware.alexandrite.agent.job.EndedJob
 import org.unitedsoftware.alexandrite.agent.job.JobInbox
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.job.jobPlan
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.tool.DelegatingTurn
 import org.unitedsoftware.alexandrite.agent.tool.RunChain
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.turn.FollowUp
 import org.unitedsoftware.alexandrite.agent.turn.FollowUps
 import org.unitedsoftware.alexandrite.agent.turn.TurnPermit
@@ -41,6 +41,10 @@ internal class Delegation(
     val parent: DelegatingTurn,
     val chain: RunChain,
     val background: Boolean = false,
+    /** Why the run is tainted by the earlier run it goes on from, null when there is none or it is clean. */
+    val resumed: String? = null,
+    /** Hands each untrusted content the run takes in to the call that delegated it, as it comes. */
+    private val report: (String) -> Unit = {},
 ) {
     /** The run's turn, null until it started. */
     @Volatile
@@ -52,10 +56,16 @@ internal class Delegation(
     var taint: TurnTaint? = null
         private set
 
-    /** Notes that the run's turn [turn] started with [taint]. */
+    /** Counts the taint of the earlier run that the run goes on from as its own in [taint], the taint of its turn. */
+    fun opened(taint: TurnTaint) {
+        resumed?.let(taint::note)
+    }
+
+    /** Notes that the run's turn [turn] started with [taint], whose untrusted content goes to the delegating call. */
     fun started(turn: TurnInfo, taint: TurnTaint) {
         this.taint = taint
         this.turn = turn
+        taint.onNoted(report)
     }
 }
 

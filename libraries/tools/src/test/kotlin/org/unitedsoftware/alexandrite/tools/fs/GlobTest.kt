@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.tools.fs
 
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -44,7 +45,7 @@ class GlobTest {
     @Test
     fun `a blank or absolute pattern is refused`() {
         for (pattern in listOf(" ", "/src/*.kt", "~/notes")) {
-            assertFailsWith<Refusal>(pattern) { Glob.of(pattern, "pattern") }
+            assertFailsWith<ToolRefusal>(pattern) { Glob.of(pattern, "pattern") }
         }
     }
 }

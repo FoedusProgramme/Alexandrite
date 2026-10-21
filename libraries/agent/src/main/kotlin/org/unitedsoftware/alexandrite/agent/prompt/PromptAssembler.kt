@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.agent.prompt
 
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
+import org.unitedsoftware.alexandrite.agent.permission.AgentFloor
 import org.unitedsoftware.alexandrite.agent.skill.SKILL_LOAD_TOOL
 import org.unitedsoftware.alexandrite.agent.skill.Skills
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
@@ -12,6 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
+import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 
 /** Puts together the system prompt sections of a turn. */
 @Singleton
@@ -22,11 +24,13 @@ internal class PromptAssembler(
     private val workspaces: Workspaces,
     private val directories: ConversationDirectories,
     private val skills: Skills,
+    private val floor: AgentFloor,
+    private val info: PluginInfo,
 ) {
 
     /** The sections of [turn], a run of [profile] that [delegator] delegated. */
     fun delegated(turn: TurnInfo, profile: AgentProfile, delegator: AgentId): List<PromptSection> = buildList {
-        add(baseSection(profile.name))
+        add(baseSection(profile.name, info.version))
         add(delegationSection(delegator))
         val instructions = profile.instructions.takeIf { it.isNotBlank() }
         instructions?.let { add(PromptSection(instructionsSection(1), it, stable = true)) }
@@ -40,7 +44,7 @@ internal class PromptAssembler(
     suspend fun sections(turn: TurnInfo, chatKind: ChatKind?): List<PromptSection> {
         val agent = requireNotNull(directory.agent(turn.agent)) { "No agent '${turn.agent}' is configured." }
         return buildList {
-            add(baseSection(agent.name))
+            add(baseSection(agent.name, info.version))
             addAll(persona.sections(agent.id, PersonaConditions(chatKind, turn.kind)))
             workspace(agent.id)?.let(::add)
             addConversationDirectory(turn)
@@ -50,8 +54,9 @@ internal class PromptAssembler(
     }
 
     /** The workspace section of [agent], for an agent that selects a tool. */
-    private fun workspace(agent: AgentId): PromptSection? =
-        workspaces.paths[agent]?.takeIf { tools.offered(agent).isNotEmpty() }?.let(::workspaceSection)
+    private fun workspace(agent: AgentId): PromptSection? = workspaces.paths[agent]?.takeIf {
+        tools.offered(agent).isNotEmpty()
+    }?.let { workspaceSection(it, floor.entries) }
 
     /** The skills section of [turn], for an agent offered `skill.load`. */
     private fun MutableList<PromptSection>.addSkills(turn: TurnInfo) {

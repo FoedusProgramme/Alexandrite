@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.mcp
 
 import kotlinx.serialization.Serializable
+import org.unitedsoftware.alexandrite.internal.sandbox.HOST_SANDBOX
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 
@@ -55,8 +56,7 @@ internal class ServerSandboxConfig(
     val network: ServerNetworkConfig = ServerNetworkConfig(),
 ) {
     companion object {
-        const val HOST: String = "host"
-        const val AUTO: String = "auto"
+        const val HOST: String = HOST_SANDBOX
     }
 }
 

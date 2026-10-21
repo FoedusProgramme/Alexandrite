@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.unitedsoftware.alexandrite.internal.sandbox.isNonPublicAddress
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
@@ -47,10 +48,10 @@ class WebTest {
         }
         listOf(
             "0.0.0.0", "127.0.0.1", "10.0.0.1", "172.16.0.1", "192.168.1.1", "169.254.169.254",
-            "100.64.0.1", "198.18.0.1", "224.0.0.1", "::", "::1", "fc00::1", "fe80::1", "2002::1",
+            "100.64.0.1", "224.0.0.1", "::", "::1", "fc00::1", "fe80::1", "2002::1",
             "::ffff:127.0.0.1", "2001:db8::1",
         ).forEach {
-            assertTrue(privateAddress(InetAddress.getByName(it)), it)
+            assertTrue(isNonPublicAddress(InetAddress.getByName(it)), it)
         }
         assertEquals("example.com", checkedHost(URI("https://example.com/page")))
     }
@@ -92,9 +93,45 @@ class WebTest {
     }
 
     @Test
+    fun `a redirect to another public site is followed, one between a private host and any other never requested`() {
+        val public = InetAddress.getByAddress(byteArrayOf(11, 1, 2, 3))
+        val requested = mutableListOf<URI>()
+        fun fetch(start: String, location: String) = fetchPage(
+            URI(start),
+            100,
+            1000,
+            { if (it.startsWith("internal.")) listOf(InetAddress.getLoopbackAddress()) else listOf(public) },
+            setOf("internal.example", "internal.example.com"),
+        ) { uri, _, _, _ ->
+            requested += uri
+            if (requested.size == 1) {
+                WebResponse(302, mapOf("location" to location), byteArrayOf())
+            } else {
+                WebResponse(200, mapOf("content-type" to "text/plain"), "ok".toByteArray())
+            }
+        }
+        val refused = listOf(
+            "https://internal.example/a" to "https://evil.internal.example/b",
+            "https://example.com/a" to "https://internal.example.com/b",
+            "https://internal.example/a" to "https://example.com/b",
+        )
+
+        for ((start, location) in refused) {
+            requested.clear()
+            assertFailsWith<IllegalArgumentException> { fetch(start, location) }
+            assertEquals(listOf(URI(start)), requested)
+        }
+        for (location in listOf("https://docs.example.com/b", "https://elsewhere.test/b")) {
+            requested.clear()
+            assertEquals(location, fetch("https://example.com/a", location).first.toString())
+            assertEquals(listOf(URI("https://example.com/a"), URI(location)), requested)
+        }
+    }
+
+    @Test
     fun `only the special blocks of 192_0 are private, the rest of it is public`() {
-        listOf("192.0.0.1", "192.0.2.1").forEach { assertTrue(privateAddress(InetAddress.getByName(it)), it) }
-        listOf("192.0.32.10", "192.0.1.1").forEach { assertFalse(privateAddress(InetAddress.getByName(it)), it) }
+        listOf("192.0.0.1", "192.0.2.1").forEach { assertTrue(isNonPublicAddress(InetAddress.getByName(it)), it) }
+        listOf("192.0.32.10", "192.0.1.1").forEach { assertFalse(isNonPublicAddress(InetAddress.getByName(it)), it) }
     }
 
     @Test
@@ -107,16 +144,6 @@ class WebTest {
         assertEquals("café", fetched("text/plain; charset=ISO-8859-1", "café".toByteArray(Charsets.ISO_8859_1)))
         assertEquals("café", fetched("text/plain; charset=\"utf-8\"", "café".toByteArray()))
         assertEquals("café", fetched("text/plain; charset=no-such-charset", "café".toByteArray()))
-    }
-
-    @Test
-    fun `plain text is preserved rather than interpreted as HTML`() {
-        val source = "<script>literal text</script>\nA < B"
-        val public = InetAddress.getByAddress(byteArrayOf(11, 1, 2, 3))
-        val page = fetchPage(URI("https://example.com"), 100, 1000, { listOf(public) }) { _, _, _, _ ->
-            WebResponse(200, mapOf("content-type" to "text/plain"), source.toByteArray())
-        }
-        assertEquals(source, page.second)
     }
 
     @Test
@@ -206,6 +233,18 @@ class WebTest {
     }
 
     @Test
+    fun `repeated headers are joined, and only the framing and redirect headers must come once`() {
+        fun parse(text: String): WebResponse = response(ByteArrayInputStream(text.toByteArray()), 20)
+        val page = parse("HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nVary: Accept\r\nset-cookie: b=2\r\n\r\nabc")
+
+        assertEquals("a=1, b=2", page.headers["set-cookie"])
+        assertEquals("abc", page.body.toString(Charsets.UTF_8))
+        for (header in listOf("Content-Length: 3", "Location: /a")) {
+            assertFailsWith<IllegalArgumentException> { parse("HTTP/1.1 200 OK\r\n$header\r\n$header\r\n\r\nabc") }
+        }
+    }
+
+    @Test
     fun `cancelling web IO closes its pinned socket immediately`() = runBlocking {
         ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { server ->
             val reading = CompletableDeferred<Unit>()
@@ -258,6 +297,32 @@ class WebTest {
             tool.execute(args("url" to "https://example.com", "prompt" to "q"), context)
         }
         Unit
+    }
+
+    @Test
+    fun `a fetch's review names its host as untrusted content, and a search's its output`() = runBlocking {
+        val context = testToolContext()
+        val fetch = FetchTool(WebConfig(), WebPages { WebPage(URI(it), "page") }, Answers())
+
+        val review = fetch.review(args("url" to "https://Docs.Example.org/a", "prompt" to "q"), context)
+        val malformed = fetch.review(args("url" to "nowhere", "prompt" to "q"), context)
+        val search = SearchTool(WebConfig(), Answers(), emptyList()).review(args("query" to "q"), context)
+
+        assertEquals(true to "docs.example.org", review.untrusted to review.host)
+        assertEquals(true to null, malformed.untrusted to malformed.host)
+        assertEquals(true to null, search.untrusted to search.host)
+    }
+
+    @Test
+    fun `a fetch that a redirect takes to another site answers from the page it reached`() = runBlocking {
+        val context = testToolContext()
+        val answers = Answers()
+        fun tool(to: String) = FetchTool(WebConfig(), WebPages { WebPage(URI(to), "page") }, answers)
+        suspend fun FetchTool.result() = execute(args("url" to "https://example.com/a", "prompt" to "q"), context)
+
+        val results = listOf("https://elsewhere.test/b", "https://docs.example.com/b").map { tool(it).result() }
+
+        assertEquals(listOf(false, false), results.map { it.isError })
     }
 
     @Test

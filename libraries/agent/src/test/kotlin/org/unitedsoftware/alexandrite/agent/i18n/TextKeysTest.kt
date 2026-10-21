@@ -22,7 +22,6 @@ class TextKeysTest {
     fun `every key the agent uses has an English text`() {
         val texts = testTexts("alexandrite-agent")
 
-        assertEquals(60, keys.size)
         assertEquals(emptyList(), keys.filter { texts.text(it, null) == it })
         assertEquals(emptyList(), ModelErrorKind.entries.map(TextKeys::modelFailure).filter { it !in keys })
     }

@@ -13,15 +13,14 @@ import org.unitedsoftware.alexandrite.runtime.StartStage
 import org.unitedsoftware.alexandrite.runtime.channel.RuntimeChannelInstance
 import org.unitedsoftware.alexandrite.runtime.chat.UnreadableStateListener
 import org.unitedsoftware.alexandrite.runtime.config.ConfigResolution
-import org.unitedsoftware.alexandrite.runtime.config.ConfigWriter
 import org.unitedsoftware.alexandrite.runtime.config.EnabledPlugin
 import org.unitedsoftware.alexandrite.runtime.config.HostConfigFile
-import org.unitedsoftware.alexandrite.runtime.config.PluginConfigEditor
 import org.unitedsoftware.alexandrite.runtime.config.resolveConfig
 import org.unitedsoftware.alexandrite.runtime.configFailure
 import org.unitedsoftware.alexandrite.runtime.hook.HookDecisionListener
 import org.unitedsoftware.alexandrite.runtime.hook.HookFailureListener
 import org.unitedsoftware.alexandrite.runtime.i18n.RuntimeTexts
+import org.unitedsoftware.alexandrite.runtime.plugin.classLoader
 import org.unitedsoftware.alexandrite.runtime.plugin.pluginProblems
 import org.unitedsoftware.alexandrite.runtime.startFailure
 import org.unitedsoftware.alexandrite.runtime.store.UnreadableRecordListener
@@ -187,20 +186,18 @@ internal class Assembly(
         val initiated = plugins.any { plugin -> plugin.bindings.any { it.key == initiation } }
         texts.install(spec.texts.value)
         CoroutineScope(context).launch(CoroutineName("$name texts")) { spec.texts.collect(texts::install) }
-        val writer = ConfigWriter(spec.writableFile, spec.environment, name)
-        val editors = enabled.associate { it.id to PluginConfigEditor(it, writer) }
         val runtime = runtimeBindings(
             spec.config,
             spec.configFile,
             infos,
             builtIns,
+            enabled.associate { it.id to it.member.index.classLoader() },
             hookFailures,
             hookDecisions,
             unreadableStates,
             unreadableRecords,
             texts,
             control,
-            editors::getValue,
             { live -> HostConfigFile(spec.writableFile, spec.plugins, spec.environment, name, live) },
             scopes,
             directory,

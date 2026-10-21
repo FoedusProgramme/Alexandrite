@@ -121,8 +121,8 @@ class TelegramPermissionTest {
         app.model.reply { toolCall("notes.write", """{"text": "Buy milk."}""") }.reply { text("Noted.") }
             .reply { text("It ran.") }
             .reply { text("It did.") }
-        lateinit var noted: FakeBotMessage
         lateinit var asked: FakeBotMessage
+        lateinit var noted: FakeBotMessage
         var afterRequest: ConversationTaint? = null
         var afterAnswer: ConversationTaint? = null
 
@@ -146,12 +146,33 @@ class TelegramPermissionTest {
         val id = Regex("#([a-z0-9]+)").find(asked.text)!!.groupValues[1]
         assertContains(
             framing("Did it run?"),
-            "\nQuoting: Alexandrite Test Bot (verified) [id ${asked.id}]\n" +
+            "\nQuoting: Alexandrite Test Bot (verified, message ${asked.id})\n" +
                 "> Alexandrite's approval request $id for notes.write (allowed by Ada Lovelace (@ada_test))\n",
         )
         assertNull(afterRequest)
-        assertContains(framing("Really?"), "\nQuoting: Alexandrite Test Bot (verified) [id ${noted.id}]\n> Noted.\n")
+        assertContains(
+            framing("Really?"),
+            "\nQuoting: Alexandrite Test Bot (verified, message ${noted.id})\n> Noted.\n",
+        )
         assertNull(afterAnswer)
+    }
+
+    @Test
+    fun `a reply to a command's answer leaves the conversation untainted`() {
+        app.model.reply { text("Fine.") }
+        var taint: ConversationTaint? = ConversationTaint(java.time.Instant.EPOCH, "unread")
+
+        app.run(app.builder(directory)) {
+            app.send(app.ada, app.adaChat, "/untaint")
+            val answer = app.message(app.adaChat, "No conversation in this chat is tainted.")
+            idle()
+            app.fake.send(app.ada, app.adaChat, "Test.", replyTo = answer.id)
+            app.message(app.adaChat, "Fine.")
+            idle()
+            taint = get<ConversationStore>().taint(get<ConversationStore>().current(app.key(app.adaChat)).id)
+        }
+
+        assertNull(taint)
     }
 
     /** The framing of the message [text] as the model read it. */
@@ -168,7 +189,9 @@ class TelegramPermissionTest {
 
         app.run(app.builder(directory).tool(write).config(GUEST_TOOLS)) {
             app.send(app.bob, app.bobChat, "Note that I need milk.")
-            val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+            val asked = app.fake.await(WAIT) {
+                botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() && it.text.startsWith("Approval needed") }
+            }
             app.fake.press(app.ada, asked, "Allow")
             app.message(app.bobChat, "Noted.")
             idle()
@@ -213,7 +236,7 @@ class TelegramPermissionTest {
             assertEquals(1, unasked)
         }
 
-        assertTrue(always.startsWith("Always allow ") && always.endsWith("/gradlew test"), always)
+        assertTrue(always.startsWith("Always allow and trust folder ") && always.endsWith("/first"), always)
         val results = app.model.requests.map { it.history.last() }.filterIsInstance<ToolResultEntry>()
         assertEquals(
             listOf(ToolOutcome.Succeeded, ToolOutcome.Succeeded, NotRunReason.DENIED, NotRunReason.DENIED),
@@ -231,38 +254,49 @@ class TelegramPermissionTest {
     }
 
     @Test
-    fun `allow and trust runs a call that would taint and leaves the conversation untainted, allow alone taints`() {
+    fun `always allow and trust trusts the folder of a local program for good, allow and mark taints`() {
         val folder = script("first")
+        val other = script("second")
         app.model
             .reply { toolCall("command.exec", gradle("test", folder)) }.reply { text("Tested.") }
             .reply { toolCall("command.exec", gradle("test", folder)) }.reply { text("Tested again.") }
+            .reply { toolCall("command.exec", gradle("test", other)) }.reply { text("Tested there.") }
         lateinit var buttons: List<List<String>>
         lateinit var answered: String
         var trusted: ConversationTaint? = null
-        var allowed: ConversationTaint? = null
+        var again: ConversationTaint? = null
+        var marked: ConversationTaint? = null
 
         app.run(app.builder(directory)) {
             val conversations = get<ConversationStore>()
+            suspend fun taint() = conversations.taint(conversations.current(app.key(app.adaChat)).id)
             app.send(app.ada, app.adaChat, "Run the tests.")
             val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
             buttons = asked.buttons.map { row -> row.map { it.text } }
-            press { it == "Allow and trust" }
+            press { it.startsWith("Always allow and trust") }
             app.message(app.adaChat, "Tested.")
             idle()
             answered = app.fake.botMessage(ADA, asked.id)!!.text
-            trusted = conversations.taint(conversations.current(app.key(app.adaChat)).id)
+            trusted = taint()
             app.send(app.ada, app.adaChat, "Run them again.")
-            press { it == "Allow" }
             app.message(app.adaChat, "Tested again.")
             idle()
-            allowed = conversations.taint(conversations.current(app.key(app.adaChat)).id)
+            again = taint()
+            app.send(app.ada, app.adaChat, "Run the other ones.")
+            press { it == "Allow, mark tainted" }
+            app.message(app.adaChat, "Tested there.")
+            idle()
+            marked = taint()
         }
 
-        assertEquals(listOf("Allow", "Deny"), buttons.first())
-        assertEquals(listOf("Allow and trust"), buttons[1])
-        assertEquals("Allowed by Ada Lovelace (@ada_test), its output trusted.", answered.substringAfterLast("\n"))
+        assertEquals(listOf("Allow, mark tainted", "Deny"), buttons.first())
+        val trust = buttons[1].single()
+        assertTrue(trust.startsWith("Always allow and trust folder ") && trust.endsWith("/first"), trust)
+        assertContains(answered.substringAfterLast("\n"), "Allowed by Ada Lovelace (@ada_test), from now on also ")
+        assertContains(answered.substringAfterLast("\n"), ", who trusted ")
         assertNull(trusted)
-        assertContains(allowed?.reason.orEmpty(), "command.exec ran gradlew")
+        assertNull(again)
+        assertContains(marked?.reason.orEmpty(), other.toString())
     }
 
     /** A folder [name] beside the app's data holding an executable `gradlew` that echoes its arguments. */

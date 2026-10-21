@@ -4,6 +4,7 @@ import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.hash.hex
 import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -26,8 +27,8 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
         name = "fs.read",
         description = "Reads a UTF-8 text file and returns its lines, each after its line number and a tab. " +
             "Returns at most $MAX_LINES lines from line 'offset' on, each cut after $MAX_LINE_CHARS characters, and " +
-            "says where to go on when more follow. Refuses directories (list them with fs.glob), binary files, files " +
-            "with more than one hard link and protected places.",
+            "says where to go on when more follow. Refuses directories (list them with fs.glob), binary files and " +
+            "protected places.",
         parameters = schema("path") {
             property("path", "string", "The file: an absolute path, or one relative to your workspace (~ is home).")
             property("offset", "integer", "The number of the first line to return, from 1. Default 1.")
@@ -40,7 +41,7 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         floor.readReview(arguments.requiredString("path"), context)
-    } catch (e: Refusal) {
+    } catch (e: ToolRefusal) {
         CallReview.builder().build()
     }
 
@@ -52,14 +53,14 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
         blocking {
             val file = floor.allowed(path, context)
             val attributes = attributes(file)
-            checkReadable(file, path, attributes)
+            checkReadable(file, path, attributes, floor.protectsAnything)
             context.touched(file)
             val digest = sha256Digest()
-            DigestInputStream(openRegularFile(file), digest).use { input ->
+            DigestInputStream(openRegularFile(file, floor.protectsAnything), digest).use { input ->
                 val text = try {
                     rendered(TextLines(input, MAX_LINE_CHARS, MAX_READ_BYTES), path, offset, limit)
                 } catch (e: NotText) {
-                    throw Refusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
+                    throw ToolRefusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
                 }
                 if (attributes.size() <= MAX_WRITE_BYTES && drained(input)) {
                     ledger.record(conversation, file, HASH_PREFIX + hex(digest.digest()))
@@ -85,12 +86,12 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
     private fun rendered(lines: TextLines, path: Path, offset: Int, limit: Int): String {
         var number = 0
         while (number < offset - 1) {
-            lines.next() ?: throw Refusal(pastEnd(path, number, offset, lines.truncated))
+            lines.next() ?: throw ToolRefusal(pastEnd(path, number, offset, lines.truncated))
             number++
         }
         var next = lines.next()
         if (next == null) {
-            if (offset > 1) throw Refusal(pastEnd(path, number, offset, lines.truncated))
+            if (offset > 1) throw ToolRefusal(pastEnd(path, number, offset, lines.truncated))
             return "[The file is empty.]"
         }
         val text = StringBuilder()

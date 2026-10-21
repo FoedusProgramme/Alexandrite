@@ -39,6 +39,8 @@ internal class ServerSpec(
     val trusted: Boolean,
     val timeout: Duration,
     val enabled: Boolean,
+    /** What is risky about how the server is launched, null when nothing is. */
+    val warning: String? = null,
 ) {
     /** Whether the server's tool [name] is offered. */
     fun offers(name: String): Boolean = allow.any { it.matches(name) } && deny.none { it.matches(name) }
@@ -140,13 +142,14 @@ internal class McpSettings(
             server.trusted,
             server.timeoutSeconds.seconds,
             server.enabled,
+            (transport as? Transport.Stdio)?.let { LaunchCheck.warning(it.command, it.args) },
         )
     }
 
     private fun stdio(path: String, server: ServerConfig, command: String): Transport.Stdio {
         if (server.headers.isNotEmpty()) throw ConfigException("$path.headers", "only a server with a url has headers.")
         if (server.oauth != null) throw ConfigException("$path.oauth", "only a server with a url has oauth.")
-        LaunchCheck.problem(command, server.args)?.let { throw ConfigException("$path.command", it) }
+        if (command.isBlank()) throw ConfigException("$path.command", "is empty: name the program to run.")
         val cwd = server.cwd?.let { cwd ->
             val directory = try {
                 Path.of(cwd)

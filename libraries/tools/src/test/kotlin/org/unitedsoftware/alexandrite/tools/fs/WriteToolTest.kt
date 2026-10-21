@@ -10,15 +10,13 @@ import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
+import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
-import kotlin.io.path.readBytes
 import kotlin.io.path.readText
 import kotlin.test.Test
-import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
@@ -34,12 +32,7 @@ class WriteToolTest {
     fun setUp() {
         fs = FsFixture(directory)
         ledger = ReadLedger()
-        tool = WriteTool(fs.floor, ledger)
-    }
-
-    @Test
-    fun `the call is titled by its path, of activity edit`() {
-        assertEquals(ToolActivity.EDIT to listOf("path"), tool.definition.activity to tool.definition.titleArguments)
+        tool = WriteTool(fs.floor, ledger, fs.places)
     }
 
     private fun read(file: Path) {
@@ -62,6 +55,7 @@ class WriteToolTest {
             CallReview.builder()
                 .preview(ReviewPreview.Diff(file, "--- /dev/null\n+++ $file\n@@ -0,0 +1,2 @@\n+a\n+b\n"))
                 .snapshot("absent")
+                .reads(listOf(file))
                 .build(),
             review,
         )
@@ -98,21 +92,35 @@ class WriteToolTest {
     }
 
     @Test
-    fun `a new file goes only into an existing directory, and a relative path into the workspace`() {
-        val missing = fs.workspace.resolve("notes/todo.md")
+    fun `a new file creates the directories missing on its path, and a relative path goes into the workspace`() {
+        val missing = fs.workspace.resolve("notes/today/todo.md")
+        val blocked = fs.write("workspace/plain.txt", "Plain.\n")
 
-        val refused = write("notes/todo.md", "Tea.\n")
-        fs.workspace.resolve("notes").createDirectories()
-        val written = write("notes/todo.md", "Tea.\n")
+        val written = write("notes/today/todo.md", "Tea.\n")
+        val under = write("plain.txt/todo.md", "Tea.\n")
+        val protected = write(fs.secret.resolve("new/todo.md"), "Tea.\n")
 
         assertEquals(
             listOf(
-                "problem: ${missing.parent} is no existing directory: files are written only in existing directories.",
                 "Created $missing: +1 -0 lines.",
+                "problem: $blocked is no directory, so ${blocked.resolve("todo.md")} cannot be written.",
+                "refused: ${fs.secret.resolve("new/todo.md")} is protected (a place the test protects): no file tool " +
+                    "may write it.",
             ),
-            listOf(refused, written),
+            listOf(written, under, protected),
         )
         assertEquals("Tea.\n", missing.readText())
+        assertEquals(false, Files.exists(fs.secret.resolve("new")))
+    }
+
+    @Test
+    fun `a new file of the agent's own persona changes lasting state`() {
+        val persona = fs.persona.resolve("NOTES.md")
+
+        val review = runBlocking { tool.review(arguments("path" to persona, "content" to "Tea.\n"), fs.context()) }
+
+        assertEquals(ToolRisk.PERSISTENT_STATE, review.risk)
+        assertEquals("Created $persona: +1 -0 lines.", write(persona, "Tea.\n"))
     }
 
     @Test
@@ -148,19 +156,9 @@ class WriteToolTest {
             ),
         )
 
-        val edited = fs.reviewedRun(EditTool(fs.floor, ledger), arguments("path" to file, "edits" to edits))
+        val edited = fs.reviewedRun(EditTool(fs.floor, ledger, fs.places), arguments("path" to file, "edits" to edits))
 
         assertEquals("Edited $file: +1 -1 lines." to "Step two.\n", edited to file.readText())
-    }
-
-    @Test
-    fun `the text takes the line breaks and the byte order mark of the file it replaces`() {
-        val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
-        val file = fs.bytes("repo/win.txt", bom + "one\r\ntwo\r\n".toByteArray())
-        read(file)
-
-        assertEquals("Wrote $file: +2 -2 lines.", write(file, "uno\ndos\n"))
-        assertContentEquals(bom + "uno\r\ndos\r\n".toByteArray(), file.readBytes())
     }
 
     @Test

@@ -11,11 +11,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.permission.askedPlace
-import org.unitedsoftware.alexandrite.agent.permission.checkPerson
+import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.flag
 import org.unitedsoftware.alexandrite.agent.tool.property
+import org.unitedsoftware.alexandrite.agent.tool.review
 import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.expandHome
@@ -38,6 +40,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
+import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
@@ -83,20 +86,17 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         val request = requested(arguments, context)
         val file = checked(request.path, context)
-        val sha256 = runInterruptible(Dispatchers.IO) { hashed(file.path) }
+        val sha256 = runInterruptible(Dispatchers.IO) { hashed(file.path, floor.protectsAnything) }
+        val untainted = (context as? AgentToolContext)?.taint?.tainted == false
         CallReview.builder()
             .preview(ReviewPreview.OutgoingFile(file.path, file.size, sha256, context.turn.chat, request.caption))
             .snapshot("$SHA256$sha256")
             .person(file.person)
+            .exempt(untainted && Principal.of(context.turn) != Principal.GUEST)
+            .rule(RuleSubject(definition.name, emptyList(), definition.name))
             .build()
     } catch (e: ToolRefusal) {
-        if (e.blocked) {
-            CallReview.builder().refusal(
-                e.message,
-            ).build()
-        } else {
-            CallReview.builder().problem(e.message).build()
-        }
+        e.review()
     } catch (e: IOException) {
         currentCoroutineContext().ensureActive()
         CallReview.builder().problem(unreadable(e)).build()
@@ -105,12 +105,10 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
         val request = requested(arguments, context)
         val file = checked(request.path, context)
-        checkPerson(file.person, context)
-        val reviewed =
-            context.clearance?.snapshot ?: throw ToolRefusal("This call was not reviewed, so it sends nothing.")
+        val reviewed = context.clearance?.snapshot
         val bytes = runInterruptible(Dispatchers.IO) { read(file) }
         val sha256 = sha256Hex(bytes)
-        if (reviewed != "$SHA256$sha256") {
+        if (reviewed != null && reviewed != "$SHA256$sha256") {
             throw ToolRefusal("${file.path} changed since this call was reviewed, so it was not sent: repeat the call.")
         }
         send(request, file, bytes, sha256, context)
@@ -183,7 +181,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
 
             !attributes.isRegularFile -> throw ToolRefusal("$path is no regular file, so it is not sent.")
 
-            runInterruptible(Dispatchers.IO) { hardLinks(file) } > 1 -> throw ToolRefusal(
+            floor.protectsAnything && runInterruptible(Dispatchers.IO) { hardLinks(file) } > 1 -> throw ToolRefusal(
                 "$path has more than one hard link, so it may be another name of a protected file: it is not sent.",
                 blocked = true,
             )
@@ -202,7 +200,7 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
 
     /** The bytes of [file], read once. */
     private fun read(file: CheckedFile): ByteArray {
-        val bytes = openRegularFile(file.path).use { it.readNBytes((file.limit + 1).toInt()) }
+        val bytes = openRegularFile(file.path, floor.protectsAnything).use { it.readNBytes((file.limit + 1).toInt()) }
         if (bytes.size > file.limit) {
             throw ToolRefusal("${file.path} grew past the ${file.limit} bytes a file sent to this chat may hold.")
         }
@@ -239,7 +237,7 @@ private suspend fun absolute(argument: String, context: ToolContext): Path {
 }
 
 /** The SHA-256 of the bytes of [file] in lowercase hex, read without holding them. */
-private fun hashed(file: Path): String = openRegularFile(file).use { sha256Hex(it) }
+private fun hashed(file: Path, oneLink: Boolean): String = openRegularFile(file, oneLink).use { sha256Hex(it) }
 
 /** The IANA media type that the file [name] has by its extension. */
 internal fun mediaTypeOf(name: String): String {

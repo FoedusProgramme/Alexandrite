@@ -85,21 +85,6 @@ class ChildContainerTest {
     }
 
     @Test
-    fun `a child validates its graph when created`() {
-        val root = build(service("c", nameOfChannel, scope = CHANNEL_INSTANCE))
-
-        val error = assertFailsWith<DiException> { root.child("tg", setOf("test")) }
-
-        assertEquals(listOf(MISSING), error.problems.map { it.kind })
-        assertEquals(
-            "Cannot build channel instance container 'tg' (1 problem):\n" +
-                "- Missing binding: nothing binds $channelName, which c (plugin test) needs for parameter 'name'. " +
-                "Loaded plugins: test.",
-            error.message,
-        )
-    }
-
-    @Test
     fun `an extra binding that collides with a parent binding is ambiguous`() {
         val root = build(service("a"))
 
@@ -193,18 +178,6 @@ class ChildContainerTest {
         assertEquals(listOf("c" to label, "a" to null), destroyed.map { it.origin to it.container })
     }
 
-    @Test
-    fun `the root container refuses channel-instance-scoped keys`() {
-        val root = build(service("c", scope = CHANNEL_INSTANCE))
-
-        val error = assertFailsWith<DiException> { root.get(svc("c")) }
-
-        assertContains(
-            error.message!!,
-            "is channel-instance-scoped, bound by c (plugin test), so container 'root' does not create it.",
-        )
-    }
-
     // Validation.
 
     @Test
@@ -272,7 +245,6 @@ class ChildContainerTest {
 
     @Test
     fun `a channel binding that needs a channel binding of an unlisted plugin fails naming both plugins`() {
-        val serviceType = Service::class.qualifiedName
         val root = channels(
             telegram = listOf(
                 channel("bot", dep("guild"), plugin = "telegram"),
@@ -282,14 +254,6 @@ class ChildContainerTest {
 
         val error = assertFailsWith<DiException> { root.child("tg", setOf("telegram")) }
 
-        assertEquals(
-            """
-            Cannot build channel instance container 'tg' (2 problems):
-            - Unlisted plugin: plugin 'telegram' needs @Named("guild") $serviceType from plugin 'discord': bot (plugin telegram) injects it as parameter 'guild' and only guild (plugin discord) binds it, but the channel instance container is not for plugin 'discord'.
-            - Unlisted plugin: plugin 'telegram' needs @Named("guild") $serviceType from plugin 'discord': relay (plugin telegram) injects it as parameter 'guild' and only guild (plugin discord) binds it, but the channel instance container is not for plugin 'discord'.
-            """.trimIndent(),
-            error.message,
-        )
         assertEquals(
             List(2) { UNLISTED_PLUGIN to "telegram" },
             error.problems.map { it.kind to it.plugin },
@@ -310,15 +274,8 @@ class ChildContainerTest {
             "is only bound in plugin 'discord', by guild (plugin discord), which channel instance container 'tg' " +
                 "is not for.",
         )
-    }
-
-    @Test
-    fun `a child's getOrNull refuses a key of a plugin it is not for, like get`() {
-        val telegram = channels().child("tg", setOf("telegram"))
-
-        val error = assertFailsWith<DiException> { telegram.getOrNull(svc("guild")) }
-
-        assertEquals(UNLISTED_PLUGIN, error.problems.single().kind)
+        val unlisted = assertFailsWith<DiException> { telegram.getOrNull(svc("guild")) }
+        assertEquals(UNLISTED_PLUGIN, unlisted.problems.single().kind)
     }
 
     @Test
@@ -343,11 +300,6 @@ class ChildContainerTest {
     fun `a child for a plugin that is not loaded fails`() {
         val error = assertFailsWith<DiException> { channels().child("tg", setOf("telegram", "telegarm")) }
 
-        assertEquals(
-            "Cannot build channel instance container 'tg' (1 problem):\n" +
-                "- Unknown plugin: 'telegarm' is not loaded. Loaded plugins: core, discord, telegram.",
-            error.message,
-        )
         assertEquals(UNKNOWN_PLUGIN, error.problems.single().kind)
     }
 

@@ -10,7 +10,7 @@ import org.unitedsoftware.alexandrite.agent.control.CommandLanes
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.model.Endpoints
 import org.unitedsoftware.alexandrite.agent.turn.Recovery
-import org.unitedsoftware.alexandrite.agent.worker.AgentTurnInitiation
+import org.unitedsoftware.alexandrite.agent.usage.hasMoneyBudget
 import org.unitedsoftware.alexandrite.agent.worker.ChatIntakes
 import org.unitedsoftware.alexandrite.agent.worker.TurnWorkers
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
@@ -26,7 +26,6 @@ public class AgentPlugin internal constructor(
     private val directory: AgentDirectory,
     private val endpoints: Endpoints,
     private val intakes: ChatIntakes,
-    private val initiation: AgentTurnInitiation,
     private val lanes: CommandLanes,
     private val workers: TurnWorkers,
     private val jobs: Jobs,
@@ -48,7 +47,6 @@ public class AgentPlugin internal constructor(
     }
 
     override suspend fun onDrain() {
-        initiation.shutDown()
         intakes.shutDown()
         lanes.shutDown()
         val shutdown = settings.shutdown
@@ -58,10 +56,12 @@ public class AgentPlugin internal constructor(
         }
     }
 
-    /** Warns of each agent model that its endpoint does not list. */
+    /** Warns of each agent model that its endpoint does not list, or lists without the price a budget in money needs. */
     private suspend fun checkModels() {
         for (agent in directory.agents) {
-            for (model in agent.models) check(agent, model)
+            for (model in (agent.models + listOfNotNull(agent.judgeModel, agent.summaryModel)).distinct()) {
+                check(agent, model)
+            }
         }
     }
 
@@ -79,11 +79,21 @@ public class AgentPlugin internal constructor(
             )
             return
         }
-        if (listed.none { it.id == model.model }) {
+        val info = listed.firstOrNull { it.id == model.model }
+        if (info == null) {
             logger.warn(
                 "Agent '{}' uses model {}, which its endpoint does not list: the agent's turns fail until it does",
                 agent.id,
                 model,
+            )
+        } else if (info.price == null && agent.hasMoneyBudget()) {
+            logger.warn(
+                "Agent '{}' has a budget in money, but its model {} has no price, so its calls count as nothing: set " +
+                    "models.\"{}\".price in the config of endpoint '{}', or budget tokens",
+                agent.id,
+                model,
+                model.model,
+                model.endpoint,
             )
         }
     }

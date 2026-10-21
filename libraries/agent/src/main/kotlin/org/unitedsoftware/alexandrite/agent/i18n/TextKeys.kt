@@ -133,6 +133,9 @@ internal object TextKeys {
     /** Takes `{folder}` and `{reason}`. */
     const val FOLDER_PROTECTED: String = "control.folder_protected"
 
+    /** Takes `{person}`. */
+    const val PERSON_OPERATOR: String = "control.person_operator"
+
     /** Takes `{turns}`. */
     const val NOTHING_TO_COMPACT: String = "control.nothing_to_compact"
     const val COMPACT_FAILED: String = "control.compact_failed"

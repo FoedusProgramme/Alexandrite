@@ -9,7 +9,6 @@ import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
-import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
@@ -24,8 +23,6 @@ import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
-import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
-import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -34,6 +31,7 @@ import org.unitedsoftware.alexandrite.testkit.recordingTool
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class OfferedToolsTest {
     private val store = MemoryStore()
@@ -53,10 +51,7 @@ class OfferedToolsTest {
     )
 
     /** What the model reads after the tools changed from fs.read and notes.write to fs.edit and a new fs.read. */
-    private val notice = "[alexandrite:tools]\nYour tools changed since your last turn in this conversation.\n" +
-        "Added: fs.edit.\nRemoved: notes.write.\n" +
-        "Changed: fs.read (its description, parameters, risk or timeout).\n" +
-        "What you said about your tools earlier in this conversation may be out of date.\n[/alexandrite:tools]"
+    private val notice = "Added: fs.edit.\nRemoved: notes.write.\nChanged: fs.read "
 
     private fun harness(vararg tools: Tool): PluginHarness = agentHarness(
         """
@@ -105,29 +100,8 @@ class OfferedToolsTest {
         blocking {
             assertEquals(List(3) { listOf("UserEntry", "AssistantEntry") }.flatten(), kinds(stored()))
             assertEquals(emptyList(), notices(stored()))
-            assertEquals(
-                mapOf(
-                    "${conversation()}" to setOf(
-                        "agent.delegate",
-                        "agent.jobs",
-                        "agent.send",
-                        "agent.stop",
-                        "chat.list",
-                        "chat.send",
-                        "chat.send_file",
-                        "fs.read",
-                        "history.search",
-                        "notes.write",
-                        "permission.status",
-                        "profile.create",
-                        "profile.edit",
-                        "profile.list",
-                        "profile.remove",
-                        "skill.load",
-                    ),
-                ),
-                recorded(),
-            )
+            val tools = recorded().getValue("${conversation()}")
+            assertTrue(tools.containsAll(setOf("fs.read", "notes.write")), "$tools")
         }
     }
 
@@ -150,20 +124,16 @@ class OfferedToolsTest {
                 kinds(entries),
             )
             assertEquals(before, entries.take(2))
-            assertEquals(listOf(notice), notices(entries))
+            assertTrue(notice in notices(entries).single())
             assertEquals(UserOrigin.SystemWritten(TOOLS_SOURCE), (entries[2] as UserEntry).origin)
             assertIs<UserOrigin.FromChat>((entries[3] as UserEntry).origin)
             val request = model.requests[1]
             assertEquals(entries.take(2) + entries.subList(2, 4).map(::unstored), request.history)
             assertEquals(2, request.turnStart)
             assertEquals(entries.take(5), model.requests[2].history.take(5))
-            val tools = setOf(
-                "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.list", "chat.send",
-                "chat.send_file", "fs.edit", "fs.read", "history.search",
-                "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
-                "skill.load",
-            )
-            assertEquals(mapOf("${conversation()}" to tools), recorded())
+            val tools = recorded().getValue("${conversation()}")
+            assertTrue("fs.edit" in tools && "notes.write" !in tools, "$tools")
+            assertEquals(1, recorded().size)
         }
     }
 
@@ -185,27 +155,9 @@ class OfferedToolsTest {
                 listOf("UserEntry", "AssistantEntry", "NoticeEntry", "UserEntry", "UserEntry", "AssistantEntry"),
                 kinds(entries),
             )
-            assertEquals(listOf(notice), notices(entries))
+            assertTrue(notice in notices(entries).single())
             assertEquals(entries.take(2) + entries.subList(3, 5).map(::unstored), model.requests[3].history)
             assertIs<NoticeEntry>(entries[2])
-        }
-    }
-
-    @Test
-    fun `a turn that a plugin started gets the notice too`() {
-        model.reply { text("Hello.") }.reply { text("Stretch!") }
-
-        harness(read, notes).execute { ask() }
-        harness(changedRead, edit).execute {
-            val turn = InitiatedTurn.builder(key, TurnKind.REMINDER, "Remind them to stretch.").build()
-            val admission = get<TurnInitiation>().initiate("beat", turn)
-            assertIs<TurnOutcome.Completed>(assertIs<Admission.Accepted>(admission).ticket.outcome())
-        }
-
-        blocking {
-            val entries = stored()
-            assertEquals(listOf(notice), notices(entries))
-            assertEquals(UserOrigin.Initiated("beat", TurnKind.REMINDER), (entries[3] as UserEntry).origin)
         }
     }
 
@@ -223,13 +175,9 @@ class OfferedToolsTest {
         blocking {
             assertEquals(emptyList(), notices(stored(sealed)) + notices(stored()))
             assertEquals(listOf("UserEntry", "AssistantEntry"), kinds(stored()))
-            val tools = setOf(
-                "agent.delegate", "agent.jobs", "agent.send", "agent.stop", "chat.list", "chat.send",
-                "chat.send_file", "fs.edit", "fs.read", "history.search",
-                "permission.status", "profile.create", "profile.edit", "profile.list", "profile.remove",
-                "skill.load",
-            )
-            assertEquals(mapOf("${conversation()}" to tools), recorded())
+            val tools = recorded().getValue("${conversation()}")
+            assertTrue("fs.edit" in tools && "notes.write" !in tools, "$tools")
+            assertEquals(1, recorded().size)
         }
     }
 

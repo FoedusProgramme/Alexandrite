@@ -18,6 +18,8 @@ import org.unitedsoftware.alexandrite.app.control.ControlRequest
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.config.HostConfigFile
+import org.unitedsoftware.alexandrite.runtime.config.referencedSecrets
+import org.unitedsoftware.alexandrite.runtime.config.splicedConfig
 import org.unitedsoftware.alexandrite.runtime.configProblems
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
@@ -60,21 +62,124 @@ internal fun changeConfig(cli: Cli, changes: List<ConfigChangeView>, restart: Bo
     return reported(cli, written, restart)
 }
 
-/** Writes [changes] as [changeConfig] does without reporting them, null after printing why they were not written. */
-internal fun writeChanges(cli: Cli, changes: List<ConfigChangeView>): Written? =
-    change(cli, ControlRequest.ChangeConfig(changes)) {
+/**
+ * Writes [changes] as [changeConfig] does without reporting them, null after printing why they were not written. A
+ * secret they write as a value goes into the secrets file, and the config names it by reference.
+ */
+internal fun writeChanges(cli: Cli, changes: List<ConfigChangeView>): Written? {
+    val previous = configText(cli)
+    val spliced = previous?.let {
+        try {
+            changes.filterNot { it.remove }.fold(it) { text, change ->
+                splicedConfig(text, change.path.split('.'), change.value)
+            }
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+    }
+    val moved = if (previous == null || spliced == null) null else movedSecrets(cli, previous, spliced) ?: return null
+    val referenced = moved?.text?.takeIf { it != spliced }?.let(::writtenConfig)
+    val sent = if (referenced == null) {
+        changes
+    } else {
+        changes.map { if (it.remove) it else ConfigChangeView(it.path, referenced.at(it.path) ?: it.value) }
+    }
+    val written = change(cli, ControlRequest.ChangeConfig(sent)) {
         edit {
-            for (change in changes) if (change.remove) remove(change.path) else set(change.path, change.value)
+            for (change in sent) if (change.remove) remove(change.path) else set(change.path, change.value)
         }
     } as? Written
+    if (written == null) moved?.restore(cli)
+    return written
+}
 
-/** Writes [text] as the whole config file as [changeConfig] writes changes, null when the change is refused. */
-internal fun replaceConfig(cli: Cli, text: String, restart: Boolean): Int? =
-    when (val outcome = change(cli, ControlRequest.ReplaceConfig(text)) { replace(text) }) {
+/**
+ * Writes [text] as the whole config file as [changeConfig] writes changes, null when the change is refused. A secret
+ * it adds as a value goes into the secrets file, and the config names it by reference.
+ */
+internal fun replaceConfig(cli: Cli, text: String, restart: Boolean): Int? {
+    val moved = configText(cli)?.let { movedSecrets(cli, it, text) ?: return null }
+    val replacing = moved?.text ?: text
+    val outcome = change(cli, ControlRequest.ReplaceConfig(replacing)) { replace(replacing) }
+    if (outcome !is Written) moved?.restore(cli)
+    return when (outcome) {
         is Written -> reported(cli, outcome, restart)
         is Failed -> outcome.code
         null -> null
     }
+}
+
+private fun configText(cli: Cli): String? = try {
+    Files.readString(cli.locations.configFile)
+} catch (e: IOException) {
+    null
+}
+
+/** The config [text] with its secrets moved out, and the secrets file as it was before. */
+private class MovedSecrets(val text: String, private val before: Map<String, String>?, private val existed: Boolean) {
+    fun restore(cli: Cli) {
+        if (before == null) return
+        try {
+            if (existed) writeSecrets(cli.secrets, before) else Files.deleteIfExists(cli.secrets)
+        } catch (e: IOException) {
+            cli.fail(cli.t("secret.unwritable", "file" to cli.secrets, "reason" to (e.message ?: e)))
+        }
+    }
+}
+
+/**
+ * [text] with each secret that it newly writes as a value moved into the secrets file, null after printing why that
+ * file could not be changed.
+ */
+private fun movedSecrets(cli: Cli, previous: String, text: String): MovedSecrets? {
+    val existed = Files.exists(cli.secrets)
+    val before = try {
+        readSecrets(cli.secrets)
+    } catch (e: IOException) {
+        cli.fail(cli.t("secret.unreadable", "file" to cli.secrets, "reason" to (e.message ?: e)))
+        return null
+    }
+    val added = LinkedHashMap<String, String>()
+    val named = mutableListOf<Pair<String, String>>()
+    val referenced = referencedSecrets(plugins(cli), previous, text) { path, value ->
+        val held = before.entries.firstOrNull { (name, kept) ->
+            kept == value && cli.environment[name].let { it == null || it == value }
+        }?.key
+        val name =
+            held ?: added.entries.firstOrNull { it.value == value }?.key ?: freeVariable(cli, path, before + added)
+        if (held == null) added[name] = value
+        name.also { named += path to it }
+    }
+    if (referenced == text) return MovedSecrets(text, null, existed)
+    if (added.isNotEmpty()) {
+        try {
+            writeSecrets(cli.secrets, before + added)
+        } catch (e: IOException) {
+            cli.fail(cli.t("secret.unwritable", "file" to cli.secrets, "reason" to (e.message ?: e)))
+            return null
+        }
+    }
+    for ((path, name) in named) {
+        cli.say(
+            cli.t(
+                "config.secret_moved",
+                "key" to path,
+                "name" to name,
+                "file" to cli.secrets,
+            ),
+        )
+    }
+    return MovedSecrets(referenced, before.takeIf { added.isNotEmpty() }, existed)
+}
+
+/** A variable name for the secret at the config [path] that neither [taken] nor the environment holds. */
+private fun freeVariable(cli: Cli, path: String, taken: Map<String, String>): String {
+    val base = path.replace(Regex("([a-z0-9])([A-Z])"), "$1_$2").uppercase()
+        .replace(Regex("[^A-Z0-9]+"), "_").trim('_').ifEmpty { "SECRET" }
+        .let { if (it.first().isDigit()) "_$it" else it }
+    return generateSequence(1) { it + 1 }.map { if (it == 1) base else "${base}_$it" }
+        .first { it !in taken && it !in cli.environment }
+}
 
 /** What the running app or [local] when none runs did with [request], null after printing why it refused it. */
 private fun change(cli: Cli, request: ControlRequest, local: suspend HostConfig.() -> ConfigChanges): Outcome? {

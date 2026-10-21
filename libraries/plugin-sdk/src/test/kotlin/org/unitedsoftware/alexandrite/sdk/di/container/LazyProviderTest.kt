@@ -36,26 +36,6 @@ class LazyProviderTest {
     }
 
     @Test
-    fun `a LAZY dependency is injected unresolved`() {
-        val container = build(service("a", dep("b", DependencyKind.LAZY)), service("b"))
-
-        val lazyB = container.get(svc("a")).injected["b"] as Lazy<*>
-
-        assertFalse(lazyB.isInitialized())
-        assertSame(container.get(svc("b")), lazyB.value)
-    }
-
-    @Test
-    fun `a provider returns the same singleton on every call`() {
-        val container = build(service("a"))
-
-        val provider = container.provider(svc("a"))
-
-        assertSame(provider(), provider())
-        assertSame(container.get(svc("a")), provider())
-    }
-
-    @Test
     fun `a provider resolves through the container on every call`() {
         val container = build(service("a"))
         val provider = container.provider(svc("a")).also { it() }

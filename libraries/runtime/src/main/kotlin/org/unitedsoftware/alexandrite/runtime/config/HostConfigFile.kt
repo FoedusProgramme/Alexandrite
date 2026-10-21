@@ -55,7 +55,7 @@ public class HostConfigFile(
             maskedSecrets(plugins.members, ConfigFile.parsed(configured, text))
         }
         if (path.isEmpty()) return@lockedConfig masked
-        PluginEdit("") { OpenFile(configured, ByteArray(0), Json.encodeToString(JsonObject.serializer(), masked)) }
+        FileEdit { OpenFile(configured, ByteArray(0), Json.encodeToString(JsonObject.serializer(), masked)) }
             .get(path)
     }
 
@@ -67,7 +67,7 @@ public class HostConfigFile(
 
     /** What [block] changes, written unless it is only to [check]. */
     private suspend fun edited(block: ConfigEdit.() -> Unit, check: Boolean): ConfigChanges = lockedConfig {
-        val edit = PluginEdit("") {
+        val edit = FileEdit {
             openConfig(file).also { opened ->
                 readable(ConfigEditRefusal.INVALID_FILE, "The config file does not read as it is", opened.target) {
                     ConfigFile.parsed(opened.target, opened.text)

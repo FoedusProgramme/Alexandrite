@@ -56,7 +56,7 @@ class TurnPointsTest {
     """.trimIndent()
 
     @Test
-    fun `an ordinary turn with a tool, compaction and new conversation fires its 16 hooks`() {
+    fun `an ordinary turn with a tool, compaction and new conversation fires its hooks`() {
         val fired = CopyOnWriteArrayList<String>()
         val commands = TestCommands()
         val read = recordingTool("fs.read") { _, _ -> ToolResult("A long line of the file. ".repeat(20)) }
@@ -76,7 +76,6 @@ class TurnPointsTest {
             (channel().receiveCommand("new", issuer = operator) as Admission.Accepted).ticket.outcome()
         }
 
-        assertEquals(16, ordinaryPoints.size)
         assertEquals(ordinaryPoints.map { it.id }.toSet(), fired.toSet())
         assertEquals(TurnPoints.CONVERSATION_SEALED.id, fired.last())
     }

@@ -96,21 +96,21 @@ internal class Stages(
         val grace = spec.config.shutdownGrace
         val problems = mutableListOf<Problem>()
         val fatal = mutableListOf<VirtualMachineError>()
-        fun failed(kind: RuntimeProblemKind, what: String, error: Throwable) {
+        fun failed(what: String, error: Throwable) {
             if (error is VirtualMachineError) fatal += error
             val message = redactor.text("$what failed: $error")
             logger.error("{}: {}", name, message, redactor.error(error))
-            problems += Problem(kind, message, null)
+            problems += Problem(RuntimeProblemKind.SHUTDOWN, message, null)
         }
-        val stopStep: StopStep = { kind, what, block ->
+        val stopStep: StopStep = { what, block ->
             try {
                 problems += block()
             } catch (e: Throwable) {
-                failed(kind, what, e)
+                failed(what, e)
             }
         }
-        suspend fun step(kind: RuntimeProblemKind, what: String, block: suspend () -> List<StepReport>) =
-            stopStep(kind, what) { block().mapNotNull { problem(it, grace) } }
+        suspend fun step(what: String, block: suspend () -> List<StepReport>) =
+            stopStep(what) { block().mapNotNull { problem(it, grace) } }
         val root = container
         val all = instances.toList()
         val owned = all.filter { it.claim(setOf(InstanceState.STARTING, InstanceState.OPEN)) }
@@ -118,24 +118,24 @@ internal class Stages(
         val children = owned.asReversed()
         try {
             for (child in children) {
-                step(RuntimeProblemKind.CLOSE_FAILED, "Closing ${child.label}") { child.container.closeAll(deadline) }
+                step("Closing ${child.label}") { child.container.closeAll(deadline) }
             }
-            root?.let { step(RuntimeProblemKind.CLOSE_FAILED, "Closing") { it.closeAll(deadline) } }
-            root?.let { step(RuntimeProblemKind.DRAIN_FAILED, "Draining") { it.drainAll(deadline) } }
+            root?.let { step("Closing") { it.closeAll(deadline) } }
+            root?.let { step("Draining") { it.drainAll(deadline) } }
             for (child in children) {
-                step(RuntimeProblemKind.DRAIN_FAILED, "Draining ${child.label}") { child.container.drainAll(deadline) }
+                step("Draining ${child.label}") { child.container.drainAll(deadline) }
             }
             for (child in children) {
                 stopInstance(child, deadline, grace, stopStep)
                 child.markStopped()
             }
-            root?.let { step(RuntimeProblemKind.STOP_FAILED, "Stopping") { it.stopAll() } }
+            root?.let { step("Stopping") { it.stopAll() } }
             try {
                 problems += scopes.cancel(deadline, grace)
             } catch (e: Throwable) {
-                failed(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, "Cancelling the plugin scopes", e)
+                failed("Cancelling the plugin scopes", e)
             }
-            root?.let { step(RuntimeProblemKind.DESTROY_FAILED, "Destroying") { it.destroy() } }
+            root?.let { step("Destroying") { it.destroy() } }
         } finally {
             owned.forEach(InstanceContainer::markStopped)
             lock?.let(::release)
@@ -205,20 +205,20 @@ internal class Stages(
         } else {
             logger.info("{}: stopping channel instance {} at the request of {}", name, child.id, by.address)
         }
-        val stopStep: StopStep = { _, what, block ->
+        val stopStep: StopStep = { what, block ->
             try {
                 block()
             } catch (e: Exception) {
                 logger.error("{}: {}", name, redactor.text("$what failed: $e"), redactor.error(e))
             }
         }
-        suspend fun step(kind: RuntimeProblemKind, what: String, block: suspend () -> List<StepReport>) =
-            stopStep(kind, "$what ${child.label}") { block().mapNotNull { problem(it, grace) } }
+        suspend fun step(what: String, block: suspend () -> List<StepReport>) =
+            stopStep("$what ${child.label}") { block().mapNotNull { problem(it, grace) } }
         try {
-            step(RuntimeProblemKind.CLOSE_FAILED, "Closing") { child.container.closeAll(deadline) }
-            step(RuntimeProblemKind.DRAIN_FAILED, "Draining") { child.container.drainAll(deadline) }
+            step("Closing") { child.container.closeAll(deadline) }
+            step("Draining") { child.container.drainAll(deadline) }
             stopInstance(child, deadline, grace, stopStep)
-            step(RuntimeProblemKind.DESTROY_FAILED, "Destroying") { child.container.destroy() }
+            step("Destroying") { child.container.destroy() }
         } finally {
             child.markStopped()
         }
@@ -228,10 +228,10 @@ internal class Stages(
     /** Takes [child] out of the directory, stops it and cancels its scope, each a step of [step]. */
     private suspend fun stopInstance(child: InstanceContainer, deadline: TimeMark, grace: Duration, step: StopStep) {
         directory?.leave(child.id)
-        step(RuntimeProblemKind.STOP_FAILED, "Stopping ${child.label}") {
+        step("Stopping ${child.label}") {
             child.container.stopAll().mapNotNull { problem(it, grace) }
         }
-        step(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, "Cancelling the scope of ${child.label}") {
+        step("Cancelling the scope of ${child.label}") {
             listOfNotNull(scopes.cancel(child.scope, child.plugin, child.id, deadline, grace))
         }
     }
@@ -247,7 +247,7 @@ internal class Stages(
             Outcome.NotCalled -> "Skipped $what: the shutdown grace of $grace had run out."
         }.let(redactor::text)
         logger.warn("{}: {}", name, message, (outcome as? Outcome.Failed)?.error?.let(redactor::error))
-        return Problem(kind(report), message, report.plugin)
+        return Problem(RuntimeProblemKind.SHUTDOWN, message, report.plugin)
     }
 
     /** The [ChannelControl] over the instance containers of these stages. */
@@ -282,31 +282,7 @@ private val Step.action: String
         Step.DESTROY -> "destroying"
     }
 
-private fun kind(report: StepReport): RuntimeProblemKind = when (report.step) {
-    Step.CLOSE -> report.outcome.pick(
-        RuntimeProblemKind.CLOSE_FAILED,
-        RuntimeProblemKind.CLOSE_TIMED_OUT,
-        RuntimeProblemKind.CLOSE_NOT_CALLED,
-    )
-
-    Step.DRAIN -> report.outcome.pick(
-        RuntimeProblemKind.DRAIN_FAILED,
-        RuntimeProblemKind.DRAIN_TIMED_OUT,
-        RuntimeProblemKind.DRAIN_NOT_CALLED,
-    )
-
-    Step.STOP -> RuntimeProblemKind.STOP_FAILED
-
-    Step.DESTROY -> RuntimeProblemKind.DESTROY_FAILED
-}
-
-private fun <T> Outcome.pick(failed: T, timedOut: T, notCalled: T): T = when (this) {
-    Outcome.TimedOut -> timedOut
-    Outcome.NotCalled -> notCalled
-    else -> failed
-}
-
 private fun String.capitalized(): String = replaceFirstChar(Char::uppercaseChar)
 
 /** Runs a step of a stop, named with the kind of problem its failure is, and takes the problems it reports. */
-private typealias StopStep = suspend (RuntimeProblemKind, String, suspend () -> List<Problem>) -> Unit
+private typealias StopStep = suspend (String, suspend () -> List<Problem>) -> Unit

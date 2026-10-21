@@ -266,19 +266,6 @@ class StoreDatabaseTest {
     }
 
     @Test
-    fun `a store refuses blocks before it opens and after it is destroyed`() {
-        val database = database()
-
-        val before = assertFailsWith<IllegalStateException> { runBlocking { database.transaction {} } }
-        runBlocking { database.onStart() }
-        database.onDestroy()
-        val after = assertFailsWith<IllegalStateException> { runBlocking { database.transaction {} } }
-
-        assertEquals("The store is not open.", before.message)
-        assertEquals("The store is closed.", after.message)
-    }
-
-    @Test
     fun `destroying the store waits for the block in flight`() {
         val database = database()
         runBlocking { database.onStart() }

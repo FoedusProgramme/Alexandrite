@@ -36,6 +36,19 @@ public interface HostConfig {
     }
 }
 
+/** The changes of one [HostConfig.edit], applied in order, at paths that join the keys of nested objects by dots. */
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface ConfigEdit {
+    /** The value at [path] as the file writes it after this edit's changes so far, null when there is none. */
+    public fun get(path: String): JsonElement?
+
+    /** Writes [value] at [path] as an operator writes it, creating the objects on the way that are missing. */
+    public fun set(path: String, value: JsonElement)
+
+    /** Takes out the member at [path] when there is one. */
+    public fun remove(path: String)
+}
+
 /** What a [HostConfig] change wrote. */
 @Poko
 public class ConfigChanges private constructor(

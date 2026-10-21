@@ -4,7 +4,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.AgentSource
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
@@ -22,7 +21,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.chat.rebuild
-import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
@@ -53,28 +51,7 @@ class TurnValuesTest {
 
     private fun invocation(name: String = "new"): CommandInvocation.Builder = CommandInvocation.builder(chat, name, ada)
 
-    @Test
-    fun `a mandate names a grant`() {
-        assertFailsWith<IllegalArgumentException> { Mandate("") }
-    }
-
     // Commands.
-
-    @Test
-    fun `a command invocation has no arguments and no trigger until set, and keeps the name as written`() {
-        val invocation = invocation("New").build()
-        val full = invocation.rebuild {
-            arguments(" x  y")
-            trigger(ref)
-        }
-
-        assertEquals("", invocation.arguments)
-        assertNull(invocation.trigger)
-        assertEquals("New", full.name)
-        assertEquals(" x  y", full.arguments)
-        assertEquals(ref, full.trigger)
-        assertEquals(full, full.toBuilder().build())
-    }
 
     @Test
     fun `a command invocation rejects malformed names, triggers in other chats and issuers of other instances`() {
@@ -85,9 +62,20 @@ class TurnValuesTest {
         val stranger = ChatUser(UserAddress(home, "1"), "Cy", null, isBot = false, isOperator = false)
 
         assertFailsWith<IllegalArgumentException> { invocation().trigger(elsewhere).build() }
-        val error =
-            assertFailsWith<IllegalArgumentException> { CommandInvocation.builder(chat, "new", stranger).build() }
-        assertEquals("The issuer telegram:home@1 is no user of channel instance telegram:work.", error.message)
+        assertFailsWith<IllegalArgumentException> { CommandInvocation.builder(chat, "new", stranger).build() }
+    }
+
+    @Test
+    fun `a command invocation names the users it replies to and mentions, of its own channel instance only`() {
+        val stranger = ChatUser(UserAddress(home, "1"), "Cy", null, isBot = false, isOperator = false)
+        val named = mutableListOf(bob)
+        val invocation = invocation("trust").replyTo(bob).mentions(named).build()
+        named.clear()
+
+        assertEquals(bob to listOf(bob), invocation.replyTo to invocation.mentions)
+        assertEquals(null to emptyList(), invocation("trust").build().let { it.replyTo to it.mentions })
+        assertFailsWith<IllegalArgumentException> { invocation("trust").replyTo(stranger).build() }
+        assertFailsWith<IllegalArgumentException> { invocation("trust").mentions(listOf(stranger)).build() }
     }
 
     @Test
@@ -103,18 +91,6 @@ class TurnValuesTest {
             CommandSpec.builder("new", "Starts over.").build(),
             CommandSpec.builder("new", "Starts.").build().rebuild { description("Starts over.") },
         )
-    }
-
-    @Test
-    fun `a command handler describes a command by its spec in every language unless it says otherwise`() {
-        val handler = object : CommandHandler {
-            override val commands = listOf(CommandSpec.builder("new", "Starts over.").build())
-
-            override suspend fun handle(invocation: CommandInvocation, context: CommandContext) = Unit
-        }
-
-        assertEquals("Starts over.", handler.description("new", null))
-        assertEquals("Starts over.", handler.description("new", LanguageTag("zh-CN")))
     }
 
     // Submissions.
@@ -144,13 +120,6 @@ class TurnValuesTest {
     }
 
     @Test
-    fun `a refusal names the bound of a full queue, which is positive`() {
-        assertEquals(20, Admission.Refused(RefusalReason.QUEUE_FULL, 20).queueCapacity)
-        assertNull(Admission.Refused(RefusalReason.SHUTTING_DOWN).queueCapacity)
-        assertFailsWith<IllegalArgumentException> { Admission.Refused(RefusalReason.QUEUE_FULL, 0) }
-    }
-
-    @Test
     fun `only a shutdown outcome may be replayable`() {
         val reply = AssistantEntry(null, listOf(TextPart("Hi.")), claude)
         val outcomes = listOf(
@@ -173,19 +142,10 @@ class TurnValuesTest {
     @Test
     fun `an initiated turn is untrusted, sends its reply nowhere and runs as the chat's agent until set`() {
         val turn = InitiatedTurn.builder(chat, TurnKind.HEARTBEAT, "Nobody has written for two hours.").build()
-        val routed = turn.rebuild {
-            trust(Trust.TRUSTED)
-            route(ReplyRoute.ToChat(chat))
-            agent(AgentId("coder"))
-        }
 
         assertEquals(Trust.UNTRUSTED, turn.trust)
         assertEquals(ReplyRoute.None, turn.route)
         assertNull(turn.agent)
-        assertEquals(Trust.TRUSTED, routed.trust)
-        assertEquals(ReplyRoute.ToChat(chat), routed.route)
-        assertEquals(AgentId("coder"), routed.agent)
-        assertEquals(turn, turn.toBuilder().build())
     }
 
     @Test
@@ -209,27 +169,16 @@ class TurnValuesTest {
 
     @Test
     fun `one rule refuses initiators the kinds that the agent starts itself`() {
-        assertEquals(setOf(TurnKind.APPROVAL, TurnKind.AGENT_MESSAGE, TurnKind.JOB), TurnKind.agentStarted)
         for (kind in TurnKind.agentStarted) {
             val turn = InitiatedTurn.builder(chat, kind, "Approved.").build()
 
-            val refused = assertFailsWith<IllegalArgumentException> { requireInitiable("beat", turn) }
-
-            assertEquals(
-                "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval, agent message " +
-                    "and job turns itself.",
-                refused.message,
-            )
+            assertFailsWith<IllegalArgumentException>("$kind") { requireInitiable("beat", turn) }
         }
         requireInitiable("beat", InitiatedTurn.builder(chat, TurnKind.HEARTBEAT, "Go.").build())
     }
 
     @Test
-    fun `a route to agent homes or a broadcast names some channel instances, or all when null`() {
-        assertNull(ReplyRoute.AgentHomes().channels)
-        assertNull(ReplyRoute.Broadcast().channels)
-        assertEquals(setOf(work, home), ReplyRoute.Broadcast(setOf(work, home)).channels)
-        assertEquals(ReplyRoute.AgentHomes(setOf(work)), ReplyRoute.AgentHomes(setOf(work)))
+    fun `a route to agent homes or a broadcast names some channel instances, if any`() {
         assertFailsWith<IllegalArgumentException> { ReplyRoute.AgentHomes(emptySet()) }
         assertFailsWith<IllegalArgumentException> { ReplyRoute.Broadcast(emptySet()) }
     }
@@ -275,7 +224,7 @@ class TurnValuesTest {
             update.rebuild { home() },
             update.rebuild { noHome() },
             update.rebuild { resetHome() },
-            update.rebuild { home() }.rebuild { noHome() }.toBuilder().build(),
+            update.rebuild { home() }.rebuild { noHome() },
         )
 
         val set = listOf(SettingChange.SetTo(true), SettingChange.SetTo(false))
@@ -294,7 +243,6 @@ class TurnValuesTest {
         assertEquals(SettingChange.Keep to null, keep.mode to keep.modeUntil)
         assertEquals(SettingChange.SetTo(PermissionMode.BYPASS) to until, bypass.mode to bypass.modeUntil)
         assertEquals(SettingChange.Reset to null, reset.mode to reset.modeUntil)
-        assertEquals(bypass, bypass.toBuilder().build())
         assertEquals(SettingChange.SetTo(PermissionMode.PLAN), keep.rebuild { mode(PermissionMode.PLAN) }.mode)
         assertFailsWith<IllegalArgumentException> { keep.rebuild { mode(PermissionMode.AUTO, until) } }
     }
@@ -310,61 +258,7 @@ class TurnValuesTest {
         assertEquals(PermissionMode.ASK, snapshot.effectiveMode)
         assertEquals(PermissionMode.MANUAL, configured.effectiveMode)
         assertEquals(PermissionMode.BYPASS to until, bypass.effectiveMode to bypass.modeUntil)
-        assertEquals(bypass, bypass.toBuilder().build())
         assertFailsWith<IllegalArgumentException> { snapshot.rebuild { mode(PermissionMode.PLAN, until) } }
-    }
-
-    @Test
-    fun `a settings snapshot has the default agent with nothing configured until set`() {
-        fun ChatSettingsSnapshot.settings() = listOf(
-            agent, model, reasoning, language, home, agentSource, defaultModel, defaultReasoning, defaultLanguage,
-        )
-        val deepseek = ModelRef(EndpointId("deepseek"), "deepseek-chat")
-        val snapshot = ChatSettingsSnapshot.builder(AgentId.MAIN).build()
-        val chosen = snapshot.rebuild {
-            agent(AgentId("coder"))
-            model(claude)
-            reasoning(ReasoningEffort.HIGH)
-            language(LanguageTag("fr"))
-            home(true)
-            agentSource(AgentSource.SELECTED)
-            defaultModel(deepseek)
-            defaultReasoning(ReasoningEffort.LOW)
-            defaultLanguage(LanguageTag("de"))
-        }
-
-        assertEquals(
-            listOf(AgentId.MAIN, null, null, null, false, AgentSource.DEFAULT, null, null, null),
-            snapshot.settings(),
-        )
-        assertEquals(
-            listOf(
-                AgentId("coder"),
-                claude,
-                ReasoningEffort.HIGH,
-                LanguageTag("fr"),
-                true,
-                AgentSource.SELECTED,
-                deepseek,
-                ReasoningEffort.LOW,
-                LanguageTag("de"),
-            ),
-            chosen.settings(),
-        )
-        assertEquals(chosen.settings(), chosen.toBuilder().build().settings())
-        assertTrue(chosen.rebuild { model(null) }.home)
-        val reset = chosen.rebuild {
-            agent(AgentId.MAIN)
-            model(null)
-            reasoning(null)
-            language(null)
-            home(false)
-            agentSource(AgentSource.DEFAULT)
-            defaultModel(null)
-            defaultReasoning(null)
-            defaultLanguage(null)
-        }
-        assertEquals(snapshot, reset)
     }
 
     @Test

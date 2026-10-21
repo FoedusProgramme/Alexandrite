@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.model.Trust
+import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.NoticeEntry
@@ -17,6 +18,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
+import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
@@ -40,6 +42,10 @@ class HeartbeatTurnsTest {
     private val coder = AgentId("coder")
     private val own = AgentChatKey(coder, ChatAddress.ofAgent(coder))
     private val exec = recordingTool("exec.run", ToolRisk.EXEC)
+    private val paste = recordingTool("notes.paste") { _, context ->
+        context.untrusted("a pasted page")
+        ToolResult("Pasted.")
+    }
 
     private fun harness(configure: PluginHarness.Builder.() -> Unit = {}): PluginHarness = agentHarness(
         """
@@ -49,7 +55,7 @@ class HeartbeatTurnsTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(operators = setOf("operator")).model(model).tool(exec).apply(configure) }
+    ) { channel(operators = setOf("operator")).model(model).tool(exec).tool(paste).apply(configure) }
 
     private suspend fun PluginHarness.Running.beat(): TurnOutcome {
         val turn = InitiatedTurn.heartbeat(coder, "Look around.").trust(Trust.TRUSTED).build()
@@ -58,6 +64,28 @@ class HeartbeatTurnsTest {
 
     private suspend fun beats(): List<TranscriptEntry> =
         store.transcripts.entries(store.conversations.heartbeatBase(own).id)
+
+    @Test
+    fun `an operator clears the taint of the heartbeat conversation, after which a beat sends unasked again`() {
+        model.reply { toolCall("notes.paste", "{}") }.reply { text("") }
+            .reply { toolCall("chat.send", """{"to": "home", "text": "All quiet."}""") }.reply { text("") }
+
+        harness().execute {
+            beat()
+            val base = store.conversations.heartbeatBase(own).id
+            val tainted = store.conversations.taint(base)
+            val operator = channel().user("operator")
+            val cleared = get<ConversationControl>().untaintHeartbeat(channel().chat("home"), operator)
+            beat()
+
+            assertEquals(tainted, cleared)
+            assertContains(checkNotNull(cleared).reason, "a pasted page")
+            assertEquals(null, store.conversations.taint(base))
+            assertEquals(null, get<ConversationControl>().untaintHeartbeat(channel().chat("home"), operator))
+            assertEquals(listOf("All quiet."), channel().sent.map { it.message.text })
+            assertEquals(emptyList(), channel().approvals)
+        }
+    }
 
     @Test
     fun `a beat runs at its agent's own chat, in its base conversation, and may end saying nothing`() {

@@ -81,7 +81,8 @@ class TelegramCodingTest {
         val diff = "--- $greeter\n+++ $greeter\n$HUNK"
         assertTrue(edit.text.endsWith("Tool: fs.edit (workspace_write)\nFile: $greeter\n\n$diff"), edit.text)
         assertEquals(listOf(listOf("Allow", "Deny")), edit.buttons.map { row -> row.map { it.text } })
-        val command = "Tool: command.exec (exec)\nDirectory: $repository\nProgram: $check\n\n./check.sh"
+        val command = "Tool: command.exec (exec)\nDirectory: $repository\nProgram: $check\n" +
+            "Sandbox: none, the program runs on the host with your full rights\n\n./check.sh"
         assertTrue(exec.text.endsWith(command), exec.text)
         assertEquals(listOf("Allow", "Deny"), exec.buttons.first().map { it.text })
         assertEquals(
@@ -127,7 +128,8 @@ class TelegramCodingTest {
         }
 
         assertTrue(edited, "The edit had not run when the check was asked about.")
-        assertTrue("\nWhy: the chat is in allowedit mode\nTool: command.exec (exec)\n" in exec.text, exec.text)
+        assertTrue("\nWhy: the chat is in allowedit mode\n" in exec.text, exec.text)
+        assertTrue("Trusting covers" !in exec.text, exec.text)
         assertEquals(1, app.fake.botMessages(ADA).count { it.text.startsWith("Approval needed") })
         assertEquals(List(3) { ToolOutcome.Succeeded }, results().map { it.outcome })
         assertEquals(EDITED, greeter.readText())
@@ -182,8 +184,13 @@ class TelegramCodingTest {
             ),
             results().map { it.outcome to it.text },
         )
-        assertEquals(listOf(REFUSED), app.fake.botMessages().body().map { it.text })
-        assertEquals(listOf(BOB), app.fake.botMessages().body().map { it.chat })
+        assertEquals(listOf(REFUSED), app.fake.botMessages(BOB).body().map { it.text })
+        assertEquals(
+            listOf(TelegramApp.OFFERED),
+            app.fake.botMessages(ADA).map {
+                it.text.substringBefore(" (#")
+            },
+        )
         assertEquals(GREETER, greeter.readText())
     }
 

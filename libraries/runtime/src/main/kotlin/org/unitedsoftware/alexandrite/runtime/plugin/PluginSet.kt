@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.unitedsoftware.alexandrite.runtime.RuntimeProblemKind
+import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.problem.Problem
@@ -22,6 +23,10 @@ public class PluginSet private constructor(
     internal val broken: List<Problem>,
 ) {
     public val plugins: List<LoadedPlugin> get() = members.map { it.plugin }
+
+    /** The class loader of each plugin's own classes and resources, by plugin id. */
+    @InternalAlexandriteApi
+    public val classLoaders: Map<String, ClassLoader> get() = members.associate { it.id to it.index.classLoader() }
 
     public operator fun plus(index: PluginIndex): PluginSet = adding(index, duplicates)
 
@@ -164,3 +169,6 @@ private fun read(file: URL): String {
 
 private fun contextClassLoader(): ClassLoader =
     Thread.currentThread().contextClassLoader ?: PluginSet::class.java.classLoader
+
+/** The class loader of the plugin's own classes and resources. */
+internal fun PluginIndex.classLoader(): ClassLoader = javaClass.classLoader ?: ClassLoader.getSystemClassLoader()

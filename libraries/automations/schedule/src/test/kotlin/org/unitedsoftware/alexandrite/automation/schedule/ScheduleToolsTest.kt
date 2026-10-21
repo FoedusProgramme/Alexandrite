@@ -2,14 +2,21 @@ package org.unitedsoftware.alexandrite.automation.schedule
 
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.automation.common.When
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.model.Trust
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
+import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.Mandate
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testDelegatedTurn
+import org.unitedsoftware.alexandrite.testkit.testToolContext
 import java.time.Instant
 import java.time.LocalDateTime
 import kotlin.test.Test
@@ -156,6 +163,51 @@ class ScheduleToolsTest {
                 "+08:00, set by Ada: Check the build.",
             listed.text,
         )
+    }
+
+    @Test
+    fun `listing tasks taints nothing, also one whose prompt runs untrusted`() = test {
+        val schedule = opened()
+        schedule.make(mapOf("in" to "1h"))
+        val id = schedule.make(mapOf("in" to "2h"), mandate = null)
+        val context = testToolContext(turn())
+        val listed = schedule.list.execute(JsonObject(emptyMap()), context)
+
+        assertEquals(emptyList(), context.untrustedReasons)
+        assertContains(listed.text, "$id: once")
+    }
+
+    // Under taint.
+
+    @Test
+    fun `under taint a person sees the prompt and time of a new task, and a cancel is no reviewed call`() = test {
+        val schedule = opened()
+        val tainted = testToolContext(turn()).apply { this.tainted = true }
+        val arguments = JsonObject(mapOf("prompt" to JsonPrimitive("Post the feed."), "every" to JsonPrimitive("1d")))
+
+        val guestContext = testToolContext(turn(GUEST)).apply { this.tainted = true }
+
+        val created = (schedule.create as ReviewedTool).review(arguments, tainted)
+        val clean = (schedule.create as ReviewedTool).review(arguments, testToolContext(turn()))
+        val guest = (schedule.create as ReviewedTool).review(arguments, guestContext)
+
+        val why = "the conversation took in untrusted content, and a scheduled task outlasts it"
+        val shown = ReviewPreview.Text("Schedule in this chat, every 1d:\n\nPost the feed.")
+        assertEquals(why to shown, created.person to created.preview)
+        assertEquals(ToolRisk.AGENT_STATE, schedule.cancel.definition.risk)
+        assertEquals(CallReview.builder().risk(ToolRisk.PERSISTENT_STATE).build(), clean)
+        assertEquals(CallReview.builder().build(), guest)
+    }
+
+    @Test
+    fun `an operator's new task counts as lasting, so plan mode refuses it`() = test {
+        val schedule = opened()
+        val clean = testToolContext(turn())
+        val arguments = JsonObject(mapOf("prompt" to JsonPrimitive("Post the feed."), "in" to JsonPrimitive("1h")))
+
+        val created = (schedule.create as ReviewedTool).review(arguments, clean)
+
+        assertEquals(ToolRisk.PERSISTENT_STATE to null, created.risk to created.person)
     }
 
     // Mandates.

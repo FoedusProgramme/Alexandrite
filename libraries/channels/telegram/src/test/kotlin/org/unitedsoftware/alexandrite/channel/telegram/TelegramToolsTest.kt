@@ -81,7 +81,7 @@ class TelegramToolsTest {
     }
 
     @Test
-    fun `a member's profile is untrusted, a lookup that finds no one is not`() {
+    fun `a member lookup taints nothing, as the names it shows reach the model with every message`() {
         telegram.run {
             fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot hi")
             telegram.submitted(1)
@@ -91,8 +91,7 @@ class TelegramToolsTest {
             tool("telegram.member").execute(Json.parseToJsonElement("""{"user": "$BOB"}""").jsonObject, context)
             tool("telegram.member").execute(Json.parseToJsonElement("""{"user": "@nobody"}""").jsonObject, missing)
 
-            assertEquals(listOf("telegram.member reads a profile its user wrote"), context.untrustedReasons)
-            assertEquals(emptyList(), missing.untrustedReasons)
+            assertEquals(emptyList(), context.untrustedReasons + missing.untrustedReasons)
         }
     }
 
@@ -102,6 +101,7 @@ class TelegramToolsTest {
             val first = fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot pin this").messageId()
             fake.send(telegram.bob, telegram.group, "@alexandrite_test_bot pin that", replyTo = first)
             telegram.submitted(2)
+            telegram.consumed(2)
             val (plain, reply) = telegram.submitter.tickets.map { it.turn }
             val group = telegram.address(GROUP)
 

@@ -7,7 +7,7 @@ class TranscriptRulesTest {
     private fun check(vararg entries: TranscriptEntry): List<String> = TranscriptRules.check(entries.toList())
 
     @Test
-    fun `results may come in any order right after their calls`() {
+    fun `results may come in any order right after their calls, and a user entry may follow them`() {
         assertEquals(
             emptyList(),
             check(
@@ -18,10 +18,6 @@ class TranscriptRulesTest {
                 reply(TextPart("Done.")),
             ),
         )
-    }
-
-    @Test
-    fun `a user entry may follow a round's results`() {
         assertEquals(
             emptyList(),
             check(user("Save it"), reply(call("a")), result("a"), user("Actually, two"), reply(call("b")), result("b")),

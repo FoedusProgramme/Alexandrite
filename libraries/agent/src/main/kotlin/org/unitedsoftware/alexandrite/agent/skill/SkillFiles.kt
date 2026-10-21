@@ -19,13 +19,16 @@ internal const val MAX_SKILL_BYTES: Int = 64 * 1024
 /** A skill file as read: the name and description of its front matter, its body and the SHA-256 of its bytes. */
 internal class SkillText(val name: String?, val description: String?, val body: String, val sha256: String)
 
-/** The skill file [file], null when it is no single-link regular file, is over [MAX_SKILL_BYTES] or is no UTF-8. */
-internal fun readSkill(file: Path): SkillText? = try {
+/**
+ * The skill file [file], null when it is no regular file, has a second hard link and [oneLink], is over
+ * [MAX_SKILL_BYTES] or is no UTF-8.
+ */
+internal fun readSkill(file: Path, oneLink: Boolean): SkillText? = try {
     val attributes = Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
-    if (!attributes.isRegularFile || hardLinks(file) > 1 || attributes.size() > MAX_SKILL_BYTES) {
+    if (!attributes.isRegularFile || (oneLink && hardLinks(file) > 1) || attributes.size() > MAX_SKILL_BYTES) {
         null
     } else {
-        parseSkill(openRegularFile(file).use { it.readNBytes(MAX_SKILL_BYTES + 1) })
+        parseSkill(openRegularFile(file, oneLink).use { it.readNBytes(MAX_SKILL_BYTES + 1) })
     }
 } catch (e: IOException) {
     null

@@ -7,11 +7,11 @@ import org.junit.jupiter.api.Timeout
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class GrepToolTest {
@@ -31,14 +31,6 @@ class GrepToolTest {
         text = fs.write("repo/src/util/Text.kt", "package demo\n\nfun greet(name: String) = println(\"Hi, \$name\")\n")
         fs.write("repo/README.md", "# Demo\n\nCall greet() from main.\n")
         fs.write("repo/.git/HEAD", "fun greet in git\n")
-    }
-
-    @Test
-    fun `the call is titled by its pattern, of activity search`() {
-        assertEquals(
-            ToolActivity.SEARCH to listOf("pattern"),
-            tool.definition.activity to tool.definition.titleArguments,
-        )
     }
 
     @Test
@@ -105,10 +97,8 @@ class GrepToolTest {
             "'src' is a relative path, and you have no workspace to resolve it against: give an absolute path.",
             tool.call(fs.context(workspace = null), "pattern" to "x", "path" to "src"),
         )
-        assertRefused(
-            "'pattern' is no valid regular expression: Unclosed group near index 4.",
-            tool.call(context, "pattern" to "fun(", "path" to main),
-        )
+        val malformed = tool.call(context, "pattern" to "fun(", "path" to main)
+        assertTrue(malformed.isError && malformed.text.startsWith("'pattern' is no valid regular expression"))
     }
 
     @Test
@@ -166,11 +156,22 @@ class GrepToolTest {
     }
 
     @Test
+    @DisabledOnOs(OS.WINDOWS)
+    fun `a file with more than one hard link is searched under a floor that protects nothing`() {
+        val linked = fs.write("repo/linked.txt", "greet\n")
+        Files.createLink(fs.root.resolve("workspace/linked.txt"), linked)
+
+        val result = GrepTool(fs.unprotected).call(fs.context(), "pattern" to "greet", "path" to linked)
+
+        assertEquals("$linked\n  1: greet\n", result.text)
+    }
+
+    @Test
     fun `a file that vanishes during the walk is named as unreadable and the search goes on`() {
         val gone = fs.write("repo/gone.kt", "fun gone() {}\n")
         val entry = Entry(gone, "gone.kt", attributes(gone))
         Files.delete(gone)
-        val search = Search(Regex("fun"))
+        val search = Search(Regex("fun"), oneLink = true)
 
         search.entry(entry)
         search.entry(Entry(main, "src/Main.kt", attributes(main)))

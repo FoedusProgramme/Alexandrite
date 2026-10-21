@@ -1,10 +1,7 @@
 package org.unitedsoftware.alexandrite.provider.common
 
-import org.unitedsoftware.alexandrite.provider.common.messages.MessagesEndpoint
-import org.unitedsoftware.alexandrite.provider.common.messages.MessagesFlavor
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
-import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import kotlin.test.Test
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -58,13 +55,6 @@ class EndpointSettingsTest {
         refused("may not set x-api-key when apiKey") { messages(mapOf("X-Api-Key" to Secret("x"))) }
         messages(mapOf("X-Api-Key" to Secret("x")), apiKey = null)
         messages(mapOf("Authorization" to Secret("x")))
-    }
-
-    @Test
-    fun `an endpoint refuses headers that it sets itself although the settings name none`() {
-        val settings = EndpointSettings("https://a.example", headers = mapOf("Anthropic-Beta" to Secret("x")))
-
-        refused("may not set anthropic-beta") { MessagesEndpoint(EndpointId("a"), settings, MessagesFlavor.STANDARD) }
     }
 
     @Test

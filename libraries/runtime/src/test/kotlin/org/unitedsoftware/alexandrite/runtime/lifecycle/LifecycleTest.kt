@@ -257,24 +257,20 @@ class LifecycleTest {
         val control = CompletableDeferred<RuntimeControl>()
         val failure = StopRequest.failure("disk full")
         val spec = spec(core(worker("a", "core", onStart = { control.complete(it) })), dataDir)
-        lateinit var termination: Termination
 
-        val lines = logged {
-            termination = spec.execute {
-                val plugin = control.await()
-                thread { plugin.stop(failure) }
-                try {
-                    awaitCancellation()
-                } catch (e: CancellationException) {
-                    events.record("block cancelled")
-                    throw e
-                }
+        val termination = spec.execute {
+            val plugin = control.await()
+            thread { plugin.stop(failure) }
+            try {
+                awaitCancellation()
+            } catch (e: CancellationException) {
+                events.record("block cancelled")
+                throw e
             }
         }
 
         assertEquals(requested(failure.from("core")), termination)
         assertEquals("core", termination.request.plugin)
-        assertContains(lines, "INFO test: stopping: StopRequest(kind=FAILURE, reason=disk full, plugin=core)")
         assertEquals(listOf("block cancelled"), events.all())
     }
 
@@ -335,15 +331,7 @@ class LifecycleTest {
         }
 
         assertEquals(requested(RESTART), termination)
-        assertEquals(
-            listOf(
-                "INFO test: stopping: $RESTART",
-                "INFO test: ignoring the stop request ${late.from("core")}: $RESTART came first",
-                "INFO test: stopped",
-                "INFO test: ignoring the stop request $HOST_STOP: $RESTART came first",
-            ),
-            lines.filterNot { it.startsWith("INFO test: loading plugins") },
-        )
+        assertEquals(2, lines.count { "ignoring the stop request" in it }, "$lines")
     }
 
     @Test
@@ -499,7 +487,7 @@ class LifecycleTest {
         val error = spec.startFailure()
 
         assertEquals(StartStage.GRAPH, error.stage)
-        assertEquals(listOf(DiProblemKind.MISSING, RuntimeProblemKind.DESTROY_FAILED), error.problems.map { it.kind })
+        assertEquals(listOf(DiProblemKind.MISSING, RuntimeProblemKind.SHUTDOWN), error.problems.map { it.kind })
         assertEquals(
             "Destroying c (plugin core) failed: java.lang.IllegalStateException: close c failed",
             error.problems.last().message,
@@ -524,7 +512,7 @@ class LifecycleTest {
         val lines = logged { error = assertFailsWith<RuntimeStartException> { spec.execute() } }
 
         assertEquals(failure.from("core"), error.stopRequest)
-        assertEquals(listOf(RuntimeProblemKind.STOP_FAILED), error.problems.map { it.kind })
+        assertEquals(listOf(RuntimeProblemKind.SHUTDOWN), error.problems.map { it.kind })
         assertEquals(requested(failure.from("core"), error.problems), recorder.termination())
         assertContains(
             lines,
@@ -546,24 +534,15 @@ class LifecycleTest {
 
         val lines = logged { termination = spec.execute() }
 
-        val messages = listOf(
-            "Closing a (plugin core) failed: java.lang.IllegalStateException: close a failed",
-            "Draining b (plugin core) failed: java.lang.IllegalStateException: drain b failed",
-            "Stopping b (plugin core) failed: java.lang.IllegalStateException: stop b failed",
-            "Destroying c (plugin core) failed: java.lang.IllegalStateException: close c failed",
-        )
+        val failures = listOf("close a failed", "drain b failed", "stop b failed", "close c failed")
         assertEquals(
-            listOf(
-                RuntimeProblemKind.CLOSE_FAILED,
-                RuntimeProblemKind.DRAIN_FAILED,
-                RuntimeProblemKind.STOP_FAILED,
-                RuntimeProblemKind.DESTROY_FAILED,
-            ),
-            termination.problems.map { it.kind },
+            List(4) {
+                RuntimeProblemKind.SHUTDOWN to "core"
+            },
+            termination.problems.map { it.kind to it.plugin },
         )
-        assertEquals(messages, termination.problems.map { it.message })
-        assertEquals(List(4) { "core" }, termination.problems.map { it.plugin })
-        assertEquals(messages.map { "WARN test: $it" }, lines.filter { it.startsWith("WARN") })
+        failures.zip(termination.problems).forEach { (failure, problem) -> assertContains(problem.message, failure) }
+        assertEquals(4, lines.count { it.startsWith("WARN") }, "$lines")
     }
 
     @Test
@@ -582,12 +561,12 @@ class LifecycleTest {
         assertEquals(
             listOf(
                 Problem(
-                    RuntimeProblemKind.DRAIN_TIMED_OUT,
+                    RuntimeProblemKind.SHUTDOWN,
                     "Draining b (plugin core) was cancelled: the shutdown grace of 200ms ran out.",
                     "core",
                 ),
                 Problem(
-                    RuntimeProblemKind.DRAIN_NOT_CALLED,
+                    RuntimeProblemKind.SHUTDOWN,
                     "Skipped draining a (plugin core): the shutdown grace of 200ms had run out.",
                     "core",
                 ),
@@ -613,14 +592,14 @@ class LifecycleTest {
 
         assertEquals(
             listOf(
-                RuntimeProblemKind.CLOSE_TIMED_OUT to "Closing b (plugin core) was cancelled: the shutdown grace of " +
+                RuntimeProblemKind.SHUTDOWN to "Closing b (plugin core) was cancelled: the shutdown grace of " +
                     "1s ran out.",
-                RuntimeProblemKind.CLOSE_NOT_CALLED to "Skipped closing a (plugin core): the shutdown grace of 1s " +
+                RuntimeProblemKind.SHUTDOWN to "Skipped closing a (plugin core): the shutdown grace of 1s " +
                     "had run out.",
             ),
             problems.take(2).map { it.kind to it.message },
         )
-        assertEquals(List(2) { RuntimeProblemKind.DRAIN_NOT_CALLED }, problems.drop(2).map { it.kind })
+        assertEquals(List(2) { RuntimeProblemKind.SHUTDOWN }, problems.drop(2).map { it.kind })
         assertEquals(listOf("stop b", "stop a", "destroy b", "destroy a"), events.all().takeLast(4))
     }
 
@@ -641,7 +620,7 @@ class LifecycleTest {
         val termination = spec.execute()
 
         assertEquals(
-            listOf(RuntimeProblemKind.STOP_FAILED to "core", RuntimeProblemKind.DESTROY_FAILED to "core"),
+            listOf(RuntimeProblemKind.SHUTDOWN to "core", RuntimeProblemKind.SHUTDOWN to "core"),
             termination.problems.map { it.kind to it.plugin },
         )
         assertContains(termination.problems.first().message, "kotlin.NotImplementedError")

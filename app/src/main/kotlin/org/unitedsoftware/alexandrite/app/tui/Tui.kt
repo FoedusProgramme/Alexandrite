@@ -121,7 +121,10 @@ internal class Tui(private val console: Console, private val style: Style, priva
     fun <T> select(title: String, choices: List<Choice<T>>, initial: Int = 0): T? =
         ask(SelectPrompt(title, choices, initial.coerceIn(0, (choices.size - 1).coerceAtLeast(0))))
 
-    /** The [items] the person picks in the order they pick them, null when they cancel. */
+    /**
+     * The [items] the person picks in the order they pick them, or the filter typed when it matches none; null when
+     * they cancel.
+     */
     fun pick(title: String, items: List<String>, hint: String = words.pickHint): List<String>? =
         ask(PickPrompt(title, items, hint))
 
@@ -397,7 +400,9 @@ internal class Tui(private val console: Console, private val style: Style, priva
 
                 Key.Enter -> {
                     if (picked.isNotEmpty()) return Outcome.Done(picked.toList())
-                    return shown.getOrNull(cursor)?.let { Outcome.Done(listOf(it)) } ?: Outcome.Invalid(words.noMatch)
+                    shown.getOrNull(cursor)?.let { return Outcome.Done(listOf(it)) }
+                    return filter.trim().takeIf { it.isNotEmpty() }?.let { Outcome.Done(listOf(it)) }
+                        ?: Outcome.Invalid(words.noMatch)
                 }
 
                 Key.Escape -> {

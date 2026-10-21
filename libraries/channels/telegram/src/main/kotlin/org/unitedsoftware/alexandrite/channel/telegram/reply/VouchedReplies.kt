@@ -17,8 +17,8 @@ import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
 
 /**
- * The bot's messages that answered one of its admins, whose quotes the channel vouches for, by Telegram chat and
- * message id: the latest [MAX_KEPT] of them, kept across restarts.
+ * The bot's messages whose words the agent vouched for, whose quotes the channel vouches for in turn, by Telegram chat
+ * and message id: the latest [MAX_KEPT] of them, kept across restarts.
  */
 @ChannelInstanceScoped
 internal class VouchedReplies(private val instance: ChannelInstance, records: Records) : Lifecycle {
@@ -50,7 +50,7 @@ internal class VouchedReplies(private val instance: ChannelInstance, records: Re
         writes.children.toList().joinAll()
     }
 
-    /** Notes [messages] of [chat] as the bot's answer to one of its admins. */
+    /** Notes [messages] of [chat] as the bot's answer that the agent vouched for. */
     fun note(chat: Long, messages: Collection<Long>) {
         val forgotten = mutableListOf<Pair<Long, Long>>()
         val added = synchronized(kept) {
@@ -62,7 +62,7 @@ internal class VouchedReplies(private val instance: ChannelInstance, records: Re
         for (message in forgotten) write { stored.remove(key(message)) }
     }
 
-    /** Whether the message [message] of [chat] is the bot's answer to one of its admins. */
+    /** Whether the message [message] of [chat] is the bot's answer that the agent vouched for. */
     fun contains(chat: Long, message: Long): Boolean = synchronized(kept) { chat to message in kept }
 
     private fun write(block: suspend () -> Unit) {

@@ -41,8 +41,11 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
 
             else -> texts.text(TextKeys.USAGE, language)
         }
-        context.reply(reply)
+        context.reply(reply, forModel = words.isNotEmpty() || !showsServerText())
     }
+
+    /** Whether the list shows the error text of a server whose output is not trusted, kept from the model. */
+    private fun showsServerText(): Boolean = hub.servers.any { !it.spec.trusted && it.status.value.lastError != null }
 
     /** `/mcp login <server> [address]` and `/mcp logout <server>`, whose links and addresses are credentials. */
     private suspend fun account(
@@ -126,6 +129,9 @@ internal class McpCommand(private val hub: McpHub, private val texts: Texts) : C
                 ServerState.NEEDS_LOGIN -> texts.text(TextKeys.STATE_NEEDS_LOGIN, language)
 
                 ServerState.DISABLED -> texts.text(TextKeys.STATE_DISABLED, language)
+            }.let { state ->
+                val warning = server.spec.warning ?: return@let state
+                texts.text(TextKeys.STATE_WARNING, language, "state" to state, "warning" to warning)
             }
             val error = status.lastError
             if (error == null) {
@@ -180,6 +186,7 @@ internal object TextKeys {
     const val RESTART_DISABLED = "restart.disabled"
     const val STATE_WIDER = "state.wider"
     const val STATE_FAILING = "state.failing"
+    const val STATE_WARNING = "state.warning"
     const val LOGIN_HINT = "login.hint"
     const val LOGIN_REFUSED_GROUP = "login.refused_group"
     const val LOGIN_NOT_HTTP = "login.not_http"

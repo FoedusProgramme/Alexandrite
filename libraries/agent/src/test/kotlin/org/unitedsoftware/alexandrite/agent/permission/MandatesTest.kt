@@ -1,8 +1,11 @@
 package org.unitedsoftware.alexandrite.agent.permission
 
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.prompt.INITIATED_SOURCE
+import org.unitedsoftware.alexandrite.agent.startingInBackground
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -11,6 +14,9 @@ import org.unitedsoftware.alexandrite.sdk.plugin.PluginOrigins
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
+import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
+import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
@@ -55,6 +61,12 @@ class MandatesTest {
         ToolResult("A page.")
     }
 
+    /** A tool that only an operator's turn may call. */
+    private val operate = recordingTool("ops.run")
+
+    /** Starts as a background job, held until a test releases it. */
+    private val later = recordingTool("tasks.later").hold()
+
     private fun harness(operators: Set<String> = setOf("operator")): PluginHarness = agentHarness(
         """
         {
@@ -69,7 +81,10 @@ class MandatesTest {
         }
         """.trimIndent(),
         store,
-    ) { channel(operators = operators).model(model).tool(make).tool(who).tool(fetch) }
+    ) {
+        channel(operators = operators).model(model).tool(make).tool(who).tool(fetch).tool(operate)
+            .tool(startingInBackground(later))
+    }
 
     private suspend fun PluginHarness.Running.ask(user: String = "operator") {
         val admission = channel().receive("Set it up.", sender = channel().user(user))
@@ -142,6 +157,59 @@ class MandatesTest {
 
             assertEquals(listOf<ChatUser?>(null, null, null), actors)
             assertEquals(false, "On behalf of" in elsewhere)
+        }
+    }
+
+    @Test
+    fun `a reminder under a mandate acts as nobody from the call that taints it, and so do the jobs it started`() {
+        model.reply { toolCall("tasks.make", "{}") }.reply { text("Set.") }
+
+        harness().execute {
+            ask()
+            val mandate = assertNotNull(granted.single())
+            model.reply { toolCall("tasks.later", "{}") }
+                .reply { toolCall("tasks.who", "{}") }
+                .reply { toolCall("web.fetch", "{}") }
+                .reply { toolCall("tasks.who", "{}") }
+                .reply { text("Done.") }
+                .reply { toolCall("tasks.who", "{}") }
+                .reply { text("Reported.") }
+            val turn = InitiatedTurn.builder(key, TurnKind.REMINDER, "Check the feed.")
+                .trust(Trust.TRUSTED)
+                .mandate(mandate)
+                .build()
+            val admission = get<TurnInitiation>().initiate(plugin(make), turn)
+            assertIs<TurnOutcome.Completed>(assertIs<Admission.Accepted>(admission).ticket.outcome())
+            later.release()
+            withTimeout(5_000) { while (actors.size < 3) delay(5) }
+
+            val operator = assertNotNull(actors.first())
+            assertEquals(listOf(operator, null, null), actors.toList())
+        }
+    }
+
+    @Test
+    fun `a reminder under a mandate may no longer call an operator's tools once a call taints it`() {
+        model.reply { toolCall("tasks.make", "{}") }.reply { text("Set.") }
+
+        harness().execute {
+            ask()
+            val mandate = assertNotNull(granted.single())
+            model.reply { toolCall("ops.run", "{}") }
+                .reply { toolCall("web.fetch", "{}") }
+                .reply { toolCall("ops.run", "{}") }
+                .reply { text("Done.") }
+            val turn = InitiatedTurn.builder(key, TurnKind.REMINDER, "Check the feed.")
+                .trust(Trust.TRUSTED)
+                .mandate(mandate)
+                .build()
+            val admission = get<TurnInitiation>().initiate(plugin(make), turn)
+            assertIs<TurnOutcome.Completed>(assertIs<Admission.Accepted>(admission).ticket.outcome())
+
+            assertEquals(1, operate.calls.size)
+            val refused = store.transcripts.entries(store.conversations.current(key).id)
+                .filterIsInstance<ToolResultEntry>().last { it.toolName == "ops.run" }
+            assertEquals(ToolOutcome.NotRun(NotRunReason.NOT_PERMITTED), refused.outcome)
         }
     }
 

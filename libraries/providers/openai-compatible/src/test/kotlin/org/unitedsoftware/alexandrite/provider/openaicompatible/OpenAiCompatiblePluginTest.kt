@@ -54,12 +54,12 @@ class OpenAiCompatiblePluginTest {
     }
 
     @Test
-    fun `an endpoint sends its configured headers and the cache key`() = runBlocking {
+    fun `an endpoint sends the cache key`() = runBlocking {
         FakeModelServer().use { server ->
             server.enqueue(chunks(chunk { with("content", "Hi.") }, chunk("stop")))
             val config = """
-                {"endpoints": {"proxy": {"baseUrl": "${server.baseUrl}/v1", "apiKey": "sk-plugin-test-key",
-                    "headers": {"X-Team": "core"}, "promptCacheKey": true, "discover": false, "models": {"m": {}}}}}
+                {"endpoints": {"proxy": {"baseUrl": "${server.baseUrl}/v1", "promptCacheKey": true,
+                    "discover": false, "models": {"m": {}}}}}
             """.trimIndent()
 
             harness(config).build().run {
@@ -75,7 +75,6 @@ class OpenAiCompatiblePluginTest {
             }
 
             val sent = server.requests.single()
-            assertEquals("core" to "Bearer sk-plugin-test-key", sent.header("x-team") to sent.header("authorization"))
             assertEquals("cache-7", sent.json()["prompt_cache_key"]?.jsonPrimitive?.content)
         }
     }
@@ -83,12 +82,8 @@ class OpenAiCompatiblePluginTest {
     @Test
     fun `a malformed endpoint fails the start at CONFIG without showing its values`() = runBlocking {
         val cases = listOf(
-            endpoint().replace("\"x\"", "\"Bad_Id\"") to "no endpoint id",
             endpoint().replace("https://", "https://user:hunter2@") to "baseUrl must be",
             endpoint(""", "profile": "deepseek"""") to "profile",
-            endpoint(""", "turnContext": "sometimes"""") to "turnContext",
-            endpoint(""", "headers": {"Host": "h"}""") to "may not set host",
-            endpoint(""", "models": {"m": {"inputMedia": ["smell"]}}""") to "inputMedia holds",
             """{"endpoints": {"x": {"apiKey": "k"}}}""" to "baseUrl",
         )
 

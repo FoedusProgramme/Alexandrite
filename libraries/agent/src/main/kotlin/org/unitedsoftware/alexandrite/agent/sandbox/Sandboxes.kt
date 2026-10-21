@@ -11,18 +11,21 @@ import org.unitedsoftware.alexandrite.agent.permission.AgentFloor
 import org.unitedsoftware.alexandrite.agent.permission.CallRules
 import org.unitedsoftware.alexandrite.agent.permission.Containment
 import org.unitedsoftware.alexandrite.agent.permission.Containments
+import org.unitedsoftware.alexandrite.agent.permission.INSTRUCTION_NAMES
+import org.unitedsoftware.alexandrite.agent.permission.InstructionPlaces
 import org.unitedsoftware.alexandrite.agent.permission.alexandritePlaces
 import org.unitedsoftware.alexandrite.agent.permission.session
-import org.unitedsoftware.alexandrite.agent.project.FolderTrust
+import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.sandbox.HostPattern
 import org.unitedsoftware.alexandrite.internal.sandbox.NetworkProxy
+import org.unitedsoftware.alexandrite.internal.sandbox.Protect
 import org.unitedsoftware.alexandrite.internal.sandbox.ProxyLease
 import org.unitedsoftware.alexandrite.internal.sandbox.SYSTEM_RESOLVER
-import org.unitedsoftware.alexandrite.internal.sandbox.platformEnvironment
 import org.unitedsoftware.alexandrite.internal.sandbox.proxyVariables
+import org.unitedsoftware.alexandrite.internal.sandbox.selectEnvironment
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
@@ -67,6 +70,7 @@ internal class Sandboxes(
     private val trust: FolderTrust,
     private val floor: AgentFloor,
     private val rules: CallRules,
+    private val instructions: InstructionPlaces,
 ) : Containments,
     CallSandboxes {
     private val canonicalizer = PathCanonicalizer()
@@ -89,7 +93,14 @@ internal class Sandboxes(
         val variables = command?.segments.orEmpty().any { it.environment.isNotEmpty() }
         val allowed = allowed(turn, configured)
         val hosts = contained.hosts.mapNotNull(HostPattern::parse).filter { host -> allowed.none { it.covers(host) } }
-        return Containment(configured.config.autoAllow && !variables, hosts.map { it.toString() }.distinct())
+        val directories = listOfNotNull(command?.cwd) + command?.segments.orEmpty().map { it.cwd }
+        val trusted = directories.isNotEmpty() && directories.all { trust.covering(turn.agent, real(it)) != null }
+        return Containment(
+            configured.config.autoAllow && !variables,
+            hosts.map { it.toString() }.distinct(),
+            network = allowed.isNotEmpty() || contained.hosts.isNotEmpty(),
+            trustedFolder = trusted,
+        )
     }
 
     /** The hosts that commands of [turn] may reach: the configured ones and those its session allows. */
@@ -100,19 +111,17 @@ internal class Sandboxes(
 
     private fun configured(agent: AgentId, config: SandboxConfig, environment: ExecutionEnvironment): Configured {
         val key = "agent.agents.$agent.sandbox"
-        val entries = config.protect ?: SandboxConfig.DEFAULT_PROTECT
-        val (names, absolute) = entries.filterNot { it == SandboxConfig.ALEXANDRITE }
-            .partition { !it.startsWith("/") && !it.startsWith("~") }
+        val protect = Protect.of(config.protect)
         val protectedPaths =
-            absolute.map { configuredPath(paths, "$key.protect", "the protected path", expandHome(it)) } +
-                if (SandboxConfig.ALEXANDRITE in entries) alexandritePlaces(paths) else emptyList()
+            protect.paths.map { configuredPath(paths, "$key.protect", "the protected path", expandHome(it)) } +
+                if (protect.alexandrite) alexandritePlaces(paths) else emptyList()
         logger.info("Agent '{}' runs its commands in the {} sandbox", agent, environment.name)
         return Configured(
             environment,
             config,
             config.allowWrite.map { configuredPath(paths, "$key.allowWrite", "the writable path", expandHome(it)) },
             protectedPaths,
-            names,
+            protect.names,
             config.denyRead.map { configuredPath(paths, "$key.denyRead", "the unreadable path", expandHome(it)) },
             config.network.allowedDomains.mapNotNull(HostPattern::parse),
         )
@@ -134,14 +143,16 @@ internal class Sandboxes(
             val agent = turn.agent
             val workspace = workspaces.paths[agent]
             val conversation = this@Sandboxes.directories.path(turn)
-            val trusted = directories.mapNotNull { trust.covering(real(it))?.path }
+            val trusted = directories.mapNotNull { trust.covering(agent, real(it))?.path }
             val (denied, asked) = floor.sandboxPlaces()
             val closed = if (allowed) emptyList() else asked
+            val steering = if (allowed) emptyList() else instructions.sandboxPaths()
+            val names = if (allowed) emptyList() else INSTRUCTION_NAMES
             return Boundary(
                 writable = (listOfNotNull(workspace, conversation) + trusted + temporary() + configured.allowWrite)
                     .map(::real).distinct(),
-                writeDenied = (configured.protectedPaths + closed).map(::real).distinct(),
-                protectedNames = configured.protectedNames,
+                writeDenied = (configured.protectedPaths + closed + steering).map(::real).distinct(),
+                protectedNames = (configured.protectedNames + names).distinct(),
                 readDenied = (denied + closed + configured.denyRead).map(::real).distinct(),
                 readable = (listOfNotNull(workspace, conversation) + places.skillDirectories(agent)).map(::real)
                     .distinct(),
@@ -192,37 +203,14 @@ internal class Sandboxes(
  * The environment that [agent]'s sandbox [type] names, null for none; throws a [ConfigException] for a named one that
  * is missing or unavailable.
  */
-private fun environment(agent: AgentId, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? {
-    val key = "agent.agents.$agent.sandbox.type"
-    return when (type) {
-        SandboxConfig.HOST -> null
-
-        SandboxConfig.AUTO -> {
-            val name = platformEnvironment()
-            val found = environments.firstOrNull { it.name == name && it.available() }
-            if (found == null) {
-                logger.warn(
-                    "Agent '{}' asks for the platform's sandbox, but {}: its commands run on the host",
-                    agent,
-                    name?.let { "the $it sandbox is not available" } ?: "this platform has none",
-                )
-            }
-            found
+private fun environment(agent: AgentId, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? =
+    try {
+        selectEnvironment(type, environments, { it.name }, { it.available() }) { why ->
+            logger.warn("Agent '{}' asks for the platform's sandbox, but {}: its commands run on the host", agent, why)
         }
-
-        else -> {
-            val named = environments.firstOrNull { it.name == type } ?: throw ConfigException(
-                key,
-                "no plugin contributes the sandbox '$type'. Sandboxes: " +
-                    environments.joinToString { it.name }.ifEmpty { "none" } + ".",
-            )
-            if (!named.available()) {
-                throw ConfigException(key, "the sandbox '$type' is not available on this host")
-            }
-            named
-        }
+    } catch (e: IllegalArgumentException) {
+        throw ConfigException("agent.agents.$agent.sandbox.type", e.message.orEmpty(), e)
     }
-}
 
 /** The per-user temp directory. */
 private fun temporary(): List<Path> =

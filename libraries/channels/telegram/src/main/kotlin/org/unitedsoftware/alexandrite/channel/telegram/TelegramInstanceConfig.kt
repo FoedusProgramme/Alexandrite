@@ -31,8 +31,13 @@ internal class TelegramInstanceConfig(
     val replayWindowMinutes: Int = 1440,
     /** Whether the bot publishes its command menu. */
     val commandMenu: Boolean = true,
-    /** Who may run each named command of another plugin, which only admins may run otherwise. */
+    /**
+     * Who may run each named command, over its default rule; the forms a command keeps for operators stay with
+     * admins.
+     */
     val commands: Map<String, Who> = emptyMap(),
+    /** The Telegram user ids whose own messages this bot's agents trust. */
+    val trustedUserIds: List<Long> = emptyList(),
 ) {
     init {
         val token = botToken.reveal()
@@ -43,6 +48,9 @@ internal class TelegramInstanceConfig(
         }
         adminUserIds.forEachIndexed { index, id ->
             require(id > 0) { "adminUserIds[$index] must be a Telegram user id, which is positive" }
+        }
+        trustedUserIds.forEachIndexed { index, id ->
+            require(id > 0) { "trustedUserIds[$index] must be a Telegram user id, which is positive" }
         }
         allowedChats.forEachIndexed { index, id ->
             require(id != 0L) { "allowedChats[$index] must be a Telegram chat id, which is not 0" }
@@ -56,7 +64,6 @@ internal class TelegramInstanceConfig(
             require(COMMAND.matches(name)) {
                 "commands.$name must name a command: lowercase letters, digits and '_', 32 characters at most"
             }
-            require(name !in DEFAULT_COMMAND_RULES) { "commands.$name: /$name keeps the rule of the default commands" }
         }
     }
 

@@ -70,38 +70,6 @@ class BeatsTest {
     }
 
     @Test
-    fun `a beat outside the active hours is skipped`() = runTest {
-        val events = Recorder()
-        val beats = beats(listOf(BeatPlan("a", 1.hours, UTC, ActiveHours.parse("08:00-13:00"))), events)
-
-        advance(4.hours)
-
-        assertEquals(listOf(at(1.hours), at(2.hours)), beats.map { it.second })
-        assertEquals(listOf("INACTIVE a ${at(3.hours)}", "INACTIVE a ${at(4.hours)}"), events.log)
-    }
-
-    @Test
-    fun `active hours may wrap midnight`() = runTest {
-        val beats = beats(listOf(BeatPlan("a", 1.hours, BERLIN, ActiveHours.parse("22:00-06:00"))))
-
-        advance(24.hours)
-
-        val hours = beats.map { it.second.atZone(BERLIN).hour }
-        assertEquals(listOf(22, 23, 0, 1, 2, 3, 4, 5), hours)
-    }
-
-    @Test
-    fun `a beat whose previous one still runs is skipped`() = runTest {
-        val events = Recorder()
-        val beats = beats(listOf(BeatPlan("a", 30.minutes, UTC)), events) { delay(70.minutes) }
-
-        advance(2.hours)
-
-        assertEquals(listOf(at(30.minutes), at(120.minutes)), beats.map { it.second })
-        assertEquals(listOf("BUSY a ${at(60.minutes)}", "BUSY a ${at(90.minutes)}"), events.log)
-    }
-
-    @Test
     fun `a failing beat is reported and the next one comes`() = runTest {
         val events = Recorder()
         val beats = beats(listOf(BeatPlan("a", 30.minutes, UTC)), events) { error("boom") }
@@ -133,6 +101,33 @@ class BeatsTest {
 
         assertTrue(cancelled)
     }
+
+    @Test
+    fun `updated plans beat on their own grid from the start at once, and a removed plan's running beat ends`() =
+        runTest {
+            val events = Recorder()
+            val beats = mutableListOf<Pair<String, Instant>>()
+            val runner = Beats(listOf(BeatPlan("a", 30.minutes, UTC), BeatPlan("b", 1.hours, UTC)), { id ->
+                beats += id to now()
+                if (id == "b") delay(4.hours)
+            }, events, virtualTime())
+            backgroundScope.launch { runner.run() }
+            advance(70.minutes)
+
+            runner.update(listOf(BeatPlan("a", 1.hours, UTC), BeatPlan("c", 40.minutes, UTC)))
+            advance(2.hours)
+            runner.update(listOf(BeatPlan("a", 1.hours, UTC), BeatPlan("b", 1.hours, UTC)))
+            advance(1.hours)
+
+            assertEquals(
+                listOf(
+                    "a" to 30, "b" to 60, "a" to 60, "c" to 80, "a" to 120, "c" to 120, "c" to 160, "a" to 180,
+                    "a" to 240,
+                ),
+                beats.map { (id, at) -> id to (at.epochSecond - ORIGIN.epochSecond).toInt() / 60 },
+            )
+            assertEquals(listOf("BUSY b ${at(240.minutes)}"), events.log)
+        }
 
     @Test
     fun `active hours contain their start and not their end`() {

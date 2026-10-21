@@ -106,12 +106,17 @@ class PathCanonicalizerTest {
     }
 
     @Test
-    fun `a directory the probe cannot tell about leaves the path unknown`() {
+    fun `a directory the probe cannot tell about leaves the path unknown and is probed once`() {
         val sub = Files.createDirectories(root.resolve("sub"))
-        val probe = NameCaseProbe { directory, _ -> if (directory == sub) null else NameCase.INSENSITIVE }
+        val probed = mutableListOf<Path>()
+        val probe = NameCaseProbe { directory, _ ->
+            probed.add(directory)
+            if (directory == sub) null else NameCase.INSENSITIVE
+        }
 
-        assertEquals(NameCase.UNKNOWN, probe.nameCase(sub))
+        repeat(2) { assertEquals(NameCase.UNKNOWN, probe.nameCase(sub)) }
         assertEquals(NameCase.INSENSITIVE, probe.nameCase(root))
+        assertEquals(probed.distinct(), probed)
     }
 
     @Test
@@ -125,19 +130,6 @@ class PathCanonicalizerTest {
 
         repeat(2) { assertEquals(NameCase.UNKNOWN, probe.nameCase(sub)) }
         assertEquals(emptyList(), probed)
-    }
-
-    @Test
-    fun `a directory the probe cannot tell about is probed once`() {
-        val sub = Files.createDirectories(root.resolve("sub"))
-        val probed = mutableListOf<Path>()
-        val probe = NameCaseProbe { directory, _ ->
-            probed.add(directory)
-            if (directory == sub) null else NameCase.SENSITIVE
-        }
-
-        repeat(2) { assertEquals(NameCase.UNKNOWN, probe.nameCase(sub)) }
-        assertEquals(probed.distinct(), probed)
     }
 
     @Test

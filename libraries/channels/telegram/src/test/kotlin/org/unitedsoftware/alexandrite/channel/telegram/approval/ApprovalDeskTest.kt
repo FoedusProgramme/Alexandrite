@@ -30,6 +30,11 @@ import org.unitedsoftware.alexandrite.channel.telegram.reply.Outbox
 import org.unitedsoftware.alexandrite.channel.telegram.reply.SendLimiter
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOfferKind
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
+import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -37,6 +42,9 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.config.Secret
+import org.unitedsoftware.alexandrite.sdk.sandbox.Boundary
+import org.unitedsoftware.alexandrite.sdk.sandbox.Contained
+import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
@@ -48,6 +56,7 @@ import org.unitedsoftware.alexandrite.testkit.testTexts
 import org.unitedsoftware.alexandrite.testkit.testTurn
 import java.nio.file.Path
 import java.time.Clock
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -61,7 +70,7 @@ class ApprovalDeskTest {
     private val grace = user(GRACE, "Grace", admin = true)
     private val bob = user(BOB, "Bob", admin = false)
 
-    /** The desk of a bot whose admins are Ada, whose direct chat is paired, and Grace, whose is not. */
+    /** The desk of a bot whose admins are Ada and Grace, whose direct chats count as paired by that alone. */
     private inner class Desk(
         test: TestScope,
         admins: List<Long> = listOf(ADA, GRACE),
@@ -124,6 +133,8 @@ class ApprovalDeskTest {
         id: String = "k3x9",
         rules: List<RuleSubject> = listOfNotNull(always),
         taints: Boolean = false,
+        roots: List<TrustRoot> = emptyList(),
+        untrusted: String? = null,
     ) = ApprovalRequest(
         id,
         turn,
@@ -134,6 +145,8 @@ class ApprovalDeskTest {
         "the chat is in ask mode",
         alwaysRules = rules,
         taints = taints,
+        untrusted = untrusted,
+        roots = roots,
     )
 
     // Where requests go.
@@ -152,14 +165,15 @@ class ApprovalDeskTest {
     }
 
     @Test
-    fun `a member's or a heartbeat's turn is asked about in each admin's paired direct chat`() = runTest {
+    fun `a member's or a heartbeat's turn is asked about in each admin's direct chat, paired or not`() = runTest {
         val desk = Desk(this)
 
         asking(desk, request(turnOf(bob, GROUP), id = "member"))
         asking(desk, request(testTurn(TurnKind.HEARTBEAT, ChatAddress(WORK, "$GROUP")), id = "beat"))
         advanceTimeBy(5.seconds)
 
-        assertEquals(listOf(ADA), desk.api.messages.keys.map { it.first }.distinct())
+        assertEquals(setOf(ADA, GRACE), desk.api.messages.keys.map { it.first }.toSet())
+        assertEquals(listOf("apv:member:a", "apv:beat:a"), callbacks(desk, GRACE).map { it.first() })
         assertEquals(listOf("apv:member:a", "apv:beat:a"), callbacks(desk, ADA).map { it.first() })
         val member = desk.shown(ADA).first()
         assertTrue("Requested by: Bob" in member, member)
@@ -181,8 +195,8 @@ class ApprovalDeskTest {
         }
 
     @Test
-    fun `a request that no admin can see is answered that no administrator can be reached`() = runTest {
-        val desk = Desk(this, admins = listOf(GRACE))
+    fun `a request of a bot without admins is answered that no administrator can be reached`() = runTest {
+        val desk = Desk(this, admins = emptyList())
 
         val answer = desk.desk.ask(request(turnOf(bob, BOB)))
 
@@ -218,6 +232,7 @@ class ApprovalDeskTest {
             Tool: fs.write (workspace_write)
             Directory: /srv/repo
             Program: /srv/repo/gradlew
+            Sandbox: none, the program runs on the host with your full rights
             Opaque: Alexandrite cannot see what this program runs.
 
             ./gradlew test --tests 'My Test'
@@ -308,7 +323,11 @@ class ApprovalDeskTest {
             val (short, first, second) = desk.shown(ADA)
             assertTrue(short.endsWith("Arguments:\n\n{\"path\":\"notes.md\"} [Allow|Deny]"), short)
             assertTrue(first.startsWith("Approval needed (#long)"), first)
-            assertTrue("File: /srv/notes.md\n\n+line 1 of the new file" in first, first)
+            assertTrue(
+                "File: /srv/notes.md\nThe preview below has 200 lines: read it whole.\n\n+line 1 of the new file" in
+                    first,
+                first,
+            )
             assertTrue(!first.endsWith("]"), first)
             assertTrue(second.startsWith("(2/2)\n+line "), second)
             assertTrue(second.endsWith("+line 200 of the new file [Allow|Deny]"), second)
@@ -319,7 +338,7 @@ class ApprovalDeskTest {
         }
 
     @Test
-    fun `a preview of up to twelve lines shows as code, a longer one folded as a whole`() = runTest {
+    fun `a preview shows as code unfolded, one of more than twelve lines with its lines counted`() = runTest {
         val desk = Desk(this)
         val twelve = ReviewPreview.Text((1..12).joinToString("\n") { "line $it" })
         val thirteen = ReviewPreview.Text((1..13).joinToString("\n") { "line $it" })
@@ -329,47 +348,63 @@ class ApprovalDeskTest {
         advanceTimeBy(5.seconds)
 
         val (short, long) = desk.api.calls("sendMessage")
-        for ((sent, preview, type) in listOf(Triple(short, twelve, "pre"), Triple(long, thirteen, FOLDED))) {
+        for ((sent, preview) in listOf(short to twelve, long to thirteen)) {
             val text = checkNotNull(sent.text)
             val start = text.indexOf("line 1\n")
             assertEquals(preview.text, text.substring(start))
-            assertEquals("$type $start+${preview.text.length}", sent.entities.last())
+            assertEquals("pre $start+${preview.text.length}", sent.entities.last())
         }
+        val counted = "The preview below has 13 lines: read it whole."
+        assertEquals(listOf(false, true), listOf(short, long).map { counted in checkNotNull(it.text) })
     }
 
     @Test
-    fun `a long preview in parts is folded in each part, and the outcome goes below the fold on every part`() =
-        runTest {
-            val desk = Desk(this)
-            val diff = ReviewPreview.Diff(
-                Path.of("/srv/notes.md"),
-                (1..200).joinToString("\n") {
-                    "+line $it of the new file"
-                },
-            )
+    fun `a long preview in parts is code in each part, and the outcome goes below it on every part`() = runTest {
+        val desk = Desk(this)
+        val diff = ReviewPreview.Diff(
+            Path.of("/srv/notes.md"),
+            (1..200).joinToString("\n") {
+                "+line $it of the new file"
+            },
+        )
 
-            asking(desk, request(preview = diff))
-            advanceTimeBy(10.seconds)
-            desk.press(ada, "apv:k3x9:d", message = 102)
-            advanceTimeBy(5.seconds)
+        asking(desk, request(preview = diff))
+        advanceTimeBy(10.seconds)
+        desk.press(ada, "apv:k3x9:d", message = 102)
+        advanceTimeBy(5.seconds)
 
-            val (first, second) = desk.api.calls("sendMessage").map { checkNotNull(it.text) to it.entities }
-            val start = first.first.indexOf("+line 1 ")
-            assertEquals(listOf("bold 0+23", "$FOLDED $start+${first.first.length - start}"), first.second)
-            assertEquals(listOf("$FOLDED 6+${second.first.length - 6}"), second.second)
-            val (editFirst, editSecond) = desk.api.calls("editMessageText")
-            assertEquals("${first.first}\n\nDenied by Ada.", editFirst.text)
-            assertEquals("${second.first}\n\nDenied by Ada.", editSecond.text)
-            assertEquals(second.second, editSecond.entities)
-        }
+        val (first, second) = desk.api.calls("sendMessage").map { checkNotNull(it.text) to it.entities }
+        val start = first.first.indexOf("+line 1 ")
+        assertEquals(listOf("bold 0+23", "pre $start+${first.first.length - start}"), first.second)
+        assertEquals(listOf("pre 6+${second.first.length - 6}"), second.second)
+        val (editFirst, editSecond) = desk.api.calls("editMessageText")
+        assertEquals("${first.first}\n\nDenied by Ada.", editFirst.text)
+        assertEquals("${second.first}\n\nDenied by Ada.", editSecond.text)
+        assertEquals(second.second, editSecond.entities)
+    }
 
     @Test
-    fun `a request that would take more than four messages is too large to review, and nothing is sent`() = runTest {
+    fun `a preview longer than four messages is attached whole, its start shown above the buttons`() = runTest {
         val desk = Desk(this)
-        val text = ReviewPreview.Text("x".repeat(4 * 4096))
+        val diff = ReviewPreview.Diff(Path.of("/srv/big.md"), (1..2_000).joinToString("\n") { "+line $it of the file" })
 
-        assertEquals(ApprovalAnswer.Unavailable("too large to review"), desk.desk.ask(request(preview = text)))
-        assertEquals(emptyList(), desk.api.sent)
+        val answer = asking(desk, request(preview = diff))
+        advanceTimeBy(10.seconds)
+        desk.press(ada, "apv:k3x9:a", message = 102)
+
+        assertEquals(ApprovalAnswer.Allowed(ada), answer.await())
+        advanceTimeBy(5.seconds)
+        assertEquals(listOf("sendDocument", "sendMessage"), desk.api.sent.take(2).map { it.method })
+        val file = desk.api.uploads.single().file
+        assertEquals("approval-k3x9.diff" to diff.unified, file.name to file.bytes().decodeToString())
+        val shown = desk.shown(ADA).last()
+        assertTrue(
+            "The preview has 2000 lines, more than a message holds: its start is below, and the file " +
+                "approval-k3x9.diff above holds all of it.\n\n+line 1 of the file\n" in shown,
+            shown,
+        )
+        assertTrue(shown.length <= 4096, "${shown.length}")
+        assertTrue(diff.unified.startsWith(shown.substringAfter("\n\n").substringBefore("\n\nAllowed by")), shown)
     }
 
     // Answers.
@@ -443,29 +478,355 @@ class ApprovalDeskTest {
     }
 
     @Test
-    fun `allow and trust is offered only for a call that would taint, and answers with the output trusted`() = runTest {
+    fun `a request of a tainted conversation or of a call that would taint offers to allow for good as usual`() =
+        runTest {
+            val desk = Desk(this)
+            val always = RuleSubject("fs.write", emptyList(), "fs.write")
+            val taints = asking(desk, request(always = always, taints = true))
+            val tainted = asking(
+                desk,
+                ApprovalRequest(
+                    "tainted",
+                    turnOf(ada, ADA),
+                    "fs.write",
+                    ToolRisk.WORKSPACE_WRITE,
+                    "{}",
+                    null,
+                    "the chat is in ask mode",
+                    alwaysRules = listOf(always),
+                    taint = ConversationTaint(Instant.parse("2026-10-20T08:30:00Z"), "a web page"),
+                ),
+            )
+            advanceTimeBy(5.seconds)
+
+            desk.press(ada, "apv:k3x9:A", message = 101)
+            desk.press(ada, "apv:tainted:A", message = 102)
+            advanceTimeBy(5.seconds)
+
+            assertEquals(
+                List(2) {
+                    ApprovalAnswer.Allowed(ada, always = true)
+                },
+                listOf(taints.await(), tainted.await()),
+            )
+        }
+
+    @Test
+    fun `a call that would taint names its source and offers to trust its root, or else its output once`() = runTest {
         val desk = Desk(this)
-        val tainting = asking(desk, request(taints = true))
-        val clean = asking(desk, request(id = "clean"))
+        val folder = "/home/dev/src/some-very-long-project-name/with/deep/folders"
+        val source = "fs.read reaches $folder/x.kt, outside the trusted places"
+        val rooted = asking(
+            desk,
+            request(
+                taints = true,
+                untrusted = source,
+                roots = listOf(TrustRoot(TrustRootKind.FOLDER, folder)),
+            ),
+        )
+        val rootless = asking(desk, request(id = "bare", taints = true, untrusted = "web.search reads the web"))
         advanceTimeBy(5.seconds)
 
+        val shown = desk.shown(ADA).first()
+        assertTrue(
+            "\n⚠️ This call would bring the first untrusted content into this conversation, from: $source\n" +
+                "Trusting covers, for main, the folder and what is in it outside the repositories nested in it: " +
+                "$folder\n" +
+                "⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from " +
+                "others, prefer marking the conversation tainted.\n" in shown,
+            shown,
+        )
+        val sent = desk.api.calls("sendMessage").first()
+        val text = checkNotNull(sent.text)
+        assertTrue("code ${text.lastIndexOf(folder)}+${folder.length}" in sent.entities, "${sent.entities}")
         assertEquals(
             listOf(
-                listOf("apv:k3x9:a", "apv:k3x9:d", "apv:k3x9:t"),
-                listOf("apv:clean:a", "apv:clean:d"),
+                listOf("Allow, mark tainted" to "apv:k3x9:a", "Deny" to "apv:k3x9:d"),
+                listOf("Allow and trust folder …g-project-name/with/deep/folders" to "apv:k3x9:t"),
             ),
-            callbacks(desk, ADA),
+            desk.api.keyboards.getValue(ADA to 101L).inlineKeyboard.map { row ->
+                row.map { it.text to it.callbackData }
+            },
         )
+        assertEquals(
+            listOf(
+                listOf("Allow, mark tainted" to "apv:bare:a", "Deny" to "apv:bare:d"),
+                listOf("Allow, keep clean" to "apv:bare:o"),
+            ),
+            desk.api.keyboards.getValue(ADA to 102L).inlineKeyboard.map { row ->
+                row.map { it.text to it.callbackData }
+            },
+        )
+
+        desk.press(ada, "apv:k3x9:o", message = 101)
+        desk.press(ada, "apv:bare:t", message = 102)
+        advanceTimeBy(5.seconds)
+        assertEquals(false to false, rooted.isCompleted to rootless.isCompleted)
         desk.press(ada, "apv:k3x9:t", message = 101)
-        desk.press(ada, "apv:clean:t", message = 102)
+        desk.press(ada, "apv:bare:o", message = 102)
         advanceTimeBy(5.seconds)
 
-        assertEquals(ApprovalAnswer.Allowed(ada, trust = true), tainting.await())
-        assertEquals(ApprovalAnswer.Allowed(ada), clean.await())
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = ApprovalTrust.ROOTS), rooted.await())
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = ApprovalTrust.OUTPUT_ONCE), rootless.await())
         assertEquals(
-            listOf("Allowed by Ada, its output trusted.", "Allowed by Ada."),
+            listOf(
+                "Allowed by Ada, who trusted $folder.",
+                "Allowed by Ada, who vouched for its output this once.",
+            ),
             desk.shown(ADA).map { it.substringAfterLast("\n") },
         )
+        assertEquals(
+            "Alexandrite's approval request k3x9 for fs.write (allowed and trusted by Ada)",
+            desk.messages.quoted(ADA, 101),
+        )
+    }
+
+    @Test
+    fun `several roots are trusted together, and a person's root says trust is no authority`() = runTest {
+        val desk = Desk(this)
+        val roots = listOf(
+            TrustRoot(TrustRootKind.PROGRAM, "./gradlew"),
+            TrustRoot(TrustRootKind.DOMAIN, "docs.example.com"),
+            TrustRoot(TrustRootKind.SERVER, "files"),
+            TrustRoot.person(bob),
+        )
+
+        asking(desk, request(taints = true, roots = roots))
+        advanceTimeBy(5.seconds)
+
+        val shown = desk.shown(ADA).single()
+        assertTrue(
+            """
+            Trusting covers what the program prints: ./gradlew
+            Trusting covers the pages of the domain and its subdomains: docs.example.com
+            Trusting covers the output of the MCP server: files
+            Trusting covers, for main, the messages and files that this person writes: Bob
+            Trust is not authority: a trusted person gets no approvals and no operator commands.
+            """.trimIndent() in shown,
+            shown,
+        )
+        assertTrue("Trusting a folder" !in shown, shown)
+        assertTrue(shown.endsWith("[Allow, mark tainted|Deny|Allow and trust these 4]"), shown)
+    }
+
+    // Trust offers.
+
+    private fun offer(turn: TurnInfo, roots: List<TrustRoot>, id: String = "of1") =
+        TrustOffer(id, turn, "fs.read reached /srv/clone, a folder that is not trusted", roots)
+
+    private fun TestScope.offering(desk: Desk, offer: TrustOffer): Deferred<ApprovalAnswer> =
+        backgroundScope.async(start = CoroutineStart.UNDISPATCHED) { desk.desk.offer(offer) }
+
+    @Test
+    fun `an automated turn's taint is offered to the admins to trust, keep coming first`() = runTest {
+        val desk = Desk(this)
+        val beat = testTurn(TurnKind.HEARTBEAT, ChatAddress(WORK, "$GROUP"))
+        val folder = TrustRoot(TrustRootKind.FOLDER, "/srv/clone")
+        val trusted = offering(desk, offer(beat, roots = listOf(folder)))
+        val kept = offering(desk, offer(beat, roots = listOf(folder), id = "of2"))
+        advanceTimeBy(5.seconds)
+
+        val shown = desk.shown(ADA).first()
+        assertEquals(
+            """
+            Untrusted content came in (#of1)
+            The conversation in telegram:work:$GROUP took in untrusted content and is now marked tainted, so its calls that change lasting state need an approval.
+            It came from: fs.read reached /srv/clone, a folder that is not trusted
+            Agent: main
+            Started by: a heartbeat, not by a message the requester sent now
+            Trusting covers, for main, the folder and what is in it outside the repositories nested in it: /srv/clone
+            ⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from others, prefer marking the conversation tainted. [Keep|Trust folder /srv/clone and clear the taint]
+            """.trimIndent(),
+            shown,
+        )
+        assertEquals(listOf(listOf("tro:of1:k", "tro:of1:t"), listOf("tro:of2:k", "tro:of2:t")), callbacks(desk, ADA))
+
+        desk.press(bob, "tro:of1:t")
+        runCurrent()
+        val afterBob = trusted.isActive
+        desk.press(ada, "tro:of1:t", message = 101)
+        desk.press(ada, "tro:of2:k", message = 102)
+        desk.press(ada, "apv:of2:a", message = 102)
+        advanceTimeBy(5.seconds)
+
+        assertTrue(afterBob)
+        assertEquals(ApprovalAnswer.Allowed(ada, trust = ApprovalTrust.ROOTS), trusted.await())
+        assertEquals(ApprovalAnswer.Denied(ada), kept.await())
+        assertEquals(
+            listOf(
+                "Only an admin of this bot can answer.",
+                null,
+                null,
+                "This request no longer waits for an answer.",
+            ),
+            desk.toasts(),
+        )
+        assertEquals(
+            listOf("Trusted by Ada: /srv/clone.", "Kept by Ada: the conversation stays marked tainted."),
+            desk.shown(ADA).map { it.substringAfterLast("\n") },
+        )
+        assertEquals("Alexandrite's trust offer of1 (trusted by Ada)", desk.messages.quoted(ADA, 101))
+    }
+
+    @Test
+    fun `an offer of project instructions names the agent and the folder, trust first, and not now trusts nothing`() =
+        runTest {
+            val desk = Desk(this)
+            val turn = turnOf(ada, ADA)
+            val folder = TrustRoot(TrustRootKind.FOLDER, "/srv/repo")
+            val instructions = { id: String ->
+                TrustOffer(id, turn, "/srv/repo (AGENTS.md)", listOf(folder), TrustOfferKind.INSTRUCTIONS)
+            }
+            val trusted = offering(desk, instructions("of1"))
+            val declined = offering(desk, instructions("of2"))
+            advanceTimeBy(5.seconds)
+
+            assertEquals(
+                """
+                Project instructions not loaded (#of1)
+                The agent works in telegram:work:$ADA in a folder that it does not trust, so the folder's project instructions were not loaded. Trusting the folder loads them the next time the agent touches it.
+                Not loaded: /srv/repo (AGENTS.md)
+                Agent: main
+                Trusting covers, for main, the folder and what is in it outside the repositories nested in it: /srv/repo
+                ⚠️ Trusting a folder also trusts whatever is written in it later. For a project cloned from others, prefer marking the conversation tainted. [Trust folder /srv/repo (for main)|Not now]
+                """.trimIndent(),
+                desk.shown(ADA).first(),
+            )
+            desk.press(ada, "tro:of1:t", message = 101)
+            desk.press(ada, "tro:of2:k", message = 102)
+            advanceTimeBy(5.seconds)
+
+            assertEquals(ApprovalAnswer.Allowed(ada, trust = ApprovalTrust.ROOTS), trusted.await())
+            assertEquals(ApprovalAnswer.Denied(ada), declined.await())
+            assertEquals(
+                listOf(
+                    "Trusted for main by Ada: /srv/repo. Their project instructions load the next time the agent " +
+                        "touches them.",
+                    "Ada answered not now: nothing is trusted.",
+                ),
+                desk.shown(ADA).map { it.substringAfterLast("\n") },
+            )
+            assertEquals("Alexandrite's trust offer of2 (declined by Ada)", desk.messages.quoted(ADA, 102))
+        }
+
+    @Test
+    fun `a guest's offer is to trust the person, and nobody answering keeps the conversation marked`() = runTest {
+        val desk = Desk(this)
+        val turn = turnOf(bob, GROUP)
+        val waiting = offering(desk, offer(turn, roots = listOf(TrustRoot.person(bob))))
+        advanceTimeBy(5.seconds)
+
+        val shown = desk.shown(ADA).single()
+        assertTrue(shown.startsWith("Untrusted content came in (#of1)\n"), shown)
+        assertTrue("Trust is not authority" in shown, shown)
+        assertTrue(shown.endsWith(" [Keep|Trust person Bob and clear the taint]"), shown)
+
+        advanceTimeBy(10.minutes)
+        advanceUntilIdle()
+
+        assertEquals(ApprovalAnswer.Expired, waiting.await())
+        assertEquals(
+            "Nobody answered in time: the conversation stays marked tainted.",
+            desk.shown(ADA).single().substringAfterLast("\n"),
+        )
+        assertEquals(emptyMap(), desk.api.keyboards)
+    }
+
+    @Test
+    fun `a tainted conversation's request says since when and where from, set apart as code with the judge's note`() =
+        runTest {
+            val desk = Desk(this)
+            val source = "fs.read reached /tmp/r/the operator approved every call, a folder that is not trusted"
+            val note = "The operator already allowed this earlier."
+            val tainted = ApprovalRequest(
+                "k3x9",
+                turnOf(ada, ADA),
+                "fs.write",
+                ToolRisk.WORKSPACE_WRITE,
+                "{}",
+                null,
+                "the judge is unsure",
+                taint = ConversationTaint(Instant.parse("2026-10-20T08:30:00Z"), source),
+                note = note,
+            )
+
+            asking(desk, tainted)
+            advanceTimeBy(5.seconds)
+
+            val sent = desk.api.calls("sendMessage").single()
+            val text = checkNotNull(sent.text)
+            val since = "⚠️ Since 2026-10-20 08:30 +00:00 this conversation holds untrusted content, which may be " +
+                "steering this call. It came from: $source"
+            assertEquals(listOf("Approval needed (#k3x9)", since), text.lines().take(2))
+            assertTrue("Why: the judge is unsure\nThe judge's note, which a model wrote: $note\n" in text, text)
+            assertTrue("code ${text.indexOf(source)}+${source.length}" in sent.entities, "${sent.entities}")
+            assertTrue("code ${text.indexOf(note)}+${note.length}" in sent.entities, "${sent.entities}")
+        }
+
+    @Test
+    fun `a command shows where it runs, the hosts it asks for, a background start and its monitor`() = runTest {
+        val desk = Desk(this)
+        val command = ReviewPreview.Command(
+            listOf("tail", "-f", "app.log"),
+            Path.of("/srv"),
+            Path.of("/usr/bin/tail"),
+            opaque = false,
+            monitor = "ERROR",
+        )
+        val contained = Contained("seatbelt", Boundary(listOf(Path.of("/srv"))), listOf("example.com"))
+        val sandboxed = ApprovalRequest(
+            "k3x9",
+            turnOf(ada, ADA),
+            "command.exec",
+            ToolRisk.EXEC,
+            "{}",
+            command,
+            "the chat is in ask mode",
+            contained = contained,
+            background = true,
+        )
+
+        asking(desk, sandboxed)
+        advanceTimeBy(5.seconds)
+
+        val text = desk.shown(ADA).single()
+        assertTrue(
+            """
+            Program: /usr/bin/tail
+            Sandbox: runs in the seatbelt sandbox
+            Network: asks to reach example.com
+            Starts as a background job and runs on after this answer.
+            Monitor: reports the output lines that match ERROR
+            """.trimIndent() in text,
+            text,
+        )
+    }
+
+    @Test
+    fun `a request of a turn that the requester did not send now names what started it`() = runTest {
+        val desk = Desk(this)
+        val reminder = testTurn(TurnKind.REMINDER, chat = ChatAddress(WORK, "$ADA")) { actor(ada) }
+
+        asking(desk, request(turn = reminder))
+        advanceTimeBy(5.seconds)
+
+        assertTrue(
+            "Requested by: Ada\nStarted by: a scheduled task, not by a message the requester sent now\n" in
+                desk.shown(ADA).single(),
+        )
+    }
+
+    @Test
+    fun `a path or program name beyond ASCII is flagged`() = runTest {
+        val desk = Desk(this)
+        val lookalike = ReviewPreview.Diff(Path.of("/srv/n\u043Etes.md"), "+x\n")
+
+        asking(desk, request(preview = lookalike))
+        asking(desk, request(preview = ReviewPreview.Diff(Path.of("/srv/notes.md"), "+x\n"), id = "plain"))
+        advanceTimeBy(5.seconds)
+
+        val flag = "⚠️ A path or program name holds characters outside ASCII, which may look like others."
+        assertEquals(listOf(true, false), desk.shown(ADA).map { flag in it })
     }
 
     @Test
@@ -493,15 +854,17 @@ class ApprovalDeskTest {
                 RuleSubject("command.exec", listOf("make"), "make"),
                 RuleSubject("command.exec", listOf("make", "test"), "make test"),
             )
-            val opaque = ReviewPreview.Command(listOf("sh", "-c", "ls | wc"), Path.of("/srv"), null, opaque = true)
+            val opaque = ReviewPreview.Command(listOf("sh", "-c", "ls > list"), Path.of("/srv"), null, opaque = true)
             asking(desk, request(preview = chain, always = rules.first(), rules = rules))
-            asking(desk, request(preview = opaque, id = "opaque", taints = true))
+            val program = listOf(TrustRoot(TrustRootKind.PROGRAM, "sh"))
+            asking(desk, request(preview = opaque, id = "opaque", taints = true, roots = program))
             advanceTimeBy(5.seconds)
 
             val (shownChain, shownOpaque) = desk.shown(ADA)
             assertEquals(
                 """
                 Directory: /srv/repo
+                Sandbox: none, the program runs on the host with your full rights
                 Steps: Alexandrite runs the 3 steps below itself, as plain programs without a shell.
                 Always allow grants: make, make test
 
@@ -514,7 +877,7 @@ class ApprovalDeskTest {
                 shownChain.substringAfter("(workspace_write)\n"),
             )
             assertTrue(
-                "Allow and trust trusts whatever this program prints, as Alexandrite cannot see what it runs." in
+                "Trusting this program trusts whatever it prints, as Alexandrite cannot see what it runs." in
                     shownOpaque,
                 shownOpaque,
             )
@@ -634,6 +997,5 @@ class ApprovalDeskTest {
         const val BOB = 1002L
         const val GRACE = 1003L
         const val GROUP = -1001234500000L
-        const val FOLDED = "expandable_blockquote"
     }
 }

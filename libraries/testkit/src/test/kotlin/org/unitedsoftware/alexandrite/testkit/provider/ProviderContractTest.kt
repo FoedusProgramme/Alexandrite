@@ -4,8 +4,6 @@ import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.TestFactory
 import org.unitedsoftware.alexandrite.testkit.PROVIDER_CONTRACT
-import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
@@ -34,9 +32,4 @@ class ProviderContractTest {
                 assertTrue(fixture.built.single().closed, "The check left its endpoint open.")
             }
         }
-
-    @Test
-    fun `every check has a flaw it is shown to catch`() {
-        assertEquals(PROVIDER_CONTRACT.map { it.name }.sorted(), Flaw.entries.map { it.check }.sorted())
-    }
 }

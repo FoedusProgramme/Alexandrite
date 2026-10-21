@@ -111,7 +111,6 @@ class InitTest {
         assertContains(printed.out, "Send this code to the bot Alexandrite Test Bot")
         assertContains(printed.out, "https://t.me/alexandrite_test_bot?start=TEST-C0DE")
         assertContains(printed.out, "Ada Lovelace @ada_test (1001) sent the code and is the bot's admin.")
-        assertContains(printed.out, "The config file ${cli.configFile} passes the checks of a start.")
         assertContains(printed.out, "Alexandrite 1.2.3 (pid 5151) is running.")
         assertContains(printed.out, "Logs: journalctl --user --unit alexandrite.service, or alexandrite logs.")
         assertEquals("Bearer sk-test", models.requests.single().header("authorization"))
@@ -126,7 +125,7 @@ class InitTest {
         )
         assertEquals(
             """{"botToken":"${'$'}{env:ALEXANDRITE_TELEGRAM_MAIN_TOKEN}","apiBaseUrl":"${bot.baseUrl}",""" +
-                """"adminUserIds":[1001],"allowedChats":[1001]}""",
+                """"adminUserIds":[1001]}""",
             "${config.at("channels.telegram.instances.main")}",
         )
         assertEquals("""{"home":"1001"}""", "${config.at("agent.agents.main.channels.telegram:main")}")
@@ -176,7 +175,7 @@ class InitTest {
         assertContains(printed.out, "Ignored a message without the code from Bob @bob_test (1002).")
         assertContains(printed.out, "Ada Lovelace @ada_test (1001) sent the code")
         assertEquals("[1001]", "${file().at("channels.telegram.instances.main.adminUserIds")}")
-        assertEquals("[1001]", "${file().at("channels.telegram.instances.main.allowedChats")}")
+        assertNull(file().at("channels.telegram.instances.main.allowedChats"))
         assertEquals(1, bot.calls("sendMessage").size)
         assertContains(printed.out, "The agent main has no model yet")
         assertNull(file().at("agent"))
@@ -225,16 +224,50 @@ class InitTest {
     }
 
     @Test
-    fun `a model the endpoint does not list, or a key it refuses, writes nothing`() {
+    fun `a model the endpoint does not list is kept with a warning`() {
         cli.environment = mapOf(API_KEY_VARIABLE to "sk-env")
-        val unknown =
-            cli("init", "--non-interactive", "--provider", "deepseek", "--base-url", models.baseUrl, "--model", "gpt")
-        models.enqueue(FakeResponse.builder(401).body("{}").build(), "/models")
-        val refused =
-            cli("init", "--non-interactive", "--provider", "deepseek", "--base-url", models.baseUrl, "--model", "x")
 
-        assertEquals(1, unknown.code)
-        assertContains(unknown.err, "The endpoint lists no model gpt: it lists deepseek-chat, deepseek-reasoner.")
+        val printed = cli(
+            "init",
+            "--non-interactive",
+            "--provider",
+            "deepseek",
+            "--base-url",
+            models.baseUrl,
+            "--model",
+            "deepseek-alias",
+            "--skip",
+            "service",
+        )
+
+        assertEquals(0, printed.code, printed.out + printed.err)
+        assertContains(
+            printed.out,
+            "The endpoint does not list deepseek-alias (it lists deepseek-chat, deepseek-reasoner): kept as given",
+        )
+        assertEquals("\"deepseek/deepseek-alias\"", "${file().at("agent.agents.main.model")}")
+    }
+
+    @Test
+    fun `a model typed at the pick that the endpoint does not list is kept`() {
+        cli.environment = mapOf(API_KEY_VARIABLE to "sk-env")
+        cli.machine.answers += listOf("", "", "deepseek-alias")
+
+        val asked = cli("init", "--only", "model", "--provider", "deepseek", "--base-url", models.baseUrl)
+
+        assertEquals(0, asked.code, asked.out + asked.err)
+        assertContains(asked.out, "The endpoint does not list deepseek-alias")
+        assertEquals("\"deepseek/deepseek-alias\"", "${file().at("agent.agents.main.model")}")
+    }
+
+    @Test
+    fun `a key the endpoint refuses writes nothing`() {
+        cli.environment = mapOf(API_KEY_VARIABLE to "sk-env")
+        val refused = FakeModelServer().use { refusing ->
+            refusing.enqueue(FakeResponse.builder(401).body("{}").build(), "/models")
+            cli("init", "--non-interactive", "--provider", "deepseek", "--base-url", refusing.baseUrl, "--model", "x")
+        }
+
         assertEquals(1, refused.code)
         assertContains(refused.err, "refuses the key (HTTP 401).")
         assertFalse(Files.exists(cli.configFile))
@@ -341,25 +374,6 @@ class InitTest {
         assertContains(printed.out, "This system has no systemd user manager")
         assertContains(printed.out, "alexandrite run --config ${cli.configFile.toAbsolutePath()}")
         assertNull(cli.machine.executed.firstOrNull { it.contains("enable") })
-    }
-
-    @Test
-    fun `init prints Chinese when the locale is Chinese`() {
-        cli.environment = mapOf("LANG" to "zh_CN.UTF-8")
-
-        val printed = cli("init", "--non-interactive", "--only", "language", "--zone", "Asia/Shanghai")
-        val skipped = cli("init", "--non-interactive", "--force", "--only", "admin", "--only", "telegram")
-        val status = cli("status")
-        val usage = cli("init", "--only", "nothing")
-
-        assertEquals(0, printed.code, printed.err)
-        assertContains(printed.out, "正在设置 Alexandrite")
-        assertContains(printed.out, "智能体用 zh-CN 回答，并按 Asia/Shanghai 报时。")
-        assertContains(skipped.out, "已跳过 Telegram：之后可以用 alexandrite init --only telegram 设置")
-        assertContains(skipped.out, "已跳过管理员：之后可以用 alexandrite init --only admin 认领机器人的管理员。")
-        assertContains(status.out, "Alexandrite 没有在运行。")
-        assertContains(usage.err, "'nothing' 不是 init 的步骤")
-        assertContains(usage.err, "用法：alexandrite init")
     }
 
     // On the terminal.

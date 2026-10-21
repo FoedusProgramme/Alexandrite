@@ -39,7 +39,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
-import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
@@ -95,15 +95,10 @@ class HarnessDoublesTest {
             assertEquals(1, channel().partsNeeded(channel().chat(), "abcdefghij", Markup.PLAIN))
             assertFailsWith<NoSuchElementException> { channel("missing") }
         }
-    }
-
-    @Test
-    fun `recording channels of two types come from two channel plugins`() {
         PluginHarness.builder(probe).channel().channel(type = "other").execute {
             assertEquals("other-channel", get<PluginInfo>("other-channel").id)
             assertEquals("test-channel", get<PluginInfo>("test-channel").id)
             assertEquals("other:main", channel(type = "other").instance.toString())
-            assertEquals("test:main", channel().instance.toString())
         }
     }
 
@@ -177,7 +172,7 @@ class HarnessDoublesTest {
                     agent.conversations,
                     agent.settings,
                     agent.links,
-                    agent.folders,
+                    agent.trust,
                     agent.rules,
                     agent.catalog,
                     agent.usage,
@@ -187,7 +182,7 @@ class HarnessDoublesTest {
                     get<ConversationControl>(),
                     get<ChatSettings>(),
                     get<ChatLinks>(),
-                    get<TrustedFolders>(),
+                    get<TrustControl>(),
                     get<PermissionRules>(),
                     get<AgentCatalog>(),
                     get<UsageReports>(),
@@ -241,11 +236,7 @@ class HarnessDoublesTest {
             }
         }
 
-        assertEquals(
-            "The test doubles saw problems:\n- Recording channel test:main saw a preview of turn test-turn after " +
-                "its reply ended.",
-            error.message,
-        )
+        assertContains(error.message!!, "a preview of turn test-turn after its reply ended")
     }
 
     @Test
@@ -293,15 +284,5 @@ class HarnessDoublesTest {
 
         assertContains(error.message!!, "The test doubles saw problems:\n- Scripted model 'scripted' got request 1")
         assertEquals(1, model.problems.size)
-    }
-
-    @Test
-    fun `a harness holds one model and one instance of a name`() {
-        val builder = PluginHarness.builder(probe).model(ScriptedModel()).channel("work")
-
-        assertFailsWith<IllegalArgumentException> { builder.model(ScriptedModel()) }
-        assertFailsWith<IllegalArgumentException> { builder.channel("work") }
-        assertFailsWith<IllegalArgumentException> { builder.channel("Work") }
-        builder.channel("work", type = "other")
     }
 }

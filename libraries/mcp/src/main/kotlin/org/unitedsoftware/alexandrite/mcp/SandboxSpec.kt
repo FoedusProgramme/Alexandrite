@@ -3,11 +3,10 @@ package org.unitedsoftware.alexandrite.mcp
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.resolveConfigured
-import org.unitedsoftware.alexandrite.internal.sandbox.ALEXANDRITE_PLACES
-import org.unitedsoftware.alexandrite.internal.sandbox.DEFAULT_PROTECT
 import org.unitedsoftware.alexandrite.internal.sandbox.HostPattern
-import org.unitedsoftware.alexandrite.internal.sandbox.platformEnvironment
+import org.unitedsoftware.alexandrite.internal.sandbox.Protect
 import org.unitedsoftware.alexandrite.internal.sandbox.proxyVariables
+import org.unitedsoftware.alexandrite.internal.sandbox.selectEnvironment
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.sandbox.Boundary
@@ -55,17 +54,15 @@ internal fun serverSandbox(
                 "each with an optional :port.",
         )
     }
-    val entries = config.protect ?: DEFAULT_PROTECT
-    val (names, absolute) = entries.filterNot { it == ALEXANDRITE_PLACES }
-        .partition { !it.startsWith("/") && !it.startsWith("~") }
+    val protect = Protect.of(config.protect)
     val own = listOfNotNull(paths.configFile?.parent, paths.configTarget, paths.configBackup) +
         listOf(paths.dataRoot, paths.pluginDataRoot, paths.cacheRoot) + paths.protected
     val writable = listOfNotNull(cwd) + config.allowWrite.map { resolved(paths, "$key.allowWrite", it) }
     val boundary = Boundary(
         writable = writable,
-        writeDenied = absolute.map { resolved(paths, "$key.protect", it) } +
-            if (ALEXANDRITE_PLACES in entries) own else emptyList(),
-        protectedNames = names,
+        writeDenied = protect.paths.map { resolved(paths, "$key.protect", it) } +
+            if (protect.alexandrite) own else emptyList(),
+        protectedNames = protect.names,
         readDenied = own + config.denyRead.map { resolved(paths, "$key.denyRead", it) },
         readable = writable,
     )
@@ -75,36 +72,16 @@ internal fun serverSandbox(
 
 /** The environment that [type] names, null for none or for `auto` on a platform without one. */
 private fun environment(key: String, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? =
-    when (type) {
-        ServerSandboxConfig.HOST -> null
-
-        ServerSandboxConfig.AUTO -> {
-            val name = platformEnvironment()
-            environments.firstOrNull { it.name == name && it.available() }.also { found ->
-                if (found == null) {
-                    logger.warn(
-                        "The MCP server at {} asks for the platform's sandbox, but {}: it runs on the host",
-                        key.removeSuffix(".sandbox"),
-                        name?.let { "the $it sandbox is not available" } ?: "this platform has none",
-                    )
-                }
-            }
-        }
-
-        else -> {
-            val named = environments.firstOrNull { it.name == type } ?: throw ConfigException(
-                "$key.type",
-                "no plugin contributes the sandbox '$type'. Sandboxes: " +
-                    environments.joinToString { it.name }.ifEmpty { "none" } + ".",
+    try {
+        selectEnvironment(type, environments, { it.name }, { it.available() }) { why ->
+            logger.warn(
+                "The MCP server at {} asks for the platform's sandbox, but {}: it runs on the host",
+                key.removeSuffix(".sandbox"),
+                why,
             )
-            if (!named.available()) {
-                throw ConfigException(
-                    "$key.type",
-                    "the sandbox '$type' is not available on this host",
-                )
-            }
-            named
         }
+    } catch (e: IllegalArgumentException) {
+        throw ConfigException("$key.type", e.message.orEmpty(), e)
     }
 
 /** [entry] as an absolute path: itself, under the home directory for `~/`, or relative to the config file. */

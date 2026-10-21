@@ -160,7 +160,12 @@ class HostApisTest {
             assertTrue(new.accepted.ticket.outcome() is TurnOutcome.Completed)
             val after = channel.answered(channel.receive("Again")).turn
             assertEquals(sealed.seen.single().successor, after.conversation)
-            assertEquals(listOf("Cancelled.", "Started ${after.conversation}."), channel.sent.map { it.message.text })
+            // Both commands run side by side once the turn ends, replying in either order.
+            assertEquals(
+                setOf("Cancelled.", "Started ${after.conversation}."),
+                channel.sent.map { it.message.text }.toSet(),
+            )
+            assertEquals(2, channel.sent.size)
         }
     }
 

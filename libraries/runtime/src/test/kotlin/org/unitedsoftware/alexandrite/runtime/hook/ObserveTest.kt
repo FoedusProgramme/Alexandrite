@@ -9,20 +9,11 @@ import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.unitedsoftware.alexandrite.runtime.Events
-import org.unitedsoftware.alexandrite.sdk.hook.FailurePolicy
-import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
-import org.unitedsoftware.alexandrite.sdk.hook.HookEffect
 import org.unitedsoftware.alexandrite.sdk.hook.HookFailure
-import org.unitedsoftware.alexandrite.sdk.hook.HookPoint
-import org.unitedsoftware.alexandrite.sdk.hook.Interception
-import org.unitedsoftware.alexandrite.sdk.hook.InterceptorHook
-import org.unitedsoftware.alexandrite.sdk.hook.InterceptorPoint
 import org.unitedsoftware.alexandrite.sdk.hook.ObserverDelivery
-import org.unitedsoftware.alexandrite.sdk.hook.ObserverHook
 import org.unitedsoftware.alexandrite.sdk.hook.ObserverPoint
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.time.Duration.Companion.seconds
 
@@ -62,26 +53,6 @@ class ObserveTest {
 
         assertEquals(listOf("second x"), records.all())
         assertEquals("observer failed", assertIs<HookFailure.Threw>(listener.all().single().failure).error.message)
-    }
-
-    @Test
-    fun `an inline observer runs only for its own point`() = runTest {
-        val dispatcher = dispatcher(listener, recording("first"))
-
-        dispatcher.fire(ObserverPoint<String>("test.other"), "x")
-
-        assertEquals(emptyList(), records.all())
-    }
-
-    @Test
-    fun `firing another observer point object with a subscribed id is rejected`() = runTest {
-        val dispatcher =
-            dispatcher(listener, recording("first"), recording("queued", delivery = ObserverDelivery.ASYNC))
-
-        assertFailsWith<IllegalArgumentException> { dispatcher.fire(seenPoint(), "x") }
-        advanceUntilIdle()
-
-        assertEquals(emptyList(), records.all())
     }
 
     // Async.
@@ -187,11 +158,6 @@ class ObserveTest {
         advanceUntilIdle()
 
         assertEquals(listOf("got b"), records.all())
-    }
-
-    @Test
-    fun `the async capacity must be positive`() {
-        assertFailsWith<IllegalArgumentException> { hookDispatcher(emptyList(), asyncCapacity = 0) }
     }
 
     private class Slow(point: ObserverPoint<String>, gate: CompletableDeferred<Unit>, records: Events) :

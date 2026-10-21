@@ -17,6 +17,7 @@ import org.unitedsoftware.alexandrite.commands.support.spec
 import org.unitedsoftware.alexandrite.commands.support.updateSettings
 import org.unitedsoftware.alexandrite.commands.support.words
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
+import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
@@ -33,7 +34,9 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import java.time.Clock
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -46,6 +49,7 @@ internal class SettingCommands(
     private val settings: ChatSettings,
     private val links: ChatLinks,
     private val catalog: AgentCatalog,
+    private val trust: TrustControl,
     private val texts: Texts,
     private val clock: Clock,
 ) : CommandHandler {
@@ -356,6 +360,7 @@ internal class SettingCommands(
             } else {
                 replies.text(TextKeys.SETTINGS_MODE_BYPASS, "source" to mode.source, "left" to bypassLeft)
             },
+            taint(chat, snapshot.effectiveZone, replies),
             when {
                 snapshot.home -> replies.text(TextKeys.SETTINGS_HOME_HERE, "agent" to agent, "instance" to instance)
 
@@ -381,7 +386,21 @@ internal class SettingCommands(
             },
             replies.text(if (invocation.issuer.isOperator) TextKeys.SETTINGS_OPERATOR else TextKeys.SETTINGS_OTHER),
         )
-        context.reply(lines.joinToString("\n"))
+        context.reply(lines.filterNotNull().joinToString("\n"))
+    }
+
+    /** The line that tells whether the conversation at [chat] is tainted. */
+    private suspend fun taint(chat: ChatAddress, zone: ZoneId?, replies: Replies): String {
+        val taint = try {
+            trust.taint(chat)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.warn("The taint of {} could not be read for /settings: {}", chat, e.toString())
+            return replies.text(TextKeys.SETTINGS_TAINT_UNREAD)
+        } ?: return replies.text(TextKeys.SETTINGS_CLEAN)
+        val date = LocalDate.ofInstant(taint.at, zone ?: clock.zone)
+        return replies.text(TextKeys.SETTINGS_TAINTED, "date" to date, "reason" to taint.reason)
     }
 
     private fun endpointIds(replies: Replies): String =

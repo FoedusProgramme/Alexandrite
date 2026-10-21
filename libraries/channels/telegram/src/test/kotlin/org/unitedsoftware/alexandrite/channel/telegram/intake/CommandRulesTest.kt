@@ -1,10 +1,12 @@
 package org.unitedsoftware.alexandrite.channel.telegram.intake
 
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.unitedsoftware.alexandrite.channel.telegram.ClaimedCommands
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion.DEFAULT_COMMANDS
 import org.unitedsoftware.alexandrite.channel.telegram.Who
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
+import org.unitedsoftware.alexandrite.channel.telegram.logged
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
@@ -117,6 +119,27 @@ class CommandRulesTest {
     }
 
     @Test
+    fun `anyone sees the usage of their chat, only admins the usage of all`() {
+        val usage = object : CommandHandler {
+            override val commands = listOf(
+                CommandSpec.builder("usage", "Usage.").operatorsOnly(CommandForms.WITH_ARGUMENTS).build(),
+            )
+
+            override suspend fun handle(invocation: CommandInvocation, context: CommandContext) = Unit
+        }
+        val rules = CommandRules(listOf(usage), control.links)
+        val member = testUser("bob")
+        val admin = testUser("ada", isOperator = true)
+
+        for (kind in kinds) {
+            assertEquals(null, rules.refusal(testCommand("usage", "", issuer = member), kind))
+            assertEquals(TextKeys.REFUSED_ADMIN, rules.refusal(testCommand("usage", "all", issuer = member), kind))
+            assertEquals(null, rules.refusal(testCommand("usage", "all", issuer = admin), kind))
+        }
+        assertEquals(true, rules.listed("usage", admin = false, direct = false))
+    }
+
+    @Test
     fun `anyone sees the MCP servers, only admins restart one`() {
         val rules = CommandRules(listOf(ClaimedCommands("mcp")), control.links)
         val member = testUser("bob")
@@ -141,25 +164,28 @@ class CommandRulesTest {
     }
 
     @Test
-    fun `a claimed command the matrix does not list is for admins alone`() {
+    fun `a claimed command no rule names is for admins alone, unless its spec keeps only some forms for operators`() {
         for ((command, arguments) in listOf("purge" to "", "purge" to "all", "Purge" to "now")) {
             assertRow(command, arguments, direct = TextKeys.REFUSED_ADMIN, others = TextKeys.REFUSED_ADMIN)
         }
+        assertRow("heartbeat", "now", direct = null, others = null)
     }
 
     @Test
-    fun `the bot's config opens a plugin's command by name, in the form it names`() {
-        val opened = mapOf("purge" to Who.ANYONE, "notes" to Who.DIRECT)
-        val rules = CommandRules(listOf(ClaimedCommands("purge", "notes", "audit")), control.links, opened)
+    fun `the bot's config sets a command's rule by name, over the default rule`() {
+        val configured = mapOf("purge" to Who.ANYONE, "notes" to Who.DIRECT, "model" to Who.ANYONE, "help" to Who.ADMIN)
+        val handlers = listOf(ClaimedCommands("purge", "notes", "audit", "model", "help"))
+        val rules = CommandRules(handlers, control.links, configured)
         val member = testUser("bob")
 
         for (arguments in listOf("", "all")) {
             for (kind in kinds) {
-                assertEquals(null, rules.refusal(testCommand("purge", arguments, issuer = member), kind))
-                val notes = rules.refusal(testCommand("notes", arguments, issuer = member), kind)
-                assertEquals(if (kind == ChatKind.DIRECT) null else TextKeys.REFUSED_ADMIN_HERE, notes)
-                val audit = rules.refusal(testCommand("audit", arguments, issuer = member), kind)
-                assertEquals(TextKeys.REFUSED_ADMIN, audit)
+                fun refusal(command: String) = rules.refusal(testCommand(command, arguments, issuer = member), kind)
+                assertEquals(null, refusal("purge"))
+                assertEquals(if (kind == ChatKind.DIRECT) null else TextKeys.REFUSED_ADMIN_HERE, refusal("notes"))
+                assertEquals(TextKeys.REFUSED_ADMIN, refusal("audit"))
+                assertEquals(null, refusal("model"))
+                assertEquals(TextKeys.REFUSED_ADMIN, refusal("help"))
             }
         }
     }
@@ -173,14 +199,35 @@ class CommandRulesTest {
 
             override suspend fun handle(invocation: CommandInvocation, context: CommandContext) = Unit
         }
-        val rules = CommandRules(listOf(purge), control.links, mapOf("purge" to Who.ANYONE))
+        val opened = mapOf("purge" to Who.ANYONE, "trust" to Who.ANYONE, "untaint" to Who.ANYONE)
+        val handlers = listOf(purge, ClaimedCommands("trust", "untaint"))
+        lateinit var rules: CommandRules
+        val lines = runBlocking { logged { rules = CommandRules(handlers, control.links, opened) } }
         val member = testUser("bob")
 
         for (kind in kinds) {
             assertEquals(null, rules.refusal(testCommand("purge", "", issuer = member), kind))
             assertEquals(TextKeys.REFUSED_ADMIN, rules.refusal(testCommand("purge", "all", issuer = member), kind))
+            for (command in listOf("trust", "untaint")) {
+                for (arguments in listOf("", "/srv/repo")) {
+                    val refusal = rules.refusal(testCommand(command, arguments, issuer = member), kind)
+                    assertEquals(TextKeys.REFUSED_ADMIN, refusal, "/$command $arguments")
+                }
+            }
         }
         assertEquals(listOf(true, false), listOf(false, true).map { rules.mayRun(testChat(), false, "purge", it) })
+        assertEquals(false, rules.listed("trust", admin = false, direct = true))
+        assertEquals(
+            listOf(
+                "WARN commands.purge opens /purge, but the forms with arguments of it stay with admins: its spec " +
+                    "keeps them for operators",
+                "WARN commands.trust opens /trust, but all forms of it stay with admins: its spec keeps them for " +
+                    "operators",
+                "WARN commands.untaint opens /untaint, but all forms of it stay with admins: its spec keeps them for " +
+                    "operators",
+            ),
+            lines,
+        )
     }
 
     @Test

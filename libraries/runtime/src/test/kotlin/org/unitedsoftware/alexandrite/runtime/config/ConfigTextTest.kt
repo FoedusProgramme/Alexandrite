@@ -61,6 +61,7 @@ class ConfigTextTest {
         val expected = changed(agent, "\"maxConcurrentTurns\": 4", "\"maxConcurrentTurns\": 8")
 
         assertEquals(expected, set(agent, "agent.maxConcurrentTurns", JsonPrimitive(8)))
+        assertEquals("{\"a\": null}", set("{\"a\": 1}", "a", JsonNull))
     }
 
     @Test
@@ -144,11 +145,6 @@ class ConfigTextTest {
     fun `a null on the way is replaced by the objects the path needs`() {
         assertEquals("{\"a\": {\"b\": 1}}", set("{\"a\": null}", "a.b", JsonPrimitive(1)))
         assertEquals("{\"a\": {\"b\": 1}}", set("{\"a\": 0}", "a", obj("b" to JsonPrimitive(1))))
-    }
-
-    @Test
-    fun `a value is set to null`() {
-        assertEquals("{\"a\": null}", set("{\"a\": 1}", "a", JsonNull))
     }
 
     // Reading.

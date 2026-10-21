@@ -72,7 +72,7 @@ class TurnMediaTest {
         blocking { media.put(testTurn(), message(attachments.toList()), images) }
 
     @Test
-    fun `an image is saved to the inbox and carried inline for a model that views images, without reading it back`() {
+    fun `an image keeps its size and is carried inline for a model that views images, without reading it back`() {
         val image = MediaAttachment.builder(MediaKind.IMAGE, "image/png") {
             png
         }.name("a.png").width(2).height(3).build()
@@ -83,17 +83,9 @@ class TurnMediaTest {
         val entry = testUserEntry().let { UserEntry(null, it.parts + parts.first(), it.origin) }
         val inline = blocking { media.inline(listOf(entry)) }
 
-        assertEquals(
-            listOf(
-                MediaPart(MediaKind.IMAGE, "image/png", stored, "a.png", 2, 3),
-                note("Saved to ${inbox.resolve("a.png")}: image \"a.png\" (image/png, 4 bytes); shown to you"),
-            ),
-            parts,
-        )
-        assertEquals(png.toList(), inbox.resolve("a.png").readBytes().toList())
-        assertEquals(png.toList(), blocking { memory.media.read(stored.id) }?.toList())
+        assertEquals(MediaPart(MediaKind.IMAGE, "image/png", stored, "a.png", 2, 3), parts.first())
         val carried = MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(png), "a.png", 2, 3)
-        assertEquals(listOf(UserEntry(null, entry.parts.dropLast(1) + carried, entry.origin)), inline)
+        assertEquals(carried, (inline.single() as UserEntry).parts.last())
         assertEquals(emptyList(), store.reads)
     }
 

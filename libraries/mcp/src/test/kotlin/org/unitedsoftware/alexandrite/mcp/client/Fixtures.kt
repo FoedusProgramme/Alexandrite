@@ -15,7 +15,6 @@ import kotlin.time.Duration.Companion.seconds
 internal val CLIENT = McpImplementation("alexandrite-test", "0.0.1")
 
 internal val FAST = McpClientOptions(
-    probeTimeout = 2.seconds,
     requestTimeout = 10.seconds,
     reconnectMin = 100.milliseconds,
     reconnectMax = 400.milliseconds,

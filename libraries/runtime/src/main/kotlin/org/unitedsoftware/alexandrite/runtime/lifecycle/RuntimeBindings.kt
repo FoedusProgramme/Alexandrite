@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.runtime.lifecycle
 
+import org.unitedsoftware.alexandrite.internal.manual.Manual
 import org.unitedsoftware.alexandrite.internal.path.createOwnerOnly
 import org.unitedsoftware.alexandrite.runtime.RuntimeConfig
 import org.unitedsoftware.alexandrite.runtime.chat.MemoryChatStateStore
@@ -17,7 +18,6 @@ import org.unitedsoftware.alexandrite.runtime.turn.PluginTurnInitiator
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelControl
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChatStates
-import org.unitedsoftware.alexandrite.sdk.config.ConfigEditor
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.config.LiveConfig
 import org.unitedsoftware.alexandrite.sdk.di.container.Dependency
@@ -60,13 +60,14 @@ internal fun runtimeBindings(
     configFile: Path?,
     plugins: List<PluginInfo>,
     builtIns: Set<String>,
+    /** The class loader of each plugin's own resources, by plugin id. */
+    classLoaders: Map<String, ClassLoader>,
     hookFailures: HookFailureListener,
     hookDecisions: HookDecisionListener,
     unreadableStates: UnreadableStateListener,
     unreadableRecords: UnreadableRecordListener,
     texts: RuntimeTexts,
     control: (plugin: String) -> RuntimeControl,
-    editors: (plugin: String) -> ConfigEditor,
     /** The host config that takes the changes of the [LiveConfig] contributions its argument lists, by plugin. */
     hostConfig: (live: () -> List<Pair<String, LiveConfig>>) -> HostConfig,
     scopes: PluginScopes,
@@ -116,6 +117,7 @@ internal fun runtimeBindings(
         binding(key<PluginOrigins>(), RUNTIME_PLUGIN, "PluginOrigins", managed = false) { r ->
             ResolvedOrigins(r, builtIns)
         },
+        binding(key<Manual>(), RUNTIME_PLUGIN, "Manual", managed = false) { Manual.read(classLoaders) },
     ) + plugins.flatMap { plugin ->
         listOf(
             instanceBinding(key<PluginInfo>(plugin.id), plugin, RUNTIME_PLUGIN, "PluginInfo of ${plugin.id}"),
@@ -165,12 +167,6 @@ internal fun runtimeBindings(
                 texts.of(plugin.id),
                 RUNTIME_PLUGIN,
                 "Texts of ${plugin.id}",
-            ),
-            instanceBinding(
-                key<ConfigEditor>(plugin.id),
-                editors(plugin.id),
-                RUNTIME_PLUGIN,
-                "ConfigEditor of ${plugin.id}",
             ),
         )
     }

@@ -46,16 +46,20 @@ internal sealed interface Inbound {
 
 /**
  * Reads the messages that the bot [bot] of [instance] receives, whose operators are [admins], with the content of each
- * file from [files]; [answeredAdmin] tells which of the bot's messages answered an admin.
+ * file from [files]; [vouchedReply] tells which of the bot's messages the agent vouched for.
  */
 internal class UpdateReader(
     private val instance: ChannelInstanceId,
     private val admins: Set<Long>,
     private val bot: BotIdentity,
     private val approvals: ApprovalMessages,
-    private val answeredAdmin: (chat: Long, message: Long) -> Boolean = { _, _ -> false },
+    private val vouchedReply: (chat: Long, message: Long) -> Boolean = { _, _ -> false },
     /** Whether every message of a group is meant for the bot, not only those that name it. */
     private val everyGroupMessage: Boolean = false,
+    /** The users whose own messages the bot's agents trust. */
+    private val trusted: Set<Long> = emptySet(),
+    /** The user named by a username without its `@`, who wrote lately in a chat. */
+    private val known: (chat: Long, username: String) -> User? = { _, _ -> null },
     private val files: (fileId: String) -> MediaContent,
 ) {
     /** The chat of [message], its forum topic as the thread. */
@@ -78,6 +82,7 @@ internal class UpdateReader(
         user.username,
         user.isBot,
         isOperator = user.id in admins && senderChat == null,
+        isTrusted = user.id in trusted && senderChat == null,
     )
 
     /**
@@ -119,7 +124,7 @@ internal class UpdateReader(
             user(from, message.senderChat),
             ChatInfo(kindOf(message.chat), message.chat.title, message.chat.username),
             Instant.ofEpochSecond(message.date),
-            forwarded(message.forwardOrigin),
+            forwarded(message.forwardOrigin) ?: viaBot(message.viaBot),
         )
             .quote(quote)
             .facts(facts)
@@ -131,6 +136,8 @@ internal class UpdateReader(
                 .arguments(command.arguments)
                 .trigger(ref)
                 .chatKind(incoming.chatInfo.kind)
+                .replyTo(replyTo(message))
+                .mentions(mentions(message))
                 .build()
             return Inbound.Command(invocation, incoming)
         }
@@ -195,6 +202,31 @@ internal class UpdateReader(
         if (name.isEmpty() || name.startsWith('/') || name.any(Char::isISOControl)) return null
         val forBot = target == null || target.equals(bot.username, ignoreCase = true)
         return CommandToken(name, target, text.substring(token.length).trimStart(), forBot)
+    }
+
+    /** The sender of the message that [message] replies to, null for none, a chat's, the bot's or a topic's root. */
+    private fun replyTo(message: Message): ChatUser? {
+        val replied = message.replyToMessage?.takeUnless { isTopicRoot(message) } ?: return null
+        if (replied.senderChat != null) return null
+        return replied.from?.takeIf { it.id != bot.id }?.let { user(it) }
+    }
+
+    /** The users that the text of [message] mentions, as far as the bot knows them, each once and the bot left out. */
+    private fun mentions(message: Message): List<ChatUser> {
+        val text = message.text ?: return emptyList()
+        return message.entities.orEmpty().mapNotNull { entity ->
+            if (entity.offset < 0 || entity.length <= 0 || entity.offset + entity.length > text.length) {
+                return@mapNotNull null
+            }
+            when (entity.type) {
+                "text_mention" -> entity.user
+                "mention" -> known(message.chat.id, text.substring(entity.offset + 1, entity.offset + entity.length))
+                else -> null
+            }
+        }
+            .filter { it.id != bot.id }
+            .distinctBy { it.id }
+            .map { user(it) }
     }
 
     private fun mentionsBot(message: Message): Boolean {
@@ -263,13 +295,20 @@ internal class UpdateReader(
     }
 
     /**
-     * How far a quote of [replied], from this chat, is trusted: its content when an admin wrote it themselves or it is
-     * the bot's answer to an admin, which [byBot] sent; its author whenever Telegram names the user who sent it.
+     * How far a quote of [replied], from this chat, is trusted: its content when an admin or a trusted user wrote it
+     * themselves or it is the bot's answer that the agent vouched for, which [byBot] sent; its author whenever Telegram names the
+     * user who sent it.
      */
     private fun trustOf(replied: Message, byBot: Boolean): QuoteTrust {
         val author = replied.from?.takeIf { replied.senderChat == null } ?: return QuoteTrust.UNTRUSTED
         val own = replied.forwardOrigin == null && replied.viaBot == null
-        val vouched = own && if (byBot) answeredAdmin(replied.chat.id, replied.messageId) else author.id in admins
+        val vouched = own &&
+            if (byBot) {
+                vouchedReply(replied.chat.id, replied.messageId)
+            } else {
+                author.id in admins ||
+                    author.id in trusted
+            }
         return if (vouched) VOUCHED else AUTHOR_KNOWN
     }
 
@@ -282,6 +321,12 @@ internal class UpdateReader(
             else -> ForwardKind.UNKNOWN
         }
         return ForwardOrigin(kind, author.name, author.address, chat = null)
+    }
+
+    /** A message that the inline bot [bot] wrote for its sender, which counts as forwarded from it. */
+    private fun viaBot(bot: User?): ForwardOrigin? = bot?.let {
+        val name = it.username?.let { username -> "@$username" } ?: nameOf(it)
+        ForwardOrigin(ForwardKind.BOT, name, UserAddress(instance, "${it.id}"), chat = null)
     }
 
     private fun authorOf(origin: MessageOrigin): Author = when (origin.type) {

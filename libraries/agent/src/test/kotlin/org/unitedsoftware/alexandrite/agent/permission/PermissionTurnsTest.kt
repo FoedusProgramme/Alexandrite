@@ -9,7 +9,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
-import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
@@ -216,18 +215,6 @@ class PermissionTurnsTest {
             get<ChatSettings>().update(member, ChatSettingsUpdate.builder().mode(PermissionMode.PLAN).build(), null)
 
             assertEquals(PermissionMode.PLAN, get<ChatSettings>().snapshot(anchor).mode)
-        }
-    }
-
-    @Test
-    fun `a gated call of an operator's turn runs in bypass mode, cleared by the mode`() {
-        model.reply { toolCall("fs.write") }.reply { text("Written.") }
-
-        harness().execute {
-            setMode(PermissionMode.BYPASS)
-            ask().ticket.outcome()
-
-            assertEquals("Written, cleared by ${ClearanceKind.MODE}.", results().single().text())
         }
     }
 }

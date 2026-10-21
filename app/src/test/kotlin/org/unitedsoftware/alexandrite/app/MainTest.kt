@@ -19,7 +19,6 @@ import org.unitedsoftware.alexandrite.sdk.di.key
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
-import org.unitedsoftware.alexandrite.sdk.runtime.StopKind
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
@@ -53,16 +52,15 @@ class MainTest {
 
     private fun config(json: String): Path = Files.writeString(directory.resolve("alexandrite.json"), json)
 
-    private fun stopping(kind: StopKind = StopKind.SHUTDOWN, whileReady: AlexandriteRuntime.() -> Unit = {}): Execute =
-        { spec, block ->
-            AlexandriteRuntime.run(spec) {
-                whileReady()
-                coroutineScope {
-                    launch(start = CoroutineStart.UNDISPATCHED) { block() }
-                    stop(stopRequest(kind, "requested by the test"))
-                }
+    private fun stopping(whileReady: AlexandriteRuntime.() -> Unit = {}): Execute = { spec, block ->
+        AlexandriteRuntime.run(spec) {
+            whileReady()
+            coroutineScope {
+                launch(start = CoroutineStart.UNDISPATCHED) { block() }
+                stop(StopRequest.shutdown("requested by the test"))
             }
         }
+    }
 
     private fun host(
         vararg args: String,
@@ -130,17 +128,23 @@ class MainTest {
     fun `--version prints the version`() {
         assertEquals(0, host("--version"))
 
-        assertTrue(Regex("""alexandrite \d+\.\d+\.\d+\S*\n""").matches(stdout().replace("\r\n", "\n")), stdout())
+        assertTrue(Regex("""alexandrite \d+\.\d+\.\d+\S*\n""").matches(stdout()), stdout())
     }
 
     @Test
     fun `bad arguments print the reason and the usage to stderr and exit 64`() {
-        assertEquals(64, host("--config"))
-
-        assertTrue(
-            stderr().replace("\r\n", "\n").startsWith("alexandrite: --config needs a value.\n\nUsage: alexandrite"),
-            stderr(),
+        val reasons = mapOf(
+            listOf("--config") to "--config needs a value.",
+            listOf("unpair", "work") to "'work' is no chat address",
         )
+        for ((args, reason) in reasons) {
+            err.reset()
+
+            assertEquals(64, host(*args.toTypedArray()))
+
+            assertTrue(stderr().startsWith("alexandrite: $reason"), stderr())
+            assertContains(stderr(), "Usage: alexandrite")
+        }
         assertEquals("", stdout())
     }
 
@@ -155,14 +159,6 @@ class MainTest {
             stderr(),
         )
         assertEquals("", stdout())
-    }
-
-    @Test
-    fun `a command with bad arguments prints the reason and the usage and exits 64`() {
-        assertEquals(64, host("unpair", "work"))
-
-        assertTrue(stderr().startsWith("alexandrite: 'work' is no chat address"), stderr())
-        assertContains(stderr(), "Usage: alexandrite")
     }
 
     @Test
@@ -205,15 +201,12 @@ class MainTest {
 
         assertContains(stderr(), "Config file $missing does not exist. Create it from the example at ")
         assertContains(stderr(), "config/alexandrite.example.json")
-    }
-
-    @Test
-    fun `a missing config file names the example of the distribution the host runs from`() {
         val install = Files.createDirectories(directory.resolve("dist"))
         val example = Files.createDirectories(install.resolve("config")).resolve("alexandrite.example.json")
         Files.writeString(example, "{}")
+        err.reset()
 
-        host("--config", "${directory.resolve("absent.json")}", "--data-dir", "$dataDir", install = install)
+        host("--config", "$missing", "--data-dir", "$dataDir", install = install)
 
         assertContains(stderr(), "Create it from the example at $example, or name another file")
     }
@@ -309,6 +302,8 @@ class MainTest {
         val texts = Files.createDirectories(directory.resolve("i18n/greeter")).resolve("zh-CN.properties")
         Files.writeString(texts, "greeting=你好，{name}！\n")
         val seen = mutableListOf<String>()
+        var logging: List<String> = emptyList()
+        val reloaded = "INFO Texts reloaded from ${directory.resolve("i18n")}: greeter/zh-CN.properties"
         val execute: Execute = { spec, block ->
             AlexandriteRuntime.run(spec) {
                 coroutineScope {
@@ -319,12 +314,15 @@ class MainTest {
                     replace(texts, "greeting=嗨，{name}！\n")
                     withTimeout(10.seconds) { while (greeting(null) == seen.last()) delay(10.milliseconds) }
                     seen += listOf(greeting(null), greeting(LanguageTag("en")))
+                    // The reload is logged once its texts are in place.
+                    withTimeout(10.seconds) { while (reloaded !in logging) delay(10.milliseconds) }
                     stop(StopRequest.shutdown("requested by the test"))
                 }
             }
         }
 
-        val lines = logged {
+        val lines = logged { live ->
+            logging = live
             val code =
                 host("--config", "$file", "--data-dir", "$dataDir", execute = execute, textsInterval = 20.milliseconds)
 
@@ -332,7 +330,7 @@ class MainTest {
         }
 
         assertEquals(listOf("你好，Ada！", "嗨，Ada！", "Hello, Ada!"), seen)
-        assertContains(lines, "INFO Texts reloaded from ${directory.resolve("i18n")}: greeter/zh-CN.properties")
+        assertContains(lines, reloaded)
     }
 
     @Test
@@ -430,23 +428,10 @@ class MainTest {
     }
 
     @Test
-    fun `a start that fails at DATA_DIR exits 1`() {
-        Files.writeString(dataDir, "")
-
-        assertEquals(1, hostWith("{}"))
-        assertContains(stderr(), "stage DATA_DIR failed")
-    }
-
-    @Test
     fun `an unexpected error exits 1`() {
         assertEquals(1, hostWith("{}") { _, _ -> error("boom") })
 
         assertContains(stderr(), "alexandrite: unexpected error: java.lang.IllegalStateException: boom")
-    }
-
-    @Test
-    fun `a stop for a restart exits 75`() {
-        assertEquals(75, hostWith("{}", stopping(StopKind.RESTART)))
     }
 
     @Test

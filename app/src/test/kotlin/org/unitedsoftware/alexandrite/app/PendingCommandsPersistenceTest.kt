@@ -85,5 +85,6 @@ class PendingCommandsPersistenceTest {
             notices(entries),
         )
         assertEquals(listOf("UserEntry", "UserEntry", "AssistantEntry"), entries.map { it::class.simpleName })
+        assertEquals(notices(entries), notices(entries.take(1)))
     }
 }

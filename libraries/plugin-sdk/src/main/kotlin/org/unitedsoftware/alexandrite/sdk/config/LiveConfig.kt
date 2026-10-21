@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.sdk.di.Key
  * The runtime calls [prepare] and the action it returns under the lock of every config change, so neither may change
  * the config.
  */
+@InternalAlexandriteApi
 public interface LiveConfig {
     /** The paths below the plugin's config root whose changes this part takes, each with every path below it. */
     public val paths: List<String>
@@ -22,7 +23,7 @@ public interface LiveConfig {
 }
 
 /** A plugin's config sections as a change of the config file leaves them. */
-@SubclassOptInRequired(InternalAlexandriteApi::class)
+@InternalAlexandriteApi
 public interface ConfigSnapshot {
     /** The section bound to [key], null when the plugin has none. */
     public fun <T : Any> section(key: Key<T>): T?

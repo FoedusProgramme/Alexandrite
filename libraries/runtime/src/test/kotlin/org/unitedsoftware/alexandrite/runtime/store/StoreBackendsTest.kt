@@ -20,7 +20,6 @@ import org.unitedsoftware.alexandrite.sdk.di.Key
 import org.unitedsoftware.alexandrite.sdk.di.container.Binding
 import org.unitedsoftware.alexandrite.sdk.di.container.binding
 import org.unitedsoftware.alexandrite.sdk.di.key
-import org.unitedsoftware.alexandrite.sdk.problem.Problem
 import org.unitedsoftware.alexandrite.sdk.store.ChatStateStore
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.MediaStore
@@ -28,6 +27,7 @@ import org.unitedsoftware.alexandrite.sdk.store.RecordStore
 import java.nio.file.Path
 import java.time.Clock
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 
 class StoreBackendsTest {
@@ -75,18 +75,10 @@ class StoreBackendsTest {
         val error = spec(plugins, dataDir).startFailure()
 
         assertEquals(StartStage.CONFIG, error.stage)
-        assertEquals(
-            listOf(
-                Problem(
-                    RuntimeProblemKind.DUPLICATE_STORE,
-                    "Duplicate store: plugin 'files' (root 'plugins.files') binds ConversationStore, ChatStateStore " +
-                        "and plugin 'server' (root 'plugins.server') binds MediaStore, but one plugin provides the " +
-                        "whole store. Switch all but one of them off with `<root>.enabled = false`.",
-                    null,
-                ),
-            ),
-            error.problems,
-        )
+        val problem = error.problems.single()
+        assertEquals(RuntimeProblemKind.DUPLICATE_STORE, problem.kind)
+        assertContains(problem.message, "'files'")
+        assertContains(problem.message, "'server'")
         assertEquals(emptyList(), events.all())
     }
 
@@ -120,14 +112,7 @@ class StoreBackendsTest {
 
         val lines = logged { spec(partial, dataDir).execute() } + logged { spec(whole, dataDir).execute() }
 
-        val warnings = lines.filter { it.startsWith("WARN ") && "provides the store" in it }
-        assertEquals(
-            listOf(
-                "plugin 'files' provides the store but binds no RecordStore: the plugins' records, runtime grants " +
-                    "among them, live in memory and are lost at a restart",
-            ),
-            warnings.map { it.substringAfter(": ") },
-        )
+        assertEquals(1, lines.count { it.startsWith("WARN ") && "binds no RecordStore" in it }, "$lines")
     }
 
     @Test

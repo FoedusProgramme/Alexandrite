@@ -14,10 +14,12 @@ import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
+import org.unitedsoftware.alexandrite.sdk.turn.rebuild
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -30,7 +32,7 @@ internal class AllowCommands(
     private val texts: Texts,
     private val clock: Clock,
 ) : CommandHandler {
-    override val commands: List<CommandSpec> = listOf(texts.spec(ALLOW))
+    override val commands: List<CommandSpec> = listOf(texts.spec(ALLOW).rebuild { operatorsOnly(CommandForms.ALL) })
 
     override fun description(command: String, language: LanguageTag?): String = texts.description(command, language)
 

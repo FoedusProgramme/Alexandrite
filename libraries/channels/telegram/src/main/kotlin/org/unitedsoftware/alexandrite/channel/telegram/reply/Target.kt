@@ -8,8 +8,12 @@ internal class Target(val chat: Long, val thread: Long?) {
     /** Whether the chat is a group, which Telegram gives a negative id. */
     val group: Boolean get() = chat < 0
 
-    /** The id of the message [ref] when this is a group and the message is in it, null otherwise. */
-    fun quoteOf(ref: ChannelMessageRef?): Long? = ref?.takeIf { group && it.chat.chat == "$chat" }?.id?.toLongOrNull()
+    /**
+     * The id of the message [ref] when it is in this chat and this is a group, or any chat where [anyChat], null
+     * otherwise.
+     */
+    fun quoteOf(ref: ChannelMessageRef?, anyChat: Boolean = false): Long? =
+        ref?.takeIf { (group || anyChat) && it.chat.chat == "$chat" }?.id?.toLongOrNull()
 }
 
 /** The Telegram chat of [address], null when it names none. */

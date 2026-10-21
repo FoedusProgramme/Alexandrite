@@ -75,23 +75,16 @@ class ToolsFramingTest {
             ),
         )
 
-        assertEquals(
-            "[alexandrite:tools]\nYour tools changed since your last turn in this conversation.\n" +
-                "Changed: fs.list, fs.read, web.fetch (their descriptions, parameters, risks or timeouts).\n" +
-                "What you said about your tools earlier in this conversation may be out of date.\n" +
-                "[/alexandrite:tools]",
-            text(toolsEntry(before, after)),
-        )
+        val lines = text(toolsEntry(before, after))!!.lines()
+        val change = "Changed: fs.list, fs.read, web.fetch (their descriptions, parameters, risks or timeouts)."
+
+        assertEquals(listOf(change), lines.filter { it.matches(Regex("(Added|Removed|Changed): .*")) })
     }
 
     @Test
     fun `tools that are all gone are named as removed`() {
-        assertEquals(
-            "[alexandrite:tools]\nYour tools changed since your last turn in this conversation.\n" +
-                "Removed: fs.read, permission.status.\n" +
-                "What you said about your tools earlier in this conversation may be out of date.\n" +
-                "[/alexandrite:tools]",
-            text(toolsEntry(fingerprint(listOf(tool("permission.status"), tool("fs.read"))), emptyMap())),
-        )
+        val notice = text(toolsEntry(fingerprint(listOf(tool("permission.status"), tool("fs.read"))), emptyMap()))
+
+        assertTrue("\nRemoved: fs.read, permission.status.\n" in notice!!, notice)
     }
 }

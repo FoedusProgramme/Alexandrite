@@ -90,14 +90,15 @@ class McpHubTest {
     fun `a server that dies has its tools withdrawn and offered again once it is back`() = withHub("files" to fake()) {
         connected("files")
         val counts = CopyOnWriteArrayList<Int>()
-        val watching = launch(Dispatchers.Default) { hub.tools.collect { counts += it.size } }
+        // Unconfined, the collector sees each list as it is set, the empty one between included.
+        val watching = launch(Dispatchers.Unconfined) { hub.tools.collect { counts += it.size } }
         until("watched") { counts.isNotEmpty() }
 
         val result = tool("mcp.files.exit").execute(JsonObject(emptyMap()), testToolContext())
         assertTrue(result.isError, result.text)
         until("down") { server("files").status.value.lastError?.contains("exited with code 4") == true }
         connected("files")
-        until("offered again") { names.size == 8 }
+        until("offered again") { counts.last() == 8 }
         watching.cancel()
 
         assertTrue(0 in counts, "$counts")
@@ -105,13 +106,15 @@ class McpHubTest {
     }
 
     @Test
-    fun `a server that cannot start is down, and a call to it names that`() =
+    fun `a server that cannot start is down, and a call to it names that, its last error tainting the turn`() =
         withHub("broken" to ServerConfigBuilder(command = "/nonexistent/mcp-server").build()) {
             until("down") { server("broken").status.value.state == ServerState.DOWN }
-            val result = server("broken").call("echo", JsonObject(emptyMap()), testToolContext())
+            val context = testToolContext()
+            val result = server("broken").call("echo", JsonObject(emptyMap()), context)
 
             assertTrue(result.isError)
             assertContains(result.text, "MCP server broken is down (last error: Cannot start /nonexistent/mcp-server")
+            assertEquals(listOf("output of MCP server broken"), context.untrustedReasons)
             assertEquals(emptyList(), names)
         }
 
@@ -138,6 +141,9 @@ class McpHubTest {
         }
 
         assertEquals(2, running)
+        // A process the drain ended may still be reaped a moment later.
+        val deadline = System.nanoTime() + 5_000_000_000
+        while (fakeProcesses().isNotEmpty() && System.nanoTime() < deadline) Thread.sleep(20)
         assertEquals(emptyList(), fakeProcesses())
     }
 
@@ -230,7 +236,9 @@ class McpHubTest {
             withHub("web" to ServerConfigBuilder(url = web.url.toString()).build()) {
                 connected("web")
                 val errors = CopyOnWriteArrayList<String?>()
-                val watching = launch(Dispatchers.Default) { server("web").status.collect { errors += it.lastError } }
+                val watching = launch(Dispatchers.Unconfined) {
+                    server("web").status.collect { errors += it.lastError }
+                }
                 web.listingFails = true
 
                 until("down") { server("web").status.value.state == ServerState.DOWN }

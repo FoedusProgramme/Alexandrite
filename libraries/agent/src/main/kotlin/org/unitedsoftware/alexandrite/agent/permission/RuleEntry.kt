@@ -5,10 +5,11 @@ import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
+import java.util.Locale
 
 /**
  * An allow, deny or trust rule of the config: every call of [tool], or the calls whose argv starts with [prefix], where
- * a trust rule's [tool] may be a glob.
+ * a trust rule's [tool] may be a glob and a trust rule of another tool than command.exec may name one host.
  */
 internal class RuleEntry private constructor(
     /** The rule as the config writes it. */
@@ -63,6 +64,17 @@ internal class RuleEntry private constructor(
         return false
     }
 
+    /**
+     * Whether the rule as a trust rule trusts the output of a call of the tool [name] that brings in content from
+     * [host]: a host in its parentheses covers itself and its subdomains.
+     */
+    fun trustsHost(name: String, host: String?): Boolean {
+        if (host == null || tool == EXEC || prefix.size != 1 || !(glob?.matches(name) ?: (name == tool))) return false
+        val trusted = prefix.single()
+        val asked = host.lowercase(Locale.ROOT).trimEnd('.')
+        return asked == trusted || asked.endsWith(".$trusted")
+    }
+
     /** Whether the rule trusts programs that run whatever code they are given. */
     val anyCode: Boolean
         get() = (glob?.matches(EXEC) ?: (tool == EXEC)) &&
@@ -106,10 +118,22 @@ internal class RuleEntry private constructor(
                 )
             }
             if (open < 0) return RuleEntry(trimmed, tool, emptyList(), "")
-            if (tool != EXEC) {
-                throw EntryProblem("gives an argument prefix to a tool other than command.exec: write the tool alone")
-            }
             val written = trimmed.substring(open + 1, trimmed.length - 1).trim()
+            if (tool != EXEC) {
+                if (!trust) {
+                    throw EntryProblem(
+                        "gives an argument prefix to a tool other than command.exec: write the tool alone",
+                    )
+                }
+                val host = written.lowercase(Locale.ROOT).trimEnd('.')
+                if (!HOST.matches(host)) {
+                    throw EntryProblem(
+                        "gives $tool something other than a host in parentheses: write a host, such as " +
+                            "\"web.fetch(example.com)\", or the tool alone",
+                    )
+                }
+                return RuleEntry(trimmed, tool, listOf(host), written)
+            }
             val words = split(written, home)
             if (words.isEmpty()) throw EntryProblem("has nothing in its parentheses: write the tool alone")
             if (allow && isPathNamed(words[0])) {
@@ -123,6 +147,9 @@ internal class RuleEntry private constructor(
         }
     }
 }
+
+/** A host name of letters, digits and `-` in dot-separated labels. */
+private val HOST = Regex("[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+")
 
 private fun isPathNamed(program: String): Boolean = program.startsWith('~') || '/' in program
 

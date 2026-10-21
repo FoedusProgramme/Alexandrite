@@ -12,17 +12,18 @@ import org.unitedsoftware.alexandrite.sdk.AlexandriteSdk
 import org.unitedsoftware.alexandrite.sdk.di.container.Binding
 import org.unitedsoftware.alexandrite.sdk.di.container.Container
 import org.unitedsoftware.alexandrite.sdk.di.container.DiException
+import org.unitedsoftware.alexandrite.sdk.di.container.DiProblemKind
 import org.unitedsoftware.alexandrite.sdk.di.container.instanceBinding
 import org.unitedsoftware.alexandrite.sdk.di.key
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
 import java.io.File
 import kotlin.test.Test
-import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class IndexTest {
@@ -215,16 +216,13 @@ class IndexTest {
             ),
             descriptor.keys.toList(),
         )
-        assertEquals(JsonPrimitive("sample-plugin"), descriptor["id"])
-        assertEquals(JsonPrimitive("Sample plugin"), descriptor["name"])
-        assertEquals(JsonPrimitive("1.0.0"), descriptor["version"])
-        assertEquals(JsonPrimitive("Greets \"people\"\n\$politely"), descriptor["description"])
-        assertEquals(JsonPrimitive(AlexandriteSdk.API_VERSION), descriptor["sdkApi"])
+        val info = index.info
         assertEquals(
-            JsonArray(listOf(JsonPrimitive("alexandrite-agent"), JsonPrimitive("weather"))),
-            descriptor["requires"],
+            listOf(info.id, info.name, info.version, info.description, info.entryClass).map(::JsonPrimitive) +
+                JsonPrimitive(info.sdkApi) + listOf(JsonArray(info.requires.map(::JsonPrimitive))),
+            listOf("id", "name", "version", "description", "entryClass", "sdkApi", "requires")
+                .map(descriptor::getValue),
         )
-        assertEquals(JsonPrimitive("sample.plugin.SamplePlugin"), descriptor["entryClass"])
         assertEquals(JsonObject(emptyMap()), descriptor["contributionNames"])
         assertEquals(JsonPrimitive("sample.plugin.SamplePluginIndex"), descriptor["indexClass"])
         assertEquals(JsonPrimitive("plugins.sample-plugin"), descriptor["configRoot"])
@@ -250,7 +248,6 @@ class IndexTest {
             val entry = compiled.classLoader.loadClass("sample.plugin.SamplePlugin")
             val binding = index.bindings().single { it.origin == "sample.plugin.SamplePlugin" }
 
-            assertEquals(listOf(key<PluginInfo>("sample-plugin")), binding.dependencies.map { it.key })
             val instance = container.get(binding.key)
             assertEquals(entry, instance.javaClass)
             assertEquals(index.info, entry.getMethod("getInfo").invoke(instance))
@@ -262,15 +259,6 @@ class IndexTest {
         Container.build(listOf(index.pluginBindings()), overrides(index)).use { container ->
             assertEquals("probes=2; double=42; clock=noon", container.get(key<Probe>("aliased")).report())
         }
-        val binding = index.bindings().first { it.origin == "sample.plugin.Aliased" }
-        assertEquals(
-            listOf(
-                "probes: ALL ${Probe::class.java.name}",
-                "handlers: INSTANCE kotlin.collections.Map<kotlin.String, sample.plugin.Handler<kotlin.Int>>",
-                "clock: OPTIONAL sample.plugin.Clock",
-            ),
-            binding.dependencies.map { "${it.site}: ${it.kind} ${it.key}" },
-        )
     }
 
     @Test
@@ -297,7 +285,12 @@ class IndexTest {
                 ),
             )
         }
-        assertContains(error.message!!, "nothing binds sample.plugin.config.GreetingConfig")
+        assertTrue(
+            error.problems.any {
+                it.kind == DiProblemKind.MISSING && "sample.plugin.config.GreetingConfig" in it.message
+            },
+            error.message,
+        )
     }
 
     // Bindings and sections.
@@ -523,32 +516,8 @@ class IndexTest {
     }
 
     @Test
-    fun `the generated index compiles in a package whose first segment is a short name`() {
-        val shortPackage = source(
-            "Short.kt",
-            """
-            package r.x
-
-            import org.unitedsoftware.alexandrite.sdk.di.Singleton
-            import org.unitedsoftware.alexandrite.sdk.plugin.Plugin
-
-            @Plugin(name = "Short")
-            class ShortPlugin(val engine: Engine)
-
-            @Singleton
-            class Engine
-            """,
-        )
-        compile(workingDir.resolve("short"), shortPackage).use { compiled ->
-            compiled.assertSucceeded()
-
-            Container.build(listOf(compiled.indexes().single().pluginBindings())).close()
-        }
-    }
-
-    @Test
-    fun `the generated index compiles in a package named like a member of the index`() {
-        for (root in listOf("info", "configRoot")) {
+    fun `the generated index compiles in a package named like an index member or one with a short first segment`() {
+        for (root in listOf("info", "configRoot", "r.x")) {
             val weather = source(
                 "Weather.kt",
                 """

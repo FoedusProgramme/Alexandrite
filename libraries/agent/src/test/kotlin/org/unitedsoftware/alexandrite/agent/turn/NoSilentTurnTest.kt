@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelError
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
+import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.NoticeEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.NoticeKind
@@ -87,6 +88,8 @@ class NoSilentTurnTest {
             assertEquals(listOf(1000, 1500), model.requests.map { it.options.maxOutputTokens })
             val text = "The model reached its output limit before it wrote an answer."
             assertEquals(listOf(NoticeEntry(null, text, NoticeKind.OUTPUT_LIMIT)), stored())
+            assertEquals(text, channel.reply(admission.ticket.turn).completed?.text)
+            assertEquals(TurnEndKind.TAKEN_BACK, store.conversations.turn(admission.ticket.turn)?.end)
         }
     }
 
@@ -130,6 +133,23 @@ class NoSilentTurnTest {
             assertEquals(undelivered to MessageKind.NOTICE, notice.message.text to notice.message.kind)
             assertIs<Delivery.Delivered>(notice.delivery)
             assertEquals(NoticeEntry(null, undelivered, NoticeKind.UNDELIVERED), stored().last())
+            assertEquals(listOf(false, true), channel.sent.map { it.message.vouched })
+        }
+    }
+
+    @Test
+    fun `a final reply sent again as plain text is vouched for where the turn's reply is`() {
+        val model = ScriptedModel(models = MODELS).reply { text("Hello") }.reply { text("Hello") }
+
+        agentHarness(CONFIG, MemoryStore()) { channel(operators = setOf("operator")).model(model) }.execute {
+            val channel = channel()
+            for (user in listOf("operator", "guest")) {
+                channel.scriptDeliveries(refused)
+                val admission = channel.receive("Hi", channel.chat(), channel.user(user)) as Admission.Accepted
+                admission.ticket.outcome()
+            }
+
+            assertEquals(listOf(true, false), channel.sent.map { it.message.vouched })
         }
     }
 

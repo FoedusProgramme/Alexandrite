@@ -20,6 +20,12 @@ public class OutboundMessage private constructor(
     public val conversation: ConversationId?,
     /** The files the message carries, which a channel sends only where its capabilities take files. */
     public val files: List<OutboundFile>,
+    /**
+     * Whether the agent vouches for the message's words — Alexandrite's own, or a trusted turn's in a clean
+     * conversation — so that a channel may tell a quote of them as trusted content; a reply's final message only where
+     * its [ReplyRequest.vouched] holds too.
+     */
+    public val vouched: Boolean,
 ) {
     init {
         require(text.isNotBlank() || files.isNotEmpty()) { "An outbound message without files may not be blank." }
@@ -30,12 +36,14 @@ public class OutboundMessage private constructor(
         .replyTo(replyTo)
         .conversation(conversation)
         .files(files)
+        .vouched(vouched)
 
     public class Builder internal constructor(private var text: String, private var kind: MessageKind) {
         private var markup: Markup = Markup.PLAIN
         private var replyTo: ChannelMessageRef? = null
         private var conversation: ConversationId? = null
         private var files: List<OutboundFile> = emptyList()
+        private var vouched: Boolean = false
 
         public fun text(text: String): Builder = apply { this.text = text }
 
@@ -49,7 +57,9 @@ public class OutboundMessage private constructor(
 
         public fun files(files: List<OutboundFile>): Builder = apply { this.files = files.toList() }
 
-        public fun build(): OutboundMessage = OutboundMessage(text, kind, markup, replyTo, conversation, files)
+        public fun vouched(vouched: Boolean): Builder = apply { this.vouched = vouched }
+
+        public fun build(): OutboundMessage = OutboundMessage(text, kind, markup, replyTo, conversation, files, vouched)
     }
 
     public companion object {
@@ -121,7 +131,7 @@ public class OutboundFile private constructor(
 public inline fun OutboundFile.rebuild(block: OutboundFile.Builder.() -> Unit): OutboundFile =
     toBuilder().apply(block).build()
 
-/** Whether the agent vouches for a message. */
+/** Where a message's words come from. */
 public enum class MessageKind {
     /** A reply of the agent's model. */
     REPLY,

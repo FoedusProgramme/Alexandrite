@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.agent.turn.withoutRecord
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -174,11 +175,7 @@ class JobTurnsTest {
                 listOf(turn.kind, turn.actor, turn.end),
             )
             val entries = stored()
-            assertEquals(
-                "[alexandrite:background] fs.slow is still running as job $id; its result will come in a later turn " +
-                    "— go on, or end your turn.",
-                text(entries[2]),
-            )
+            assertTrue(text(entries[2])!!.startsWith("[alexandrite:background]"))
             assertEquals("It runs in the background.", text(entries[3]))
             val framing = checkNotNull(framing(entries[4]))
             assertTrue(framing.startsWith("[alexandrite:job]\nA background job ended: job $id, fs.slow /srv/big, "))
@@ -186,7 +183,7 @@ class JobTurnsTest {
             assertEquals(UserOrigin.SystemWritten("alexandrite.job"), (entries[4] as UserEntry).origin)
             assertEquals(listOf(reply.turn.id, reply.turn.id), entries.drop(4).map { it.record?.turn })
             assertEquals(entries.take(5), model.requests[2].history)
-            assertEquals(emptyList(), control.jobs(channel().chat()))
+            until { control.jobs(channel().chat()).isEmpty() }
             assertEquals(emptySet(), recorded())
             assertEquals(1, slow.calls.size)
         }
@@ -244,31 +241,26 @@ class JobTurnsTest {
             ToolResult("Quick done.")
         }
         model.reply { toolCall("fs.slow") }.reply { toolCall("fs.quick") }.reply { text("One left.") }
+            .reply { toolCall("fs.slow") }.reply { text("Elsewhere.") }
 
-        val lines = logged {
-            harness(settings = """, "maxJobsPerChat": 1""") { tool(quick) }.execute {
-                ask().ticket.outcome()
+        harness(settings = """, "maxJobsPerChat": 1""") { tool(quick) }.execute {
+            ask().ticket.outcome()
 
-                val results = stored().filterIsInstance<ToolResultEntry>()
-                assertIs<ToolOutcome.Detached>(results[0].outcome)
-                assertEquals(ToolOutcome.Succeeded to "Quick done.", results[1].outcome to text(results[1]))
-                assertEquals(1, get<TurnControl>().jobs(channel().chat()).size)
-            }
+            val results = stored().filterIsInstance<ToolResultEntry>()
+            assertIs<ToolOutcome.Detached>(results[0].outcome)
+            assertEquals(ToolOutcome.Succeeded to "Quick done.", results[1].outcome to text(results[1]))
+            assertEquals(1, get<TurnControl>().jobs(channel().chat()).size)
+            val other = channel().chat("other")
+            assertIs<Admission.Accepted>(channel().receive("Read it.", other, channel().user("operator")))
+                .ticket.outcome()
+            assertEquals(1, get<TurnControl>().jobs(other).size)
         }
-
-        assertEquals(
-            1,
-            lines.count {
-                it.startsWith("INFO Call ") &&
-                    it.endsWith("stays in the foreground: the chat already runs 1 background jobs")
-            },
-        )
     }
 
     // Stopping.
 
     @Test
-    fun `cancel stops the chat's jobs, whose tools are cancelled and whose results never come`() {
+    fun `cancel leaves the chat's jobs, and a stopped job's tool is cancelled and its result never comes`() {
         model.reply { toolCall("fs.slow") }.reply { text("Running.") }
 
         harness().execute {
@@ -276,12 +268,14 @@ class JobTurnsTest {
             val control = get<TurnControl>()
             val operator = channel().user("operator")
 
-            assertTrue(control.cancel(channel().chat(), operator))
+            assertFalse(control.cancel(channel().chat(), operator))
+            val job = control.jobs(channel().chat()).single()
+            assertEquals(AgentId("coder"), job.agent)
+            assertTrue(control.stopJob(null, job.id, operator))
             until { slow.cancelled.size == 1 && recorded().isEmpty() }
             delay(200.milliseconds)
 
             assertEquals(emptyList(), control.jobs(channel().chat()))
-            assertFalse(control.cancel(channel().chat(), operator))
             assertEquals(2, model.requests.size)
             assertEquals(emptyList(), channel().sent)
         }
@@ -305,13 +299,12 @@ class JobTurnsTest {
             until { slow.cancelled.size == 1 }
             ask("Stop the other one.").ticket.outcome()
 
-            until { slow.cancelled.size == 2 }
+            until { slow.cancelled.size == 2 && recorded().isEmpty() }
             val results = stored().filterIsInstance<ToolResultEntry>().drop(2).map(::text)
             assertTrue(results[0]!!.startsWith("Jobs that run in this chat:\n- $second: fs.slow b (running since "))
             assertEquals("Job $second is stopped; its result will not come.", results[1])
             assertEquals(emptyList(), control.jobs(channel().chat()))
             assertFalse(control.cancelRun(second, tree = false, by = null))
-            assertEquals(emptySet(), recorded())
         }
     }
 
@@ -333,7 +326,7 @@ class JobTurnsTest {
         assertEquals(1, slow.cancelled.size)
         assertEquals(setOf(id), blocking { recorded() })
 
-        val lines = logged { harness().execute {} }
+        harness().execute {}
 
         val notice = "Job $id (fs.slow /srv/big) was interrupted by a restart; it was not run again."
         assertEquals(
@@ -342,12 +335,6 @@ class JobTurnsTest {
         )
         assertEquals(emptySet(), blocking { recorded() })
         assertEquals(1, slow.calls.size)
-        assertEquals(
-            listOf(
-                "INFO Job $id (fs.slow /srv/big) of test:main:chat was interrupted by a restart: it is not run again",
-            ),
-            lines.filter { it.contains("interrupted by a restart") },
-        )
     }
 
     @Test

@@ -52,12 +52,12 @@ class OpenAiResponsesPluginTest {
     }
 
     @Test
-    fun `an endpoint posts to responses with its key, headers and cache key`() = runBlocking {
+    fun `an endpoint posts to responses with the cache key`() = runBlocking {
         FakeModelServer().use { server ->
             server.enqueue(sse(*textEvents(listOf("Hi."))))
             val config = """
                 {"endpoints": {"proxy": {"baseUrl": "${server.baseUrl}/v1", "apiKey": "sk-plugin-test-key",
-                    "headers": {"X-Team": "core"}, "discover": false, "models": {"m": {}}}}}
+                    "discover": false, "models": {"m": {}}}}}
             """.trimIndent()
 
             harness(config).build().run {
@@ -74,7 +74,6 @@ class OpenAiResponsesPluginTest {
 
             val sent = server.requests.single()
             assertEquals("/v1/responses", sent.path)
-            assertEquals("core" to "Bearer sk-plugin-test-key", sent.header("x-team") to sent.header("authorization"))
             assertEquals("cache-7", sent.json()["prompt_cache_key"]?.jsonPrimitive?.content)
             assertEquals("false", sent.json()["store"]?.jsonPrimitive?.content)
         }
@@ -83,12 +82,9 @@ class OpenAiResponsesPluginTest {
     @Test
     fun `a malformed endpoint fails the start at CONFIG without showing its values`() = runBlocking {
         val cases = listOf(
-            endpoint().replace("\"x\"", "\"Bad_Id\"") to "no endpoint id",
             endpoint(""", "baseUrl": "https://user:hunter2@api.example.com"""") to "baseUrl must be",
-            endpoint(""", "turnContext": "sometimes"""") to "turnContext",
             endpoint(""", "headers": {"Authorization": "k"}""") to "may not set authorization when apiKey is set",
             endpoint(""", "reasoningSummary": "verbose"""") to "reasoningSummary must be",
-            endpoint(""", "models": {"m": {"reasoningEfforts": ["lots"]}}""") to "reasoningEfforts holds",
         )
 
         for ((config, expected) in cases) {

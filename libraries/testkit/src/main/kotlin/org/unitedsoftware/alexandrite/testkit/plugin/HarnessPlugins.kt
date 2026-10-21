@@ -41,7 +41,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.ConversationControl
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.PermissionRules
-import org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
@@ -112,7 +112,7 @@ internal class DoublesPlugin(
             add(instanceBinding(key<ConversationControl>(), it.conversations, ID, "RecordingAgent.conversations"))
             add(instanceBinding(key<ChatSettings>(), it.settings, ID, "RecordingAgent.settings"))
             add(instanceBinding(key<ChatLinks>(), it.links, ID, "RecordingAgent.links"))
-            add(instanceBinding(key<TrustedFolders>(), it.folders, ID, "RecordingAgent.folders"))
+            add(instanceBinding(key<TrustControl>(), it.trust, ID, "RecordingAgent.trust"))
             add(instanceBinding(key<PermissionRules>(), it.rules, ID, "RecordingAgent.rules"))
             add(instanceBinding(key<AgentCatalog>(), it.catalog, ID, "RecordingAgent.catalog"))
             add(instanceBinding(key<UsageReports>(), it.usage, ID, "RecordingAgent.usage"))
@@ -149,6 +149,7 @@ internal class DoublesPlugin(
 internal class RecordingChannelConfig(
     val operators: Set<String> = emptySet(),
     val partLength: Int = RecordingChannel.DEFAULT_PART_LENGTH,
+    val trusted: Set<String> = emptySet(),
 )
 
 /** The plugin `<type>-channel`, whose channel of [type] is a [RecordingChannel] per instance of [instances]. */
@@ -207,6 +208,7 @@ internal class RecordingChannelPlugin(
                 config.operators,
                 config.partLength,
                 r.getOrNull(key<TurnSubmitter>()),
+                config.trusted,
             ).also { channel ->
                 channel.onProblem = { onProblem?.invoke() }
                 created += channel

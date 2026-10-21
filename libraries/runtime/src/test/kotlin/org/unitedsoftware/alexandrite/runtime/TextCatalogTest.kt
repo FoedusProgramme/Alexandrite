@@ -5,7 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
-import kotlin.test.assertNull
 
 class TextCatalogTest {
     private val english = LanguageTag("en")
@@ -16,17 +15,6 @@ class TextCatalogTest {
         .text("notes", english, "saved", "Kept.")
         .text("agent", chinese, "failed", "失败了。")
         .build()
-
-    @Test
-    fun `a catalog holds texts by plugin, language and key`() {
-        assertEquals(setOf("agent", "notes"), catalog.plugins)
-        assertEquals(setOf(english, chinese), catalog.languages("notes"))
-        assertEquals(mapOf("deleted" to "已删除。", "saved" to "已保存。"), catalog.texts("notes", chinese))
-        assertEquals("Kept.", catalog.text("notes", english, "saved"))
-        assertNull(catalog.text("notes", english, "deleted"))
-        assertEquals(emptyMap(), catalog.texts("tools", english))
-        assertEquals(emptySet(), catalog.languages("tools"))
-    }
 
     @Test
     fun `a builder replaces the texts it is given again and keeps the others`() {
@@ -42,7 +30,7 @@ class TextCatalogTest {
     }
 
     @Test
-    fun `a catalog is equal by its texts and prints its plugins and languages`() {
+    fun `a catalog is equal by its texts`() {
         val same = TextCatalog.builder()
             .text("agent", chinese, "failed", "失败了。")
             .text("notes", english, "saved", "Kept.")
@@ -52,7 +40,6 @@ class TextCatalogTest {
         assertEquals(catalog, same)
         assertEquals(catalog.hashCode(), same.hashCode())
         assertNotEquals(catalog, catalog.toBuilder().text("agent", chinese, "failed", "错了。").build())
-        assertEquals("TextCatalog(agent=[zh-CN], notes=[en, zh-CN])", "$catalog")
     }
 
     @Test

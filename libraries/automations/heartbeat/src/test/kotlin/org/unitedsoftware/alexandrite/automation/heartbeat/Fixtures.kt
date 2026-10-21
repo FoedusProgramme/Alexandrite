@@ -56,6 +56,13 @@ class ManualTime(start: Instant = ORIGIN) : TimeSource {
             combine(clock, deadlines) { now, due -> due.count { it > now } }.first { it >= sleepers }
         }
     }
+
+    /** Suspends until the coroutines sleeping until a time still to come sleep until [due] each. */
+    suspend fun sleeping(vararg due: Instant) {
+        withTimeout(WAIT) {
+            combine(clock, deadlines) { now, until -> until.filter { it > now }.sorted() }.first { it == due.sorted() }
+        }
+    }
 }
 
 /** The plugin `virtual-time`, which binds [time] as the runtime's TimeSource. */

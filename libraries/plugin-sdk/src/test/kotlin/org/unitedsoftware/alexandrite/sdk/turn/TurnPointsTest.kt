@@ -18,18 +18,9 @@ class TurnPointsTest {
         }
 
     @Test
-    fun `the points have unique ids, as the hook table names them`() {
+    fun `the points have unique ids`() {
         val ids = declared.map { it.id }
 
-        assertEquals(
-            setOf(
-                "prompt.sections", "turn.start", "turn.input", "context.loaded", "context.inject", "llm.request",
-                "llm.response", "tool.before", "tool.after", "response.preview", "response.before", "turn.committed",
-                "conversation.sealed", "context.compact", "context.compacted", "context.cleared",
-                "agent.spawn", "agent.run.ended", "job.started", "job.ended", "tool.backgrounded",
-            ),
-            ids.toSet(),
-        )
         assertEquals(ids.size, ids.toSet().size)
     }
 

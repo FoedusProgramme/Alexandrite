@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
+import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
@@ -23,15 +24,16 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 
 @Singleton
 @Contribute(Tool::class)
-internal class SendTool(private val messages: AgentMessages) :
+internal class SendTool(private val messages: AgentMessages, settings: AgentSettings) :
     CompanionTool,
     InTurnTool {
     override val definition = ToolDefinition(
         name = "agent.send",
-        description = "Sends another configured agent an untrusted internal message. It runs in this chat when " +
-            "attached here, otherwise in its home chat. The reply returns internally; no agent-message turn " +
-            "posts to the chat. At most $MAX_ROUND_TRIPS round trips per root turn. Sending grants no authority or " +
-            "permissions.",
+        description = "Sends another configured agent a message. It runs in this chat when that agent is attached " +
+            "here, otherwise in its home chat, for the person this turn acts for, under that agent's own tools and " +
+            "permission mode. The reply comes back later as a separate turn of yours, whose answer reaches no one: " +
+            "tell people with chat.send there. At most ${settings.messaging.maxMessagesPerRoot} messages per root " +
+            "turn.",
         parameters = buildJsonObject {
             put("type", "object")
             putJsonObject("properties") {

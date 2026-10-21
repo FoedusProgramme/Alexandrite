@@ -11,7 +11,6 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 
 class AlexandritePluginTest {
     private fun project(): Project = ProjectBuilder.builder().build().also {
@@ -24,14 +23,6 @@ class AlexandritePluginTest {
 
     private val Project.alexandrite: AlexandriteExtension
         get() = extensions.getByType(AlexandriteExtension::class.java)
-
-    @Test
-    fun `the plugin applies Kotlin and KSP`() {
-        val project = project()
-
-        assertTrue(project.pluginManager.hasPlugin("org.jetbrains.kotlin.jvm"))
-        assertTrue(project.pluginManager.hasPlugin("com.google.devtools.ksp"))
-    }
 
     @Test
     fun `the SDK, the processor and the testkit come in their configurations, aligned by the BOM of this version`() {

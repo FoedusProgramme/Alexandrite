@@ -60,7 +60,7 @@ class HelpCommandsTest {
             assertEquals(
                 """
                 Commands you may run in this chat:
-                /cancel — Stops the answers and the jobs that are running in this chat.
+                /cancel — Stops the answer that the chat's agent, or the named one, is giving in this chat.
                 /help — Lists the commands you may run in this chat.
                 /notes — Lists the notes. (only without arguments)
                 """.trimIndent(),
@@ -69,7 +69,7 @@ class HelpCommandsTest {
             assertEquals(
                 """
                 Commands you may run in this chat:
-                /cancel — Stops the answers and the jobs that are running in this chat.
+                /cancel — Stops the answer that the chat's agent, or the named one, is giving in this chat.
                 /help — Lists the commands you may run in this chat.
                 /new — Starts a new conversation with the agent of this chat.
                 /notes — Lists the notes.
@@ -108,9 +108,7 @@ class HelpCommandsTest {
     }
 
     @Test
-    fun `help with arguments answers its usage, and lists nothing when the issuer may run nothing`() = runTest {
-        assertEquals("Send /help without anything after it.", help().answer(testCommand("help", "me", issuer = GUEST)))
-
+    fun `help lists nothing when the issuer may run nothing`() = runTest {
         guestRules.putAll(listOf("help", "cancel", "notes").associateWith { false to false })
 
         assertEquals("You may run no command in this chat.", help().answer(testCommand("help", issuer = GUEST)))

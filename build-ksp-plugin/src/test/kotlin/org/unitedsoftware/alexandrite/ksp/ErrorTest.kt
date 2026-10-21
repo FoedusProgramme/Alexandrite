@@ -10,10 +10,14 @@ class ErrorTest : FailingSamples() {
     // Parameters.
 
     @Test
-    fun `a parameter with a default value is rejected`() {
+    fun `a parameter with a default value or a vararg is rejected`() {
         assertErrors(
-            "@Singleton class Server(val clock: Clock = Clock())",
+            """
+            @Singleton class Server(val clock: Clock = Clock())
+            @Singleton class Pool(vararg val clocks: Clock)
+            """,
             "class Server" to Messages.defaultValue("clock", "sample.Server"),
+            "class Pool" to Messages.vararg("clocks", "sample.Pool"),
         )
     }
 
@@ -129,14 +133,6 @@ class ErrorTest : FailingSamples() {
             "class Spaced" to Messages.blankNamed("sample.Spaced"),
             "class Uses" to Messages.blankNamedParameter("clock", "sample.Uses"),
             "fun blankClock" to Messages.blankNamed("sample.blankClock()"),
-        )
-    }
-
-    @Test
-    fun `a vararg parameter is rejected`() {
-        assertErrors(
-            "@Singleton class Server(vararg val clocks: Clock)",
-            "class Server" to Messages.vararg("clocks", "sample.Server"),
         )
     }
 
@@ -582,28 +578,18 @@ class ErrorTest : FailingSamples() {
     }
 
     @Test
-    fun `a config section under the enabled switch is rejected`() {
-        assertErrors(
-            """
-            @ConfigSection("enabled") @Serializable class Switch(val on: Boolean = true)
-            @ConfigSection("enabled.extra") @Serializable class Extra(val on: Boolean = true)
-            """,
-            "class Switch" to Messages.reservedPath("sample.Switch", "enabled", ENABLED),
-            "class Extra" to Messages.reservedPath("sample.Extra", "enabled.extra", ENABLED),
-        )
-    }
-
-    @Test
-    fun `a config section under the instances key is rejected in either scope`() {
+    fun `a config section under the instances key or the enabled switch is rejected in either scope`() {
         assertErrors(
             """
             @ConfigSection("instances") @Serializable class Instances(val count: Int = 0)
             @ChannelInstanceScoped @ConfigSection("instances.work") @Serializable class Work(val token: String = "")
             @ChannelInstanceScoped @ConfigSection("enabled") @Serializable class Switch(val on: Boolean = true)
+            @ConfigSection("enabled.extra") @Serializable class Extra(val on: Boolean = true)
             """,
             "class Instances" to Messages.reservedPath("sample.Instances", "instances", INSTANCES),
             "class Work" to Messages.reservedPath("sample.Work", "instances.work", INSTANCES),
             "class Switch" to Messages.reservedPath("sample.Switch", "enabled", ENABLED),
+            "class Extra" to Messages.reservedPath("sample.Extra", "enabled.extra", ENABLED),
         )
     }
 

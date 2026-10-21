@@ -2,9 +2,6 @@ package org.unitedsoftware.alexandrite.provider.openaicompatible
 
 import kotlinx.serialization.json.Json
 import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
-import org.unitedsoftware.alexandrite.provider.common.everyKey
-import org.unitedsoftware.alexandrite.provider.common.everyKeyJson
-import org.unitedsoftware.alexandrite.provider.common.keys
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -15,13 +12,11 @@ class OpenAiCompatibleConfigTest {
         Json.decodeFromString(OpenAiCompatibleConfig.serializer(), json).endpoints.values.single()
 
     @Test
-    fun `an endpoint that sets every key reads each as before`() {
-        val shared = everyKeyJson("https://proxy.example.com/v1", TurnContextSetting.BAKE)
+    fun `an endpoint reads the provider's own options`() {
         val own = """"promptCacheKey": true"""
 
-        val endpoint = read("""{"endpoints": {"x": {$shared, $own}}}""")
+        val endpoint = read("""{"endpoints": {"x": {"baseUrl": "https://api.example.com/v1", $own}}}""")
 
-        assertEquals(everyKey("https://proxy.example.com/v1", TurnContextSetting.BAKE), endpoint.settings.keys())
         assertTrue(endpoint.options.promptCacheKey)
     }
 

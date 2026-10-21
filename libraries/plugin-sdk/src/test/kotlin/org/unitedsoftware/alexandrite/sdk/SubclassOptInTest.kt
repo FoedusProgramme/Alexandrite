@@ -171,10 +171,6 @@ class SubclassOptInTest {
             ) = TODO()
         }
 
-        class Editor : org.unitedsoftware.alexandrite.sdk.config.ConfigEditor {
-            override suspend fun edit(block: org.unitedsoftware.alexandrite.sdk.config.ConfigEdit.() -> Unit) = TODO()
-        }
-
         class Snapshot : org.unitedsoftware.alexandrite.sdk.config.ConfigSnapshot {
             override fun <T : Any> section(key: org.unitedsoftware.alexandrite.sdk.di.Key<T>): T? = TODO()
         }
@@ -187,10 +183,7 @@ class SubclassOptInTest {
 
         class Edit : org.unitedsoftware.alexandrite.sdk.config.ConfigEdit {
             override fun get(path: String) = TODO()
-            override fun getLiteral(path: String) = TODO()
             override fun set(path: String, value: kotlinx.serialization.json.JsonElement) = TODO()
-            override fun setLiteral(path: String, value: org.unitedsoftware.alexandrite.sdk.config.ConfigLiteral) =
-                TODO()
             override fun remove(path: String) = TODO()
         }
 
@@ -280,6 +273,7 @@ class SubclassOptInTest {
             override fun cancel(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+                agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?,
             ) = TODO()
             override fun cancelTurn(
                 turn: org.unitedsoftware.alexandrite.sdk.chat.TurnId,
@@ -290,9 +284,9 @@ class SubclassOptInTest {
                 tree: Boolean,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
-            override fun jobs(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override fun jobs(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress?) = TODO()
             override fun stopJob(
-                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress?,
                 job: org.unitedsoftware.alexandrite.sdk.chat.RunId,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
@@ -312,6 +306,12 @@ class SubclassOptInTest {
             override suspend fun untaint(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+                agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?,
+            ) = TODO()
+            override suspend fun untaintHeartbeat(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+                agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?,
             ) = TODO()
         }
 
@@ -339,14 +339,41 @@ class SubclassOptInTest {
             override fun groups(agent: org.unitedsoftware.alexandrite.sdk.chat.AgentId?) = TODO()
         }
 
-        class Folders : org.unitedsoftware.alexandrite.sdk.turn.TrustedFolders {
-            override fun list() = TODO()
-            override suspend fun trust(folder: java.nio.file.Path, by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?) =
-                TODO()
-            override suspend fun untrust(
+        class Trust : org.unitedsoftware.alexandrite.sdk.turn.TrustControl {
+            override suspend fun folders(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun trustFolder(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 folder: java.nio.file.Path,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
+            override suspend fun untrustFolder(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                folder: java.nio.file.Path,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun rules(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun trustRule(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                rule: String,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun untrustRule(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                rule: String,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun people(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
+            override suspend fun trustPerson(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                person: org.unitedsoftware.alexandrite.sdk.chat.ChatUser,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun untrustPerson(
+                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
+                person: org.unitedsoftware.alexandrite.sdk.chat.ChatUser,
+                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
+            ) = TODO()
+            override suspend fun taint(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
         }
 
         class Rules : org.unitedsoftware.alexandrite.sdk.turn.PermissionRules {
@@ -354,17 +381,6 @@ class SubclassOptInTest {
             override suspend fun revokeAllowRule(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
                 number: Int,
-                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
-            ) = TODO()
-            override suspend fun trustRules(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
-            override suspend fun trust(
-                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
-                rule: String,
-                by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
-            ) = TODO()
-            override suspend fun untrust(
-                chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
-                rule: String,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
         }
@@ -646,13 +662,17 @@ class SubclassOptInTest {
             }
 
             override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
-                if (message.kind == MessageKind.REPLY) Delivery.Delivered(emptyList())
+                if (message.kind == MessageKind.REPLY || message.vouched) Delivery.Delivered(emptyList())
                 else Delivery.NotDelivered(DeliveryFailure.UNSUPPORTED, "notices are not shown")
             override suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer {
                 println("Allow " + request.tool + " " + request.arguments + "? (y/n)")
                 val operator = request.turn.actor ?: return ApprovalAnswer.Unavailable("nobody sits at the console")
                 return when (readlnOrNull()) {
                     "y" -> ApprovalAnswer.Allowed(operator, always = request.always != null)
+                    "t" -> ApprovalAnswer.Allowed(
+                        operator,
+                        trust = if (request.roots.isEmpty()) ApprovalTrust.OUTPUT_ONCE else ApprovalTrust.ROOTS,
+                    )
                     "n" -> ApprovalAnswer.Denied(operator)
                     null -> ApprovalAnswer.Expired
                     else -> ApprovalAnswer.Unavailable("the answer was neither y nor n")
@@ -946,29 +966,10 @@ class SubclassOptInTest {
             floor.checkWrite(path, agent) is FloorCheck.Allowed && floor.checkTree(path) is FloorCheck.Allowed
     """.trimIndent()
 
-    /** A plugin that writes its own settings back into the config file. */
+    /** A host component that changes the config file as an operator would. */
     private val configEdits = """
-        import kotlinx.serialization.json.JsonArray
         import kotlinx.serialization.json.JsonPrimitive
         import org.unitedsoftware.alexandrite.sdk.config.*
-
-        class Folders(private val editor: ConfigEditor) {
-            suspend fun trust(folders: List<String>): String? = try {
-                editor.edit {
-                    val trusted = get("trustedFolders") as? JsonArray ?: JsonArray(emptyList())
-                    set("trustedFolders", JsonArray(trusted + folders.map(::JsonPrimitive)))
-                    remove("legacyFolders")
-                    val kept = (getLiteral("folders") as? ConfigLiteral.Items)?.items.orEmpty()
-                    setLiteral("folders", ConfigLiteral.Items(kept + folders.map(ConfigLiteral::Text)))
-                    setLiteral("owner", "\${'$'}{not a variable}")
-                }
-                editor.set("home", JsonPrimitive("123"))
-                editor.remove("home")
-                null
-            } catch (e: ConfigEditException) {
-                if (e.refusal in ConfigEditRefusal.entries) e.message else ConfigEditRefusal.of(e.refusal.id).id
-            }
-        }
 
         class Operator(private val config: HostConfig) {
             suspend fun model(agent: String, model: String): List<String>? = try {
@@ -977,22 +978,7 @@ class SubclassOptInTest {
                 config.check { remove("agent.floor") }?.restart
                 changes.changed + changes.restart
             } catch (e: ConfigEditException) {
-                listOfNotNull(e.message)
-            }
-        }
-
-        class Settings(val limit: Int)
-
-        class Limits : LiveConfig {
-            @Volatile
-            var limit = 0
-
-            override val paths = listOf("limit")
-
-            override fun prepare(config: ConfigSnapshot): () -> Unit {
-                val next = config.section(org.unitedsoftware.alexandrite.sdk.di.key<Settings>())?.limit ?: 0
-                if (next < 0) throw ConfigException("limit", "may not be negative")
-                return { limit = next }
+                listOfNotNull(e.message, e.refusal.id.takeIf { e.refusal !in ConfigEditRefusal.entries })
             }
         }
     """.trimIndent()
@@ -1066,8 +1052,23 @@ class SubclassOptInTest {
     }
 
     @Test
-    fun `a plugin edits its config without the internal API`() {
+    fun `a host component edits the config without the internal API`() {
         assertEquals(emptyList(), errors(configEdits))
+    }
+
+    @Test
+    fun `only Alexandrite's own plugins take changes of their config while the runtime runs`() {
+        val live = """
+            class Limits : org.unitedsoftware.alexandrite.sdk.config.LiveConfig {
+                override val paths = listOf("limit")
+
+                override fun prepare(config: org.unitedsoftware.alexandrite.sdk.config.ConfigSnapshot): () -> Unit = {}
+            }
+        """.trimIndent()
+
+        val errors = errors(live)
+
+        assertTrue(errors.isNotEmpty() && errors.all { "Internal Alexandrite API" in it }, errors.joinToString("\n"))
     }
 
     @Test

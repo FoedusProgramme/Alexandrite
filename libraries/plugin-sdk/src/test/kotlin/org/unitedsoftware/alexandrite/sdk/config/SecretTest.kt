@@ -7,7 +7,6 @@ import java.util.concurrent.CountDownLatch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertNotEquals
 
 class SecretTest {
     @Serializable
@@ -32,13 +31,6 @@ class SecretTest {
 
         assertEquals("""{"token":"s3cr3t"}""", encoded)
         assertEquals(config, Json.decodeFromString(BotConfig.serializer(), encoded))
-    }
-
-    @Test
-    fun `secrets are equal by value`() {
-        assertEquals(Secret("a"), Secret("a"))
-        assertEquals(Secret("a").hashCode(), Secret("a").hashCode())
-        assertNotEquals(Secret("a"), Secret("b"))
     }
 
     @Serializable

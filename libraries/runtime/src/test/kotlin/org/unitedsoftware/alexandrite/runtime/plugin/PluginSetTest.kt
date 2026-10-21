@@ -55,16 +55,9 @@ class PluginSetTest {
             .use { PluginSet.builtIn(it, TEST_BUILT_INS) }
 
         assertEquals(listOf(agent), plugins.plugins)
-        assertEquals(
-            listOf(
-                "Cannot load the built-in index ${BrokenIndex::class.java.name} of plugin 'alexandrite-broken': " +
-                    "java.lang.IllegalStateException: broken. Rebuild the plugin's jar.",
-                "Cannot load the built-in index $MISSING_INDEX of plugin 'alexandrite-missing': " +
-                    "java.lang.ClassNotFoundException: $MISSING_INDEX. Rebuild the plugin's jar.",
-            ),
-            plugins.broken.map { it.message },
-        )
         assertEquals(List(2) { RuntimeProblemKind.BROKEN_INDEX }, plugins.broken.map { it.kind })
+        assertContains(plugins.broken[0].message, BrokenIndex::class.java.name)
+        assertContains(plugins.broken[1].message, MISSING_INDEX)
     }
 
     @Test
@@ -96,21 +89,16 @@ class PluginSetTest {
     // Added.
 
     @Test
-    fun `of adds each index explicitly`() {
-        val plugins = PluginSet.of(TEST_BUILT_INS, TelegramIndex(), HelloIndex())
-
-        assertEquals(listOf(telegram, hello), plugins.plugins)
-        assertTrue(plugins.members.all { it.explicit })
-        assertEquals(listOf(true, false), plugins.plugins.map { it.builtIn })
-    }
-
-    @Test
     fun `an added index is explicit and no longer unlisted`() {
         val plugins = builtIn(directory, AgentIndex::class, HelloIndex::class, SpyIndex::class) + HelloIndex()
+        val added = PluginSet.of(TEST_BUILT_INS, TelegramIndex(), HelloIndex())
 
         assertEquals(listOf(agent, hello), plugins.plugins)
         assertEquals(listOf(SpyIndex::class.java.name), plugins.unlisted)
         assertEquals(listOf(false, true), plugins.members.map { it.explicit })
+        assertEquals(listOf(telegram, hello), added.plugins)
+        assertTrue(added.members.all { it.explicit })
+        assertEquals(listOf(true, false), added.plugins.map { it.builtIn })
     }
 
     // Named.
@@ -166,19 +154,10 @@ class PluginSetTest {
                 "gone" to "org.example.Gone",
             ),
         )
-        val messages = mapOf(
-            "hello" to "The descriptor of plugin 'hello' names the index ${SpyIndex::class.java.name}, which belongs " +
-                "to plugin 'spy'. Rebuild the plugin.",
-            "exploding" to "Cannot load the index ${ExplodingIndex::class.java.name} of plugin 'exploding': " +
-                "java.lang.IllegalStateException: an unlisted index was instantiated",
-            "gone" to "Cannot load the index org.example.Gone of plugin 'gone': " +
-                "java.lang.ClassNotFoundException: org.example.Gone",
-        )
-
         classPath(directory, jar).use { loader ->
-            for ((id, message) in messages) {
+            for ((id, index) in jar.descriptors) {
                 val error = assertFailsWith<IllegalArgumentException>(id) { explicit().named(id, loader) }
-                assertEquals(message, error.message, id)
+                assertContains(error.message!!, index, message = id)
             }
         }
     }

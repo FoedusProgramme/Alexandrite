@@ -1,22 +1,13 @@
 package org.unitedsoftware.alexandrite.provider.anthropiccompatible
 
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
-import org.unitedsoftware.alexandrite.provider.common.messages.sse
-import org.unitedsoftware.alexandrite.provider.common.messages.textEvents
 import org.unitedsoftware.alexandrite.runtime.RuntimeStartException
 import org.unitedsoftware.alexandrite.runtime.StartStage
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelProvider
-import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
-import org.unitedsoftware.alexandrite.sdk.model.RequestIds
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
-import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.testkit.FakeModelServer
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
-import org.unitedsoftware.alexandrite.testkit.testTurn
-import org.unitedsoftware.alexandrite.testkit.testUserEntry
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -62,43 +53,13 @@ class AnthropicCompatiblePluginTest {
     }
 
     @Test
-    fun `an endpoint sends its configured headers beside its key`() = runBlocking {
-        FakeModelServer().use { server ->
-            server.enqueue(sse(*textEvents(listOf("Hi."))))
-            val config = """
-                {"endpoints": {"proxy": {"baseUrl": "${server.baseUrl}", "apiKey": "sk-plugin-test-key",
-                    "headers": {"X-Team": "core"}, "discover": false, "models": {"m": {}}}}}
-            """.trimIndent()
-
-            harness(config).build().run {
-                val endpoint = getAll<ModelProvider>().single().endpoints.single()
-                val turn = testTurn()
-                val request = ModelRequest.builder(
-                    ModelRef(endpoint.id, "m"),
-                    listOf(testUserEntry(turn)),
-                    0,
-                    RequestIds(turn.conversation, turn.id, 0),
-                ).build()
-                endpoint.stream(request).toList()
-            }
-
-            val sent = server.requests.single()
-            assertEquals("core" to "sk-plugin-test-key", sent.header("x-team") to sent.header("x-api-key"))
-            assertEquals(null, sent.header("authorization"))
-        }
-    }
-
-    @Test
     fun `a malformed endpoint fails the start at CONFIG without showing its values`() = runBlocking {
         val cases = listOf(
-            endpoint().replace("\"x\"", "\"Bad_Id\"") to "no endpoint id",
             endpoint(""", "baseUrl": "https://user:hunter2@api.example.com"""") to "baseUrl must be",
-            endpoint(""", "turnContext": "sometimes"""") to "turnContext",
             endpoint(""", "headers": {"X-Api-Key": "k"}""") to "may not set x-api-key when apiKey is set",
             endpoint(""", "headers": {"anthropic-beta": "b"}""") to "may not set anthropic-beta",
             endpoint(""", "betas": ["a, b"]""") to "betas holds",
             endpoint(""", "promptCacheKey": true""") to "promptCacheKey",
-            endpoint(""", "models": {"m": {"inputMedia": ["smell"]}}""") to "inputMedia holds",
         )
 
         for ((config, expected) in cases) {

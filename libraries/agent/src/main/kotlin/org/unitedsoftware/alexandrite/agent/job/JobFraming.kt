@@ -68,10 +68,13 @@ internal fun interruptedFraming(jobs: List<InterruptedJob>, messages: List<Inter
     buildString {
         appendLine("[alexandrite:job]")
         for (job in jobs) {
-            appendLine(
-                "$JOB_HEADER: job ${job.id}, ${described(job.tool, job.title)}. It was interrupted by a restart and " +
-                    "was not run again, so no result will come.",
-            )
+            val ended = if (job.pastBudget) {
+                "Its result came after your budget was used up, so it is not shown: run the call again if you still " +
+                    "need it."
+            } else {
+                "It was interrupted by a restart and was not run again, so no result will come."
+            }
+            appendLine("$JOB_HEADER: job ${job.id}, ${described(job.tool, job.title)}. $ended")
         }
         for (message in messages) {
             appendLine(

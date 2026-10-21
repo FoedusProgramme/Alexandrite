@@ -50,8 +50,8 @@ import org.unitedsoftware.alexandrite.sdk.chat.agentState
 import org.unitedsoftware.alexandrite.sdk.chat.state
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
-import org.unitedsoftware.alexandrite.sdk.config.ConfigEditor
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSource
+import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.config.JsonConfigSource
 import org.unitedsoftware.alexandrite.sdk.di.Key
 import org.unitedsoftware.alexandrite.sdk.di.container.DiException
@@ -88,7 +88,6 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
-import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration
@@ -151,7 +150,7 @@ class GraphTest {
     }
 
     @Test
-    fun `the runtime binds hooks, the clock, its control and each plugin's info, files, scope and config editor`() {
+    fun `the runtime binds hooks, the clock, its control and each plugin's info, files and scope`() {
         val hook = binding(key<Hook>(), "probe", "Recording", multi = true) { Recording(events, observed) }
         val probe = probe(
             "probe",
@@ -162,8 +161,6 @@ class GraphTest {
             "other" to key<PluginFiles>("other"),
             "control" to key<RuntimeControl>("probe"),
             "scope" to key<PluginScope>("probe"),
-            "editor" to key<ConfigEditor>("probe"),
-            "otherEditor" to key<ConfigEditor>("other"),
         )
         val index = TestIndex("probe", bindings = listOf(probe, hook))
 
@@ -183,8 +180,6 @@ class GraphTest {
             assertTrue(Files.isDirectory(dataDir.resolve("cache/plugins/probe")))
             assertEquals(dataDir.resolve("plugins/other"), (values.getValue("other") as PluginFiles).dataDir)
             assertTrue(values.getValue("control") is RuntimeControl)
-            assertTrue(values.getValue("editor") is ConfigEditor)
-            assertNotSame(values.getValue("editor"), values.getValue("otherEditor"))
             assertEquals("probe", (values.getValue("scope") as PluginScope).coroutineContext[CoroutineName]?.name)
         }
 
@@ -265,7 +260,7 @@ class GraphTest {
         val directory = dataDir.toRealPath()
         val file = Files.writeString(directory.resolve("alexandrite.json"), "{}")
         val config = RuntimeConfig.builder(directory.resolve("root")).build()
-        val probe = probe("probe", "paths" to key<HostPaths>(), "editor" to key<ConfigEditor>("probe"))
+        val probe = probe("probe", "paths" to key<HostPaths>(), "config" to key<HostConfig>())
         val plugins = explicit(TestIndex("probe", bindings = listOf(probe)))
         val derived = JsonConfigSource(checkNotNull(ConfigFile.read(file).tree("")))
         lateinit var named: HostPaths
@@ -275,8 +270,8 @@ class GraphTest {
         RuntimeSpec.builder(config, plugins).pluginConfig(derived, file).build().execute {
             val values = services.get(key<Probe>()).values
             named = values.getValue("paths") as HostPaths
-            val editor = values.getValue("editor") as ConfigEditor
-            refusal = assertFailsWith<ConfigEditException> { editor.edit { set("note", JsonPrimitive("x")) } }
+            val config = values.getValue("config") as HostConfig
+            refusal = assertFailsWith<ConfigEditException> { config.edit { set("note", JsonPrimitive("x")) } }
         }
         RuntimeSpec.builder(config, plugins).pluginConfig(ConfigFile.read(file)).build().execute {
             unnamed = services.get(key<Probe>()).values.getValue("paths") as HostPaths
@@ -457,7 +452,7 @@ class GraphTest {
         assertEquals(
             listOf(
                 Problem(
-                    RuntimeProblemKind.DRAIN_TIMED_OUT,
+                    RuntimeProblemKind.SHUTDOWN,
                     "Draining Hooks (plugin alexandrite-runtime) was cancelled: the shutdown grace of 100ms ran out.",
                     "alexandrite-runtime",
                 ),

@@ -3,8 +3,9 @@ package org.unitedsoftware.alexandrite.agent.permission
 import kotlinx.coroutines.test.runTest
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
 import org.unitedsoftware.alexandrite.agent.hostPaths
-import org.unitedsoftware.alexandrite.agent.project.FolderTrust
 import org.unitedsoftware.alexandrite.agent.settings
+import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
+import org.unitedsoftware.alexandrite.agent.trust.ReadTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -42,6 +43,7 @@ class ReadTaintTest {
             Workspaces(paths, ConventionalAgentPlaces(paths), settings("{}")),
             ConventionalAgentPlaces(paths),
             ConversationDirectories(ConventionalAgentPlaces(paths), settings("{}")),
+            NoTaintLedger,
         )
     }
 

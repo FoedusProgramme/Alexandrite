@@ -6,6 +6,7 @@ import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
 import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.testChat
@@ -22,6 +23,11 @@ class AllowCommandsTest {
 
     private suspend fun allow(arguments: String = ""): String =
         commands.answer(testCommand("allow", arguments, issuer = OPERATOR))
+
+    @Test
+    fun `only an operator may list or revoke allow rules`() {
+        assertEquals(CommandForms.ALL, commands.commands.single().operatorsOnly)
+    }
 
     @Test
     fun `allow lists the declared rules, then the conversation's with who allowed them and when`() = runTest {
@@ -78,12 +84,5 @@ class AllowCommandsTest {
 
         assertEquals(List(7) { usage }, replies)
         assertEquals(emptyList(), control.calls)
-    }
-
-    @Test
-    fun `a refused revocation replies with the agent's message`() = runTest {
-        control.refuseNext("No agent serves the chat test:main:chat.")
-
-        assertEquals("No agent serves the chat test:main:chat.", allow("revoke 1"))
     }
 }

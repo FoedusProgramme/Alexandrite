@@ -74,9 +74,8 @@ class TelegramJobsTest {
         val framing = ((ended.history.last() as UserEntry).parts.single() as ContextPart).text
         assertTrue(framing.startsWith("[alexandrite:job]\nA background job ended: job ${job.id}, command.exec sleep 6"))
         assertTrue(framing.endsWith(". It succeeded.\nExit code: 0\n[no output]\n[/alexandrite:job]"), framing)
-        val callId = after.history.filterIsInstance<AssistantEntry>().single().parts.filterIsInstance<ToolCallPart>()
-            .single().id
-        assertEquals("call $callId reported untrusted content: command.exec ran sleep", tainted)
+        val work = directory.toRealPath().resolve("work")
+        assertEquals("command.exec would reach $work, a folder that is not trusted", tainted)
         assertEquals(
             listOf(STARTED, FINISHED),
             app.fake.botMessages(app.adaChat.id).body().drop(1).map { it.text },

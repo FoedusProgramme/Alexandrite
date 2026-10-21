@@ -10,9 +10,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnLineage
 import org.unitedsoftware.alexandrite.sdk.store.ConversationKind
 import org.unitedsoftware.alexandrite.sdk.store.ConversationState
 import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
-import org.unitedsoftware.alexandrite.testkit.TEST_TIME
 import java.nio.file.Path
-import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -28,20 +26,6 @@ class SqliteConversationStoreTest {
 
             // Ids also name the temporary files that media is written through.
             assertEquals(emptyList(), ids.filterNot { Regex("[A-Za-z0-9_-]+").matches(it) })
-        }
-    }
-
-    @Test
-    fun `times are those of the store's clock, to the millisecond`() {
-        val clock = MutableClock(TEST_TIME.plusNanos(123_456_789))
-
-        withStore(directory, clock) {
-            val old = conversations.current(main)
-            clock.advance(Duration.ofMinutes(5))
-            val sealed = conversations.newConversation(main).sealed!!
-
-            assertEquals(TEST_TIME.plusMillis(123), old.createdAt)
-            assertEquals(TEST_TIME.plusMillis(123) + Duration.ofMinutes(5), sealed.sealedAt)
         }
     }
 

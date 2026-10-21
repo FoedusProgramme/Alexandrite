@@ -120,6 +120,9 @@ public interface ToolContext {
     /** Reports that the call brought untrusted content into the conversation, for [reason]. */
     public fun untrusted(reason: String)
 
+    /** Whether the turn's conversation took in untrusted content, so far as the agent knows when it is read. */
+    public val tainted: Boolean get() = false
+
     /**
      * A [Mandate] for turns that the tool's plugin initiates later at this turn's chat to run as the turn's operator,
      * null unless this is an operator's own turn in a conversation that took in nothing untrusted. The agent keeps it

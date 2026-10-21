@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.assertStartFails
 import org.unitedsoftware.alexandrite.agent.execute
+import org.unitedsoftware.alexandrite.agent.permission.INSTRUCTION_NAMES
 import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.runtime.StartStage
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -144,11 +145,27 @@ class SandboxesTest {
     }
 
     @Test
+    fun `instruction places are closed to a call's programs unless a person allowed the call`() {
+        harness("""{"type": "seatbelt", "protect": [".npmrc"]}""").execute {
+            val closed = assertNotNull(sandboxes().sandbox(turn, null)).boundary(listOf(project))
+            val opened = assertNotNull(
+                sandboxes().sandbox(turn, Clearance(ClearanceKind.HUMAN)),
+            ).boundary(listOf(project))
+            val persona = configFile.resolveSibling("agents/coder")
+
+            assertTrue(closed.writeDenied.containsAll(listOf(configFile, persona, configFile.resolveSibling("skills"))))
+            assertTrue(closed.protectedNames.containsAll(listOf("AGENTS.md", "CLAUDE.md", ".claude/skills")))
+            assertFalse(persona in opened.writeDenied || configFile in opened.writeDenied)
+            assertEquals(listOf(".npmrc"), opened.protectedNames)
+        }
+    }
+
+    @Test
     fun `protect replaces the default list`() {
         harness("""{"type": "seatbelt", "protect": [".npmrc", "~/notes"]}""").execute {
             val boundary = assertNotNull(sandboxes().sandbox(turn, null)).boundary(emptyList())
 
-            assertEquals(listOf(".npmrc"), boundary.protectedNames)
+            assertEquals(listOf(".npmrc") + INSTRUCTION_NAMES, boundary.protectedNames)
             assertTrue(boundary.writeDenied.any { it.endsWith("notes") })
             assertFalse(get<HostPaths>().dataRoot in boundary.writeDenied)
         }
@@ -214,10 +231,6 @@ class SandboxesTest {
             agentHarness("""{"agents": {"coder": {"description": "Codes.", "sandbox": $sandbox}}}""")
                 .assertStartFails(StartStage.CONFIG, "Invalid config at 'agent': $message")
         }
-        assertTrue(
-            settings("""{"agents": {"coder": {"description": "Codes."}}}""").agents.getValue("coder").sandbox
-                .autoAllow,
-        )
     }
 
     private fun boundary() = Boundary(listOf(project))

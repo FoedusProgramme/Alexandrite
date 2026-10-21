@@ -76,15 +76,36 @@ class ConfigCommandsTest {
     }
 
     @Test
-    fun `a secret value is refused, a reference to a saved secret is taken`() {
-        val leaked = cli("config", "set", "providers.deepseek.endpoints.deepseek.apiKey", "sk-literal")
-        Files.writeString(cli.secrets, "OTHER_KEY=sk-other\n")
-        val referenced = cli("config", "set", "providers.deepseek.endpoints.deepseek.apiKey", "\${env:OTHER_KEY}")
+    fun `a secret value moves into the secrets file and the config refers to it`() {
+        val moved = cli("config", "set", "providers.deepseek.endpoints.deepseek.apiKey", "sk-literal")
+        val again = cli("config", "set", "providers.deepseek.endpoints.other", "{\"apiKey\": \"sk-literal\"}")
+        val referenced = cli("config", "set", "providers.deepseek.endpoints.deepseek.apiKey", "\${env:DEEPSEEK_KEY}")
 
-        assertEquals(1, leaked.code)
-        assertContains(leaked.err, "Secrets stay out of the file")
+        assertEquals(0, moved.code, moved.err)
+        assertContains(
+            moved.out,
+            "The secret at providers.deepseek.endpoints.deepseek.apiKey is kept in ${cli.secrets} as " +
+                "PROVIDERS_DEEPSEEK_ENDPOINTS_DEEPSEEK_API_KEY, and the config file refers to it.",
+        )
+        assertEquals(0, again.code, again.err)
+        assertContains(again.out, "as PROVIDERS_DEEPSEEK_ENDPOINTS_DEEPSEEK_API_KEY,")
+        assertEquals("PROVIDERS_DEEPSEEK_ENDPOINTS_DEEPSEEK_API_KEY=sk-literal\n", Files.readString(cli.secrets))
         assertEquals(0, referenced.code, referenced.err)
-        assertContains(cli.config(), "\${env:OTHER_KEY}")
+        assertContains(cli.config(), "\"apiKey\": \"\${env:DEEPSEEK_KEY}\"")
+        assertContains(cli.config(), "\"apiKey\": \"\${env:PROVIDERS_DEEPSEEK_ENDPOINTS_DEEPSEEK_API_KEY}\"")
+        assertFalse("sk-literal" in cli.config())
+    }
+
+    @Test
+    fun `a refused change takes the secret it moved out of the secrets file again`() {
+        Files.writeString(cli.secrets, "OTHER_KEY=sk-other\n")
+
+        val refused = cli("config", "set", "providers.deepseek.endpoints.other", "{\"apiKey\": \"sk-x\", \"extra\": 1}")
+
+        assertEquals(1, refused.code)
+        assertContains(refused.err, "extra")
+        assertEquals("OTHER_KEY=sk-other\n", Files.readString(cli.secrets))
+        assertEquals(original, cli.config())
     }
 
     @Test
@@ -156,6 +177,24 @@ class ConfigCommandsTest {
         assertContains(printed.out, "Changed app.zone in ${cli.configFile}.")
         assertContains(cli.config(), "Asia/Shanghai")
         assertEquals(listOf("alexandrite.json", "alexandrite.json.bak"), names())
+    }
+
+    @Test
+    fun `an edit that writes a secret moves it into the secrets file and keeps the rest of the text`() {
+        cli.machine.attach = { command ->
+            val copy = Path.of(command.last())
+            Files.writeString(copy, Files.readString(copy).replace("\${env:DEEPSEEK_KEY}", "sk-edited"))
+            0
+        }
+
+        val printed = cli("config", "edit")
+
+        assertEquals(0, printed.code, printed.err)
+        assertEquals(
+            original.replace("DEEPSEEK_KEY", "PROVIDERS_DEEPSEEK_ENDPOINTS_DEEPSEEK_API_KEY"),
+            cli.config(),
+        )
+        assertEquals("PROVIDERS_DEEPSEEK_ENDPOINTS_DEEPSEEK_API_KEY=sk-edited\n", Files.readString(cli.secrets))
     }
 
     @Test

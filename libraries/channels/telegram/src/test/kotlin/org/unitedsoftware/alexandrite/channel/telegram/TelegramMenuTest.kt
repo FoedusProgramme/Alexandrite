@@ -54,13 +54,14 @@ class TelegramMenuTest {
     }
 
     @Test
-    fun `a plugin's command that the bot's config opens is in the members' menus`() {
-        val opened = telegram.instance(more = """, "commands": {"purge": "anyone", "audit": "direct"}""")
-        val builder = telegram.builder("work" to opened).commandHandler(ClaimedCommands("purge", "audit"))
+    fun `the members' menus follow the rules the bot's config sets`() {
+        val configured = """, "commands": {"purge": "anyone", "audit": "direct", "new": "anyone", "model": "admin"}"""
+        val builder = telegram.builder("work" to telegram.instance(more = configured))
+            .commandHandler(ClaimedCommands("purge", "audit"))
 
         telegram.run(builder) {
-            assertEquals((MEMBER_DIRECT + "audit" + "purge").sorted(), menu("all_private_chats"))
-            assertEquals((MEMBER_GROUP + "purge").sorted(), menu("all_group_chats"))
+            assertEquals((MEMBER_DIRECT + "audit" + "purge" - "model").sorted(), menu("all_private_chats"))
+            assertEquals((MEMBER_GROUP + "new" + "purge" - "model").sorted(), menu("all_group_chats"))
         }
     }
 

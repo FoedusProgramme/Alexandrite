@@ -15,6 +15,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.runtime.StopKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -47,7 +48,7 @@ class OutboxTest {
     }
 
     @Test
-    fun `a longer message goes out in parts that quote what it replies to, one of eleven is too long without a call`() =
+    fun `a longer message goes out in parts that quote what it replies to, one of eleven with the whole as a file`() =
         runTest {
             val output = Output(this)
             val group = output.address(GROUP)
@@ -59,9 +60,17 @@ class OutboxTest {
             assertTrue(full is Delivery.Delivered)
             val refs = listOf("102", "103", "104").map { ChannelMessageRef(group, it) }
             assertEquals(Delivery.Delivered(refs), parts)
-            assertEquals(Delivery.NotDelivered(DeliveryFailure.TOO_LONG), long)
+            assertEquals(11, assertIs<Delivery.Delivered>(long).messages.size)
             val sent = output.api.calls("sendMessage").map { it.text?.length to it.replyTo }
-            assertEquals(listOf(4_096 to null, 4_000 to 41L, 4_000 to 41L, 100 to 41L), sent)
+            assertEquals(
+                listOf(4_096 to null, 4_000 to 41L, 4_000 to 41L, 100 to 41L) + List(10) {
+                    4_096 to null
+                },
+                sent,
+            )
+            val file = output.api.uploads.single()
+            assertEquals("answer.md" to "x".repeat(40_961), file.file.name to file.file.bytes().decodeToString())
+            assertEquals("The answer goes on beyond these messages: this file holds all of it.", file.caption)
         }
 
     @Test

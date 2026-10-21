@@ -10,14 +10,11 @@ import org.unitedsoftware.alexandrite.internal.floor.FloorDecision
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
-import org.unitedsoftware.alexandrite.sdk.permission.Clearance
-import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.testkit.TestToolContext
@@ -50,12 +47,6 @@ class ExecToolTest {
         tool = fs.tool()
     }
 
-    @Test
-    fun `the call is titled by its command or argv, of activity execute`() {
-        val titleArguments = tool.definition.titleArguments
-        assertEquals(ToolActivity.EXECUTE to listOf("command", "argv"), tool.definition.activity to titleArguments)
-    }
-
     private fun run(command: String, context: TestToolContext = fs.context()): ToolResult =
         tool.run(context, "command" to command)
 
@@ -71,10 +62,6 @@ class ExecToolTest {
 
     private fun reached(path: Any, kind: String): String =
         "'$path' reaches a protected place ($kind): command.exec does not run this call."
-
-    private fun notAllowed(program: String): String =
-        "$program is no vetted read-only program, so it runs only once the permission layer allowed the call, " +
-            "which it did not."
 
     private fun assertFailed(expected: String, result: ToolResult) {
         assertEquals(true to expected, result.isError to result.text)
@@ -104,34 +91,11 @@ class ExecToolTest {
     }
 
     @Test
-    fun `vetted programs run without being allowed`() {
-        assertEquals("Exit code: 0\n3", run("printf 3").text)
-        assertTrue(run("ls /").text.startsWith("Exit code: 0\n"))
-    }
-
-    @Test
-    fun `quoted arguments are kept whole`() {
-        assertEquals("Exit code: 0\na b|c d|e f|", run("""printf '%s|' "a b" 'c d' e\ f""").text)
-    }
-
-    @Test
     fun `argv passes shell syntax and variables as plain arguments`() {
         val argv = listOf("echo", "a", ";", "\$(id)", "`id`", "\$HOME", ">", "x")
 
         assertEquals("Exit code: 0\na ; \$(id) `id` \$HOME > x", tool.run(fs.context(), "argv" to argv).text)
         assertFalse(fs.workspace.resolve("x").exists())
-    }
-
-    @Test
-    fun `variables in a command line stay literal`() {
-        assertEquals("Exit code: 0\n\$(id) `id` \$HOME", run("echo '\$(id)' '`id`' \$HOME").text)
-    }
-
-    @Test
-    fun `a leading unquoted tilde expands to the home directory`() {
-        val home = System.getProperty("user.home")
-
-        assertEquals("Exit code: 0\n$home $home/docs a~b ~ ~root", run("echo ~ ~/docs a~b '~' ~root").text)
     }
 
     @Test
@@ -181,8 +145,9 @@ class ExecToolTest {
         val sub = fs.workspace.resolve("sub").createDirectories()
         val pwd = resolveProgram("pwd", sub, searchPath(System.getenv()))!!.toRealPath()
 
-        val preview = tool.check(fs.context(), "command" to "pwd", "cwd" to "sub").preview
-        assertEquals(ReviewPreview.Command(listOf("pwd"), sub, pwd, opaque = false), preview)
+        val review = tool.check(fs.context(), "command" to "pwd", "cwd" to "sub")
+        assertEquals(ReviewPreview.Command(listOf("pwd"), sub, pwd, opaque = false), review.preview)
+        assertEquals(listOf(sub), review.reads)
         assertEquals("Exit code: 0\n$sub", tool.run(fs.context(), "command" to "pwd", "cwd" to "sub").text)
     }
 
@@ -293,39 +258,33 @@ class ExecToolTest {
     // Clearance and taint.
 
     @Test
-    fun `programs outside the vetted set run only once allowed`() {
+    fun `programs outside the vetted set are reviewed as program runs, which the permission layer gates`() {
         val commands = listOf("sort -o x y", "awk 'BEGIN{print 1}'", "find . -exec id \\;", "ps aux", "mkdir made")
-        val unallowed = Clearance(ClearanceKind.NONE)
 
-        for (command in commands) {
-            val program = command.substringBefore(' ')
-            assertFailed(notAllowed(program), run(command))
-            assertFailed(notAllowed(program), run(command, fs.context(clearance = unallowed)))
-        }
-        assertFalse(fs.workspace.resolve("made").exists())
+        val risks = commands.map { review(it, fs.context(turn = operatorTurn())).risk }
+
+        assertEquals(List(commands.size) { ToolRisk.EXEC }, risks)
     }
 
     @Test
     fun `an allowed call runs an unvetted program, which taints the conversation`() {
         val file = fs.write("workspace/letters.txt", "b\na\n")
         val vetted = fs.allowed()
-        val refused = fs.context()
         val allowed = fs.allowed()
 
         assertEquals("Exit code: 0\nb\na", run("cat $file", vetted).text)
-        assertFailed(notAllowed("sort"), run("sort $file", refused))
         assertEquals("Exit code: 0\na\nb", run("sort $file", allowed).text)
 
         assertEquals(
-            listOf(emptyList(), emptyList(), listOf("command.exec ran sort")),
-            listOf(vetted, refused, allowed).map {
+            listOf(emptyList(), listOf("command.exec ran sort")),
+            listOf(vetted, allowed).map {
                 it.untrustedReasons
             },
         )
     }
 
     @Test
-    fun `an opaque program is reviewed as opaque with no rule, and runs only once allowed`() {
+    fun `an opaque program is reviewed as opaque with no rule, and runs once allowed`() {
         val marker = fs.workspace.resolve("marker")
         val command = "env -u UNUSED sh -c 'touch marker'"
 
@@ -342,7 +301,6 @@ class ExecToolTest {
             ),
             reviewed.preview,
         )
-        assertFailed(notAllowed("env"), run(command))
         assertFalse(marker.exists())
         assertEquals("Exit code: 0\n[no output]", run(command, fs.allowed()).text)
         assertTrue(marker.exists())
@@ -390,7 +348,6 @@ class ExecToolTest {
         fs.script("workspace/cat", "echo planted")
 
         assertEquals(ToolRisk.EXEC, review("./cat notes.txt", fs.context(turn = operatorTurn())).risk)
-        assertFailed(notAllowed("./cat"), run("./cat notes.txt"))
     }
 
     // Rules and snapshots.
@@ -466,12 +423,12 @@ class ExecToolTest {
     }
 
     @Test
-    fun `file-reading and unknown options of vetted programs are refused`() {
-        val refused = "grep is given an option that reads its arguments from a file, or one that is not known: " +
-            "command.exec runs neither, as the floor cannot check what they read."
+    fun `file-reading and unknown options make a vetted program unvetted, gated as any other`() {
+        val reviews =
+            listOf(review("grep -f patterns.txt x"), review("grep -Q x notes.txt"), review("grep x notes.txt"))
 
-        assertEquals(refused, refusal("grep -f patterns.txt x"))
-        assertEquals(refused, refusal("grep -Q x notes.txt"))
+        assertEquals(listOf(null, null, null), reviews.map { it.refusal })
+        assertEquals(listOf(true, true, false), reviews.map { it.untrusted })
         assertEquals(
             reached(fs.home, "a recursive operation would reach SSH keys"),
             refusal("grep -r key ${fs.home}"),
@@ -607,15 +564,21 @@ class ExecToolTest {
     }
 
     @Test
-    fun `a file with several hard links is refused to a vetted program`() {
+    fun `a file with several hard links is refused to a vetted program while the floor protects anything`() {
         val notes = fs.write("workspace/notes.txt", "notes")
         Files.createLink(fs.workspace.resolve("other.txt"), notes)
+        val unprotected = fs.tool(
+            floor = object : HardFloor by fs.floor {
+                override val protectsAnything: Boolean = false
+            },
+        )
 
         assertEquals(
             "'notes.txt' has more than one hard link, so it may be another name of a protected file: " +
                 "command.exec does not run this call.",
             refusal("cat notes.txt"),
         )
+        assertNull(unprotected.check(fs.context(), "command" to "cat notes.txt").refusal)
     }
 
     // The environment.

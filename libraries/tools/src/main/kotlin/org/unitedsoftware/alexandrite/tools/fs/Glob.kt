@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.tools.fs
 
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+
 /**
  * A glob over `/`-separated relative paths: `*` matches within a segment, `**` any number of whole segments, `?` one
  * character, `[abc]` and `[!abc]` one character of a set, `{a,b}` either alternative, and `\` quotes the next character.
@@ -10,9 +12,9 @@ internal class Glob private constructor(private val regex: Regex) {
     companion object {
         /** [pattern] compiled, refused when it is blank or absolute. */
         fun of(pattern: String, name: String): Glob {
-            if (pattern.isBlank()) throw Refusal("Give '$name' as a non-empty glob pattern.")
+            if (pattern.isBlank()) throw ToolRefusal("Give '$name' as a non-empty glob pattern.")
             if (pattern.startsWith("/") || pattern.startsWith("~")) {
-                throw Refusal(
+                throw ToolRefusal(
                     "'$name' is relative to the directory searched: give that directory as 'path' and the rest as " +
                         "'$name'.",
                 )

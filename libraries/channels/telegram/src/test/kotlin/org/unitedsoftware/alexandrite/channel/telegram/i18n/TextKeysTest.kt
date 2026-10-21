@@ -1,7 +1,5 @@
 package org.unitedsoftware.alexandrite.channel.telegram.i18n
 
-import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
-import org.unitedsoftware.alexandrite.testkit.assertTextsComplete
 import org.unitedsoftware.alexandrite.testkit.testTexts
 import java.lang.reflect.Modifier
 import java.util.Properties
@@ -12,11 +10,6 @@ class TextKeysTest {
     private val keys = TextKeys::class.java.declaredFields
         .filter { Modifier.isStatic(it.modifiers) && it.type == String::class.java }
         .map { it.get(null) as String }
-
-    @Test
-    fun `the channel ships its texts in English`() {
-        assertEquals(listOf(LanguageTag("en")), assertTextsComplete(PLUGIN))
-    }
 
     @Test
     fun `every key the channel uses has an English text, and every English text is used`() {

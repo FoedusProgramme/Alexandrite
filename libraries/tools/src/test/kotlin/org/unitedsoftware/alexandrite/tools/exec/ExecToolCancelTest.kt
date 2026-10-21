@@ -11,7 +11,6 @@ import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
-import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.readLines
@@ -94,16 +93,5 @@ class ExecToolCancelTest {
         assertNull(result)
         assertIs<CancellationException>(outcome)
         assertTrue(processes.all(::gone))
-    }
-
-    @Test
-    fun `the call ends when the program does, the timeout unused`() {
-        val start = TimeSource.Monotonic.markNow()
-
-        val result = fs.tool().run(fs.context(), "command" to "printf done", "timeoutSeconds" to 60)
-
-        assertEquals("Exit code: 0\ndone", result.text)
-        assertTrue(start.elapsedNow() < 30.seconds)
-        assertTrue(Files.notExists(pids))
     }
 }

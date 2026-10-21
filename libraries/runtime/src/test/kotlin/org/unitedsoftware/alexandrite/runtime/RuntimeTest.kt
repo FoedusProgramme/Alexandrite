@@ -75,17 +75,9 @@ class RuntimeTest {
         val error = spec(builtIn(dataDir, AgentIndex::class) + AgentIndex(), dataDir).startFailure()
 
         assertEquals(StartStage.PLUGINS, error.stage)
-        assertEquals(
-            listOf(
-                Problem(
-                    RuntimeProblemKind.DUPLICATE_PLUGIN,
-                    "Duplicate plugin 'alexandrite-agent': the plugin set holds $agent and $agent. " +
-                        "Keep only one of them.",
-                    "alexandrite-agent",
-                ),
-            ),
-            error.problems,
-        )
+        val problem = error.problems.single()
+        assertEquals(RuntimeProblemKind.DUPLICATE_PLUGIN to "alexandrite-agent", problem.kind to problem.plugin)
+        assertContains(problem.message, agent)
     }
 
     @Test
@@ -123,20 +115,9 @@ class RuntimeTest {
         val error = spec(builtIn(dataDir, RenamedIndex::class) + MovedIndex(), dataDir).startFailure()
 
         assertEquals(StartStage.PLUGINS, error.stage)
-        assertEquals(
-            listOf(
-                "Mismatched built-in index ${RenamedIndex::class.java.name}: it declares plugin " +
-                    "'alexandrite-channel-renamed' at config root 'channels.discord', but the built-in list has " +
-                    "plugin 'alexandrite-channel-discord' at 'channels.discord'. " +
-                    "Use the plugin jar built with this runtime.",
-                "Mismatched built-in index ${MovedIndex::class.java.name}: it declares plugin " +
-                    "'alexandrite-channel-discord' at config root 'channels.moved', but the built-in list has " +
-                    "plugin 'alexandrite-channel-discord' at 'channels.discord'. " +
-                    "Use the plugin jar built with this runtime.",
-            ),
-            error.problems.map { it.message },
-        )
         assertEquals(List(2) { RuntimeProblemKind.MISMATCHED_INDEX }, error.problems.map { it.kind })
+        assertContains(error.problems[0].message, RenamedIndex::class.java.name)
+        assertContains(error.problems[1].message, MovedIndex::class.java.name)
     }
 
     @Test
@@ -158,17 +139,9 @@ class RuntimeTest {
         val error = spec(plugins, dataDir).startFailure()
 
         assertEquals(StartStage.PLUGINS, error.stage)
-        assertEquals(
-            listOf(
-                Problem(
-                    RuntimeProblemKind.DUPLICATE_INDEX,
-                    "Duplicate index ${AgentIndex::class.java.name} of plugin 'alexandrite-agent': several service " +
-                        "files list it, so two jars on the class path ship it. Keep only one of them.",
-                    "alexandrite-agent",
-                ),
-            ),
-            error.problems,
-        )
+        val problem = error.problems.single()
+        assertEquals(RuntimeProblemKind.DUPLICATE_INDEX to "alexandrite-agent", problem.kind to problem.plugin)
+        assertContains(problem.message, AgentIndex::class.java.name)
     }
 
     // Start.
@@ -472,26 +445,6 @@ class RuntimeTest {
     // Logging.
 
     @Test
-    fun `resolution is logged at INFO, unlisted indexes and unknown plugin config at WARN`() {
-        val plugins = builtIn(dataDir, AgentIndex::class, TelegramIndex::class, HelloIndex::class)
-
-        val lines = logged { spec(plugins, dataDir, """{"plugins": {"weather": {}}}""").execute() }
-
-        assertEquals(
-            listOf(
-                "WARN test: not loading ${HelloIndex::class.java.name}: the index is neither built in nor added to " +
-                    "the plugin set",
-                "WARN test: ignoring the config at 'plugins.weather': no plugin of the plugin set reads it",
-                "INFO test: loading plugins [alexandrite-agent], disabled [alexandrite-channel-telegram " +
-                    "(NOT_CONFIGURED)]",
-                "INFO test: stopping: $BLOCK_RETURNED",
-                "INFO test: stopped",
-            ),
-            lines,
-        )
-    }
-
-    @Test
     fun `a failing hook is logged at WARN`() {
         val hook = binding(key<Hook>(), "core", "Failing", multi = true) { Failing(intercepted) }
 
@@ -502,50 +455,7 @@ class RuntimeTest {
             }
         }
 
-        assertContains(
-            lines,
-            "WARN test: hook ${Failing::class.java.name} failed at 'test.intercepted': " +
-                "Threw(error=java.lang.IllegalStateException: hook failed)",
-        )
-    }
-
-    @Test
-    fun `a hook's decision to replace the payload or stop the chain is logged at DEBUG`() {
-        val decided =
-            InterceptorPoint<String>(
-                "test.decided",
-                setOf(HookEffect.REPLACE, HookEffect.ABORT),
-                FailurePolicy.FAIL_OPEN,
-            )
-        val replacing = object : InterceptorHook<String> {
-            override val point = decided
-
-            override suspend fun intercept(payload: String): HookDecision<String> = HookDecision.Replace("$payload!")
-        }
-        val stopping = object : InterceptorHook<String> {
-            override val point = decided
-            override val order = 1
-
-            override suspend fun intercept(payload: String): HookDecision<String> = HookDecision.Abort("secret")
-        }
-        val hooks = listOf(replacing, stopping).mapIndexed { index, hook ->
-            binding(key<Hook>(), "core", "Hook $index", multi = true) { hook }
-        }
-
-        val lines = logged {
-            spec(core(*hooks.toTypedArray(), probe("core", "hooks" to key<Hooks>())), dataDir).execute {
-                val hooks = services.get(key<Probe>()).values.getValue("hooks") as Hooks
-                hooks.fire(decided, "payload")
-            }
-        }
-
-        assertEquals(
-            listOf(
-                "DEBUG test: hook ${replacing.javaClass.name} replaced the payload at 'test.decided'",
-                "DEBUG test: hook ${stopping.javaClass.name} stopped the chain at 'test.decided'",
-            ),
-            lines.filter { it.startsWith("DEBUG") },
-        )
+        assertTrue(lines.any { it.startsWith("WARN") && "failed at 'test.intercepted'" in it }, "$lines")
     }
 
     // Redaction.

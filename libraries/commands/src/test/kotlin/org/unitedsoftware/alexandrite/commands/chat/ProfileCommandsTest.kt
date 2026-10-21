@@ -14,7 +14,6 @@ import org.unitedsoftware.alexandrite.testkit.testUser
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 class ProfileCommandsTest {
     private val control = RecordingAgent()
@@ -42,6 +41,10 @@ class ProfileCommandsTest {
             AgentProfile.builder(AgentId("helper"), "Helper", "Helps.", "Be kind.").build(),
             ProfileSource.Created(testUser("ada", isOperator = true), Instant.parse("2026-10-01T00:00:00Z")),
         )
+        control.scriptProfile(
+            AgentProfile.builder(AgentId("tidier"), "Tidier", "Tidies.", "Be brief.").build(),
+            ProfileSource.Created(null, Instant.parse("2026-10-01T00:00:00Z")),
+        )
 
         assertEquals(
             """
@@ -49,26 +52,9 @@ class ProfileCommandsTest {
             reviewer "Reviewer": Reviews code. (model: the delegating agent's, mode: tightens whatever mode it runs in, source: config)
             writer "Writer": Writes docs. (model: anthropic/claude-haiku-5-5, mode: ask, source: plugin)
             helper "Helper": Helps. (model: the delegating agent's, mode: tightens whatever mode it runs in, source: created by Ada)
+            tidier "Tidier": Tidies. (model: the delegating agent's, mode: tightens whatever mode it runs in, source: created by the host)
             """.trimIndent(),
             commands.answer(testCommand("profiles")),
-        )
-    }
-
-    @Test
-    fun `a profile created by the host is shown as such`() = runTest {
-        control.scriptProfile(
-            AgentProfile.builder(AgentId("helper"), "Helper", "Helps.", "Be kind.").build(),
-            ProfileSource.Created(null, Instant.parse("2026-10-01T00:00:00Z")),
-        )
-
-        assertTrue("created by the host" in commands.answer(testCommand("profiles")))
-    }
-
-    @Test
-    fun `arguments are refused with the usage line`() = runTest {
-        assertEquals(
-            "Send /profiles without anything after it.",
-            commands.answer(testCommand("profiles", "reviewer")),
         )
     }
 }

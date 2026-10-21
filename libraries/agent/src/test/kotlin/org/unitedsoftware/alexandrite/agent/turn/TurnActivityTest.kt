@@ -70,7 +70,7 @@ class TurnActivityTest {
         channel().reply(turn.ticket.turn).activity.filterNot { it is TurnEvent.UsageUpdated }
 
     @Test
-    fun `a read call shows as started, running and completed with no content`() {
+    fun `a read call shows as started, titled relative to the workspace, running and completed with no content`() {
         val id = ToolCallId("call-1")
         val definition = ToolDefinition(
             "test.read",
@@ -81,9 +81,11 @@ class TurnActivityTest {
             titleArguments = listOf("path"),
         )
         val read = recordingTool(definition) { _, _ -> ToolResult("the file's text") }
-        model.reply { toolCall("test.read", "{\"path\": \"notes.md\"}", id) }.reply { text("Read it.") }
 
-        harness { tool(read) }.execute {
+        harness { dataRoot(directory).tool(read) }.execute {
+            val path = get<HostPaths>().dataRoot.resolve("workspaces/coder/notes.md")
+            val arguments = JsonObject(mapOf("path" to JsonPrimitive("$path"))).toString()
+            model.reply { toolCall("test.read", arguments, id) }.reply { text("Read it.") }
             enableEvents()
             val turn = ask()
             (turn as Admission.Accepted).ticket.outcome()
@@ -100,36 +102,7 @@ class TurnActivityTest {
     }
 
     @Test
-    fun `a call's title shows a path under the agent's workspace relative to it, for display only`() {
-        val id = ToolCallId("call-1")
-        val definition = ToolDefinition(
-            "test.read",
-            "Reads.",
-            schema,
-            ToolRisk.READ_ONLY,
-            activity = ToolActivity.READ,
-            titleArguments = listOf("path"),
-        )
-        val read = recordingTool(definition) { _, _ -> ToolResult("the file's text") }
-
-        harness { dataRoot(directory).tool(read) }.execute {
-            val workspace = get<HostPaths>().dataRoot.resolve("workspaces/coder")
-            val path = workspace.resolve("notes.md")
-            val arguments = JsonObject(mapOf("path" to JsonPrimitive("$path"))).toString()
-            model.reply { toolCall("test.read", arguments, id) }.reply { text("Read it.") }
-            enableEvents()
-            val turn = ask()
-            (turn as Admission.Accepted).ticket.outcome()
-
-            assertEquals(
-                TurnEvent.ToolCallStarted(id, "test.read", ToolActivity.READ, "notes.md"),
-                activityOf(turn).first(),
-            )
-        }
-    }
-
-    @Test
-    fun `an edit an operator approves shows waiting for approval, then running, then completed with its diff`() {
+    fun `an edit an operator approves shows waiting for approval, running and its diff, a denied one not run`() {
         val id = ToolCallId("call-1")
         val path = Path.of("/srv/notes.md")
         val edit = object : ReviewedTool {
@@ -151,12 +124,17 @@ class TurnActivityTest {
                 ToolResult("Edited.")
         }
         model.reply { toolCall("test.edit", "{\"path\": \"notes.md\"}", id) }.reply { text("Edited it.") }
+            .reply { toolCall("test.edit", "{\"path\": \"notes.md\"}", ToolCallId("call-2")) }
+            .reply { text("Not edited.") }
 
         harness { tool(edit) }.execute {
             enableEvents()
-            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
+            val operator = channel().user("operator")
+            channel().scriptApprovals(ApprovalAnswer.Allowed(operator), ApprovalAnswer.Denied(operator))
             val turn = ask() as Admission.Accepted
             turn.ticket.outcome()
+            val denied = ask() as Admission.Accepted
+            denied.ticket.outcome()
 
             assertEquals(
                 listOf(
@@ -170,6 +148,10 @@ class TurnActivityTest {
                     ),
                 ),
                 activityOf(turn),
+            )
+            assertEquals(
+                listOf(ToolCallStatus.WAITING_APPROVAL, ToolCallStatus.NOT_RUN),
+                activityOf(denied).drop(1).map { (it as TurnEvent.ToolCallUpdated).status },
             )
         }
     }
@@ -207,31 +189,6 @@ class TurnActivityTest {
             assertEquals(
                 listOf(
                     TurnEvent.ToolCallStarted(id, "test.edit", ToolActivity.EDIT, "notes.md"),
-                    TurnEvent.ToolCallUpdated(id, ToolCallStatus.WAITING_APPROVAL),
-                    TurnEvent.ToolCallUpdated(id, ToolCallStatus.NOT_RUN),
-                ),
-                activityOf(turn),
-            )
-        }
-    }
-
-    @Test
-    fun `a call an operator denies shows waiting for approval, then not run`() {
-        val id = ToolCallId("call-1")
-        val edit = recordingTool(
-            ToolDefinition("test.edit", "Edits.", schema, ToolRisk.WORKSPACE_WRITE, activity = ToolActivity.EDIT),
-        ) { _, _ -> ToolResult("Edited.") }
-        model.reply { toolCall("test.edit", "{}", id) }.reply { text("Not edited.") }
-
-        harness { tool(edit) }.execute {
-            enableEvents()
-            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
-            val turn = ask() as Admission.Accepted
-            turn.ticket.outcome()
-
-            assertEquals(
-                listOf(
-                    TurnEvent.ToolCallStarted(id, "test.edit", ToolActivity.EDIT, "test.edit"),
                     TurnEvent.ToolCallUpdated(id, ToolCallStatus.WAITING_APPROVAL),
                     TurnEvent.ToolCallUpdated(id, ToolCallStatus.NOT_RUN),
                 ),

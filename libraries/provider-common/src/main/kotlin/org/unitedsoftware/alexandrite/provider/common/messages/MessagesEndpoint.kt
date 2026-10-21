@@ -45,7 +45,7 @@ public class MessagesSettings(
 
 /**
  * An endpoint that speaks the Messages API in [flavor] at `{baseUrl}/v1/messages`, which describes each model by the
- * last listing it read. It refuses settings whose headers set one of [PROVIDER_HEADERS].
+ * last listing it read.
  */
 public class MessagesEndpoint(
     override val id: EndpointId,
@@ -61,7 +61,6 @@ public class MessagesEndpoint(
         flavor.dialect,
         mapOf("anthropic-version" to flavor.version),
         AUTH_HEADER,
-        PROVIDER_HEADERS,
     )
 
     override suspend fun webSearch(model: String, query: WebQuery): List<WebSearchResult> {
