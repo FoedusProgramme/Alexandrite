@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.app.control.NoDaemonException
 import org.unitedsoftware.alexandrite.app.control.askDaemon
 import org.unitedsoftware.alexandrite.app.control.controlSocket
 import org.unitedsoftware.alexandrite.app.tui.Style
+import org.unitedsoftware.alexandrite.runtime.config.writtenConfig
 import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import java.io.IOException
 import java.io.PrintStream
@@ -128,13 +129,6 @@ internal class Cli(
             prettyPrintIndent = "  "
         }
     }
-}
-
-/** The object a config file's [text] holds as written, null when it holds none. */
-internal fun writtenConfig(text: String): JsonObject? = try {
-    Json.parseToJsonElement(text.removePrefix("\uFEFF")) as? JsonObject
-} catch (e: IllegalArgumentException) {
-    null
 }
 
 /** The value at the config [path] of this object, null when there is none. */

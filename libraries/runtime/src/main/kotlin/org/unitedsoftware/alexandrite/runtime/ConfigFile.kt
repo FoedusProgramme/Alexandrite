@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.runtime.config.BYTE_ORDER_MARK
+import org.unitedsoftware.alexandrite.runtime.config.EnvReferences
 import org.unitedsoftware.alexandrite.runtime.config.jsonStringEnd
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
@@ -20,7 +21,6 @@ import java.nio.file.Path
 
 /** Reads JSON config files whose string values may insert environment variables as `${env:NAME}`. */
 public object ConfigFile {
-    private val NAME = Regex("[A-Za-z_][A-Za-z0-9_]*")
 
     /**
      * The config in [file], with each `${env:NAME}` replaced from [environment] and each `$${` by `${`, which a
@@ -67,8 +67,7 @@ public object ConfigFile {
     public fun resolve(root: JsonObject, environment: Map<String, String>, origin: String): JsonObject =
         resolved(root, environment.toMap()) { path, variable ->
             val problem = if (variable == null) {
-                "holds a malformed reference. Write \${env:NAME} to insert an environment variable, or \$\${ for a " +
-                    "literal \${."
+                "holds a malformed reference. ${EnvReferences.HOW_TO_WRITE}"
             } else {
                 "refers to the environment variable $variable, which is not set."
             }
@@ -160,7 +159,7 @@ public object ConfigFile {
                     val end = indexOf('}', index)
                     val reference = if (end < 0) "" else substring(index + 2, end)
                     val name = reference.removePrefix("env:")
-                    if (name == reference || !NAME.matches(name)) throw problem(path, null)
+                    if (name == reference || !EnvReferences.NAME.matches(name)) throw problem(path, null)
                     resolved.append(environment[name] ?: throw problem(path, name))
                     index = end + 1
                 }

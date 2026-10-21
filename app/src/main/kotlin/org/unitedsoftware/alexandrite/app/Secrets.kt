@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.app
 
 import org.unitedsoftware.alexandrite.internal.path.writeAtomically
+import org.unitedsoftware.alexandrite.runtime.config.EnvReferences
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
@@ -9,11 +10,9 @@ import java.nio.file.Path
 /** The secrets file's name beside the config file. */
 internal const val SECRETS_FILE = "secrets.env"
 
-private val NAME = Regex("[A-Za-z_][A-Za-z0-9_]*")
-
 internal fun secretsFile(configFile: Path): Path = configFile.toAbsolutePath().resolveSibling(SECRETS_FILE)
 
-internal fun isSecretName(name: String): Boolean = NAME.matches(name)
+internal fun isSecretName(name: String): Boolean = EnvReferences.NAME.matches(name)
 
 /** The variables of the secrets [file], one `NAME=value` per line, empty when there is none. */
 internal fun readSecrets(file: Path): Map<String, String> {
@@ -43,12 +42,3 @@ internal fun writeSecrets(file: Path, secrets: Map<String, String>) {
 /** [environment] over the variables of the secrets [file]. */
 internal fun withSecrets(environment: Map<String, String>, file: Path): Map<String, String> =
     readSecrets(file) + environment
-
-private val ENV_REFERENCE = Regex("\\$\\{env:(${NAME.pattern})}")
-
-internal fun envReference(name: String): String = "\${env:$name}"
-
-/** The variable [text] names when it is one whole `${env:NAME}` reference, null otherwise. */
-internal fun referencedVariable(text: String): String? = ENV_REFERENCE.matchEntire(text)?.groupValues?.get(1)
-
-internal fun referencedVariables(text: String): Sequence<String> = ENV_REFERENCE.findAll(text).map { it.groupValues[1] }

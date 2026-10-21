@@ -101,7 +101,9 @@ public class HostConfigFile(
         }
         if (problems.isNotEmpty()) {
             val unknown = unknownKeys(problems)
-            val hint = paths.orEmpty().firstNotNullOfOrNull { keys -> bracketHint(keys, unknown) { previous.at(it) } }
+            val hint = paths.orEmpty().firstNotNullOfOrNull { keys ->
+                bracketHint(keys, unknown, { previous.at(it) }, { isMapIn(plugins, it) })
+            }
             throw refused(
                 ConfigEditRefusal.INVALID_RESULT,
                 listOfNotNull("$what: ${problems.joinToString(" ")}", hint).joinToString(" "),

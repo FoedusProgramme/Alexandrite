@@ -11,7 +11,11 @@ import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.tui.Mark
 import org.unitedsoftware.alexandrite.app.tui.columns
 import org.unitedsoftware.alexandrite.app.tui.pad
+import org.unitedsoftware.alexandrite.provider.common.ModelListing
+import org.unitedsoftware.alexandrite.provider.common.messages.MessagesListing
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
+import org.unitedsoftware.alexandrite.runtime.config.EnvReferences
+import org.unitedsoftware.alexandrite.runtime.config.writtenConfig
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
@@ -152,7 +156,7 @@ private fun config(cli: Cli, environment: Map<String, String>, findings: Mutable
     } catch (e: IOException) {
         null
     }
-    val unset = raw?.let { strings(it) }.orEmpty().flatMap { referencedVariables(it) }
+    val unset = raw?.let { strings(it) }.orEmpty().flatMap { EnvReferences.all(it) }
         .filter { it !in environment }.distinct()
     if (unset.isNotEmpty()) {
         findings += Finding(
@@ -198,7 +202,7 @@ private fun without(element: JsonElement, unset: Set<String>): JsonElement? = wh
 
     is JsonPrimitive -> element.takeUnless {
         it.isString &&
-            referencedVariables(it.content).any { name -> name in unset }
+            EnvReferences.all(it.content).any { name -> name in unset }
     }
 }
 
@@ -322,18 +326,14 @@ private fun unknownWindows(
         if ((configured?.get(model.model) as? JsonObject)?.get("contextWindow") != null) return@mapNotNull null
         val entry = listed.firstOrNull { (it as? JsonObject)?.get("id").text == model.model } as? JsonObject
             ?: return@mapNotNull null
-        if (WINDOW_FIELDS.any { (entry[it] as? JsonPrimitive)?.longOrNull?.let { tokens -> tokens > 0 } == true }) {
-            return@mapNotNull null
-        }
+        val reader = if (providerKind(provider)?.anthropic == true) MessagesListing() else ModelListing()
+        if (reader.facts(entry).contextWindow != null) return@mapNotNull null
         val key = ConfigPath.format(
             listOf("providers", provider, "endpoints", id, "models", model.model, "contextWindow"),
         )
         Finding("model $name", Verdict.WARN, cli.t("doctor.no_context_window", "key" to key))
     }
 }
-
-/** The fields of a listed model that may give its context window. */
-private val WINDOW_FIELDS = listOf("context_window", "context_length", "max_model_len", "max_input_tokens")
 
 /** The finding of the request to [url] and the body of its successful answer. */
 private fun reached(
@@ -377,7 +377,7 @@ private fun reached(
 }
 
 private fun telegram(cli: Cli, config: JsonObject): List<Finding> =
-    config.objectAt("channels.telegram.instances").map { (name, value) ->
+    config.objectAt(TELEGRAM_INSTANCES).map { (name, value) ->
         val config = value as? JsonObject ?: JsonObject(emptyMap())
         val check = "telegram:$name"
         val token = config["botToken"].text

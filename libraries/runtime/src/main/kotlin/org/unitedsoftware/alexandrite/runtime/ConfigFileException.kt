@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.runtime
 
+import org.unitedsoftware.alexandrite.runtime.config.EnvReferences
 import java.nio.file.Path
 
 /** Thrown when [ConfigFile] cannot read a config file. */
@@ -39,8 +40,7 @@ public sealed class ConfigFileException(public val file: Path, message: String, 
         public val path: String,
     ) : ConfigFileException(
         file,
-        "Config file $file: the value at '$path' holds a malformed reference. Write \${env:NAME} to insert an " +
-            "environment variable, or \$\${ for a literal \${.",
+        "Config file $file: the value at '$path' holds a malformed reference. ${EnvReferences.HOW_TO_WRITE}",
         null,
     )
 }

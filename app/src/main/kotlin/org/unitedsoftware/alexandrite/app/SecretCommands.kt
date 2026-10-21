@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.app
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import org.unitedsoftware.alexandrite.runtime.config.EnvReferences
 import java.io.IOException
 
 internal fun requireSecretName(name: String): String {
@@ -42,7 +43,7 @@ internal fun secretUnset(cli: Cli, name: String): Int {
     val written = editSecrets(cli) { had = it.remove(name) != null } ?: return ExitCode.FAILURE
     if (!had) return cli.fail(cli.t("secret.not_held", "file" to written, "name" to name))
     cli.out.println(cli.t("secret.removed", "name" to name, "file" to written))
-    val referenced = cli.rawConfig()?.let { envReference(name) in "$it" } == true
+    val referenced = cli.rawConfig()?.let { EnvReferences.of(name) in "$it" } == true
     if (referenced) cli.out.println(cli.t("secret.still_referred", "name" to name))
     return cli.done(afterChange(cli))
 }
