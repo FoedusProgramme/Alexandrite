@@ -3,8 +3,10 @@ plugins {
     id("alexandrite.kotlin-serialization")
 }
 
+description = "The QQ Bot channel of Alexandrite"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))
 
     // The client of the gateway, of which the JDK serves none.
