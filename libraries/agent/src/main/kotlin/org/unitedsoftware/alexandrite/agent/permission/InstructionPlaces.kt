@@ -4,6 +4,7 @@ import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.config.SandboxConfig
 import org.unitedsoftware.alexandrite.agent.config.configuredPath
 import org.unitedsoftware.alexandrite.agent.prompt.Persona
+import org.unitedsoftware.alexandrite.agent.tool.writtenFile
 import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
@@ -16,7 +17,6 @@ import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
-import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import java.nio.file.Path
 import java.util.Locale
 
@@ -35,8 +35,7 @@ internal interface InstructionPlaces {
      * What a command writes cannot be foreseen: the sandbox's protect list and the judge's rule for tainted
      * conversations cover it.
      */
-    fun written(agent: AgentId, review: CallReview): String? =
-        (review.preview as? ReviewPreview.Diff)?.path?.takeIf { it.isAbsolute }?.let { kind(it, agent) }
+    fun written(agent: AgentId, review: CallReview): String? = review.preview.writtenFile?.let { kind(it, agent) }
 
     /** The kind of instruction-bearing place that [path] (absolute) is or lies in for a write by [agent], else null. */
     fun kind(path: Path, agent: AgentId): String?

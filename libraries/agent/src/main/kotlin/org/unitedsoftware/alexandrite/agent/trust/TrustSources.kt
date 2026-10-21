@@ -11,6 +11,7 @@ import org.unitedsoftware.alexandrite.agent.permission.session
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.agent.tool.isWritten
+import org.unitedsoftware.alexandrite.agent.tool.writtenFile
 import org.unitedsoftware.alexandrite.internal.path.homeDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -79,7 +80,7 @@ internal class TrustSources(
         } else if (call.review.untrusted || isNetworkRead(call)) {
             found += output(name, call.review.host, isNetworkRead(call))
         }
-        val written = (call.review.preview as? ReviewPreview.Diff)?.path
+        val written = call.review.preview.writtenFile
         for (place in reads.places(gate.turn, call.review.reads.filterNot { it.isWritten(written) })) {
             val folder = place.folder
             val source = if (folder != null &&

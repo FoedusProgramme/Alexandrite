@@ -92,6 +92,7 @@ class TaintGateTest {
             places,
             NoForesight,
             NoMarkOffers,
+            EveryEditPlace,
         )
     }
 

@@ -14,6 +14,7 @@ import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolGate
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.tool.writtenFile
 import org.unitedsoftware.alexandrite.agent.trust.CallTrust
 import org.unitedsoftware.alexandrite.agent.trust.Foreseen
 import org.unitedsoftware.alexandrite.agent.trust.Foresight
@@ -68,6 +69,7 @@ internal class PermissionGate(
     private val instructions: InstructionPlaces,
     private val foresight: Foresight,
     private val offers: MarkOffers,
+    private val edits: EditPlaces,
 ) : ToolGate {
     override suspend fun admit(call: GateCall): GateResult {
         val review = when (val reviewed = review(call)) {
@@ -181,13 +183,19 @@ internal class PermissionGate(
 
     /**
      * What lets the gated [call] of an operator's turn run in [mode] without asking anyone, null when nothing does.
-     * Only `bypass` clears a write of an instruction-bearing place.
+     * Only `bypass` clears a write of an instruction-bearing place, and `allowedit` clears only a write of one file that
+     * the review shows, where the turn's writes may land.
      */
     private suspend fun cleared(call: CheckedCall, mode: PermissionMode): ClearanceKind? = when {
         mode == PermissionMode.BYPASS -> ClearanceKind.MODE
+
         call.instruction != null -> null
-        mode == PermissionMode.ALLOW_EDIT && call.risk == ToolRisk.WORKSPACE_WRITE && !call.opaque -> ClearanceKind.MODE
+
+        mode == PermissionMode.ALLOW_EDIT && call.risk == ToolRisk.WORKSPACE_WRITE &&
+            call.review.preview.writtenFile?.let { edits.covers(call.call.turn, it) } == true -> ClearanceKind.MODE
+
         mode != PermissionMode.MANUAL && rules.allowed(call) -> ClearanceKind.RULE
+
         else -> null
     }
 
@@ -299,6 +307,13 @@ private fun reason(call: CheckedCall, principal: Principal, mode: PermissionMode
     call.risk == ToolRisk.NETWORK_READ -> "the call reads the network, and $TAINTED"
 
     tightened -> "the sub-agent's profile sets $mode mode"
+
+    mode == PermissionMode.ALLOW_EDIT && call.risk == ToolRisk.WORKSPACE_WRITE ->
+        if (call.review.preview.writtenFile == null) {
+            "allowedit runs only a write whose file it is shown, and this call shows none"
+        } else {
+            "the file lies outside the places where the agent may write"
+        }
 
     !call.containment?.hosts.isNullOrEmpty() ->
         "the command asks to reach ${call.containment.hosts.joinToString()}, which its sandbox does " +

@@ -63,7 +63,7 @@ class AgentMessagesTest {
                 "coder":{"model":"scripted/test-model","instructions":["SENDER"],"channels":{"test:main":{"default":true}},"tools":{"allow":["test.read","agent.send"]}},
                 "reviewer":{
                   "model":"scripted/test-model","instructions":["TARGET"],"channels":{$targetChannel},
-                  "tools":{"allow":["test.read","agent.send","fs.write"]},"permission":{"mode":"allowedit"}
+                  "tools":{"allow":["test.read","agent.send","fs.write"]},"permission":{"mode":"allowedit","allow":["fs.write"]}
                 }
               }
             }""",

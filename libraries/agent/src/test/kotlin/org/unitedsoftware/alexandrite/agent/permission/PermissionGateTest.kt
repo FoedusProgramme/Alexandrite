@@ -88,7 +88,12 @@ class PermissionGateTest {
     private val cwd = Path.of("/srv")
 
     /** A gate where `main` sets [mode] for its chats and the plugins in [builtIn] contributed their tools. */
-    private fun gate(tools: List<Tool>, mode: String? = null, builtIn: Set<Tool> = emptySet()): PermissionGate {
+    private fun gate(
+        tools: List<Tool>,
+        mode: String? = null,
+        builtIn: Set<Tool> = emptySet(),
+        edits: EditPlaces = EveryEditPlace,
+    ): PermissionGate {
         val config =
             mode?.let { """{"agents": {"main": {"description": "Main.", "permission": {"mode": "$it"}}}}""" }
                 ?: """{"agents": {}}"""
@@ -111,6 +116,7 @@ class PermissionGateTest {
             NoInstructionPlaces,
             NoForesight,
             NoMarkOffers,
+            edits,
         )
     }
 
@@ -150,7 +156,10 @@ class PermissionGateTest {
     @Test
     fun `each mode decides the calls of each principal by their risk and the turn's taint`() = runTest {
         val risks = ToolRisk.entries
-        val tools = risks.map { recordingTool("risk.${it.name.lowercase()}", it) }
+        val tools = risks.map { risk ->
+            val name = "risk.${risk.name.lowercase()}"
+            if (risk == ToolRisk.WORKSPACE_WRITE) fileWrite(name) else recordingTool(name, risk)
+        }
         val gate = gate(tools)
         val turns = mapOf("operator" to operator, "guest" to guest, "automation" to automation)
         val table = """
@@ -294,7 +303,7 @@ class PermissionGateTest {
 
     @Test
     fun `a chat without a mode of its own is in the agent's, else in ask mode`() = runTest {
-        val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
+        val write = fileWrite("fs.write")
 
         assertEquals("ask", outcome(gate(listOf(write)).admit(write)))
         assertEquals("plan", outcome(gate(listOf(write), mode = "plan").admit(write)))
@@ -348,20 +357,29 @@ class PermissionGateTest {
     }
 
     @Test
-    fun `allowedit runs no workspace write that executes a program the floor cannot see`() = runTest {
-        val opaque = reviewedTool("fs.patch", ToolRisk.WORKSPACE_WRITE) {
-            CallReview.builder()
-                .preview(ReviewPreview.Command(listOf("sh", "-c", "x"), cwd, null, opaque = true))
-                .build()
-        }
-        val visible = reviewedTool("fs.edit", ToolRisk.WORKSPACE_WRITE) {
-            CallReview.builder().preview(ReviewPreview.Command(listOf("patch"), cwd, null, opaque = false)).build()
-        }
-        val gate = gate(listOf(opaque, visible))
-        setMode(operator, PermissionMode.ALLOW_EDIT)
+    fun `allowedit runs only a write of a file it is shown where the turn may write, saying why it asks otherwise`() =
+        runTest {
+            val inside = Path.of("/srv/work/notes.md")
+            fun writing(name: String, preview: ReviewPreview) = reviewedTool(name, ToolRisk.WORKSPACE_WRITE) {
+                CallReview.builder().preview(preview).build()
+            }
+            val tools = listOf(
+                writing("fs.write", ReviewPreview.Diff(inside, "+x")),
+                writing("fs.edit", ReviewPreview.Diff(Path.of("/etc/hosts"), "+x")),
+                writing("fs.patch", ReviewPreview.Command(listOf("patch"), cwd, null, opaque = false)),
+            )
+            val gate = gate(tools, edits = { _, file -> file == inside })
+            setMode(operator, PermissionMode.ALLOW_EDIT)
 
-        assertEquals(listOf("ask", "mode"), listOf(opaque, visible).map { outcome(gate.admit(it)) })
-    }
+            assertEquals(listOf("mode", "ask", "ask"), tools.map { outcome(gate.admit(it)) })
+            assertEquals(
+                listOf(
+                    "the file lies outside the places where the agent may write",
+                    "allowedit runs only a write whose file it is shown, and this call shows none",
+                ),
+                approvals.reasons,
+            )
+        }
 
     // The places that the floor asks a person about.
 
@@ -689,6 +707,7 @@ class PermissionGateTest {
             NoInstructionPlaces,
             NoForesight,
             NoMarkOffers,
+            EveryEditPlace,
         )
         lateinit var result: GateResult
 
@@ -706,8 +725,9 @@ class PermissionGateTest {
 
     @Test
     fun `a built-in tool's review sets the call's risk, while another tool's may only raise it`() = runTest {
-        fun tool(name: String, declared: ToolRisk, reported: ToolRisk) =
-            reviewedTool(name, declared) { CallReview.builder().risk(reported).build() }
+        fun tool(name: String, declared: ToolRisk, reported: ToolRisk) = reviewedTool(name, declared) {
+            CallReview.builder().risk(reported).preview(ReviewPreview.Diff(Path.of("/srv/notes.md"), "+x")).build()
+        }
         val builtInLowered = tool("core.lowered", ToolRisk.EXEC, ToolRisk.READ_ONLY)
         val builtInRaised = tool("core.raised", ToolRisk.WORKSPACE_WRITE, ToolRisk.EXEC)
         val lowered = tool("plugin.lowered", ToolRisk.EXEC, ToolRisk.READ_ONLY)
@@ -751,6 +771,11 @@ class PermissionGateTest {
             Clearance(ClearanceKind.JUDGE, snapshot = "sha256:abc"),
             assertIs<GateResult.Admitted>(gate.admit(exec)).clearance,
         )
+    }
+
+    /** A tool of [name] that writes a file it shows the reviewer. */
+    private fun fileWrite(name: String): ReviewedTool = reviewedTool(name, ToolRisk.WORKSPACE_WRITE) {
+        CallReview.builder().preview(ReviewPreview.Diff(Path.of("/srv/notes.md"), "+x")).build()
     }
 
     private fun reviewedTool(name: String, risk: ToolRisk, review: suspend () -> CallReview): ReviewedTool =

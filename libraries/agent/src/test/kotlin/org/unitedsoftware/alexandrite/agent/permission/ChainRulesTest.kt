@@ -89,6 +89,7 @@ class ChainRulesTest {
             NoInstructionPlaces,
             NoForesight,
             NoMarkOffers,
+            EveryEditPlace,
         )
 
         /** How the gate decided [review] on an operator's turn, tainted when [tainted]: run, rule, judge, ask or refused. */

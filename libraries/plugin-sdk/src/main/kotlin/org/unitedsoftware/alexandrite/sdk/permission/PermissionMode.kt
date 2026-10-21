@@ -18,7 +18,10 @@ public value class PermissionMode internal constructor(public val id: String) {
         /** Allow rules first, then a human. */
         public val ASK: PermissionMode = PermissionMode("ask")
 
-        /** File writes the floor allows run (an opaque program never), the rest as in [ASK]. */
+        /**
+         * File writes in the agent's workspace and the folders it trusts run (an opaque program never), the rest as in
+         * [ASK].
+         */
         public val ALLOW_EDIT: PermissionMode = PermissionMode("allowedit")
 
         /** Allow rules, then a side model, then a human. */

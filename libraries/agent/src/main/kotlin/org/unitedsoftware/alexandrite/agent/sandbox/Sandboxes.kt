@@ -71,6 +71,7 @@ internal class Sandboxes(
     private val floor: AgentFloor,
     private val rules: CallRules,
     private val instructions: InstructionPlaces,
+    private val writes: WritePlaces,
 ) : Containments,
     CallSandboxes {
     private val canonicalizer = PathCanonicalizer()
@@ -119,7 +120,6 @@ internal class Sandboxes(
         return Configured(
             environment,
             config,
-            config.allowWrite.map { configuredPath(paths, "$key.allowWrite", "the writable path", expandHome(it)) },
             protectedPaths,
             protect.names,
             config.denyRead.map { configuredPath(paths, "$key.denyRead", "the unreadable path", expandHome(it)) },
@@ -143,14 +143,12 @@ internal class Sandboxes(
             val agent = turn.agent
             val workspace = workspaces.paths[agent]
             val conversation = this@Sandboxes.directories.path(turn)
-            val trusted = directories.mapNotNull { trust.covering(agent, real(it))?.path }
             val (denied, asked) = floor.sandboxPlaces()
             val closed = if (allowed) emptyList() else asked
             val steering = if (allowed) emptyList() else instructions.sandboxPaths()
             val names = if (allowed) emptyList() else INSTRUCTION_NAMES
             return Boundary(
-                writable = (listOfNotNull(workspace, conversation) + trusted + temporary() + configured.allowWrite)
-                    .map(::real).distinct(),
+                writable = writes.writable(turn, directories),
                 writeDenied = (configured.protectedPaths + closed + steering).map(::real).distinct(),
                 protectedNames = (configured.protectedNames + names).distinct(),
                 readDenied = (denied + closed + configured.denyRead).map(::real).distinct(),
@@ -191,7 +189,6 @@ internal class Sandboxes(
     private class Configured(
         val environment: ExecutionEnvironment,
         val config: SandboxConfig,
-        val allowWrite: List<Path>,
         val protectedPaths: List<Path>,
         val protectedNames: List<String>,
         val denyRead: List<Path>,
@@ -211,10 +208,6 @@ private fun environment(agent: AgentId, type: String, environments: List<Executi
     } catch (e: IllegalArgumentException) {
         throw ConfigException("agent.agents.$agent.sandbox.type", e.message.orEmpty(), e)
     }
-
-/** The per-user temp directory. */
-private fun temporary(): List<Path> =
-    listOfNotNull(System.getProperty("java.io.tmpdir")?.takeIf { it.isNotBlank() }?.let { Path.of(it) })
 
 private const val MAX_HOSTS = 20
 

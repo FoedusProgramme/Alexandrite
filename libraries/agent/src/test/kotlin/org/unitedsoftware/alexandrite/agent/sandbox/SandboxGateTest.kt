@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.agent.hook.TurnHooks
 import org.unitedsoftware.alexandrite.agent.permission.Approvals
 import org.unitedsoftware.alexandrite.agent.permission.CallRules
 import org.unitedsoftware.alexandrite.agent.permission.CheckedCall
+import org.unitedsoftware.alexandrite.agent.permission.EveryEditPlace
 import org.unitedsoftware.alexandrite.agent.permission.InstructionPlaces
 import org.unitedsoftware.alexandrite.agent.permission.Judge
 import org.unitedsoftware.alexandrite.agent.permission.NoForesight
@@ -111,6 +112,7 @@ class SandboxGateTest {
             running.get<InstructionPlaces>(),
             NoForesight,
             NoMarkOffers,
+            EveryEditPlace,
         )
 
         suspend fun mode(mode: PermissionMode, of: TurnInfo = turn) {

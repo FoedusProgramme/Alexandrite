@@ -32,7 +32,7 @@ Reading a file outside the trusted places taints the conversation (see alexandri
 Both change an existing file only after fs.read read it in this conversation and while it has not changed since; they
 keep the file's line breaks, write text files only (16 MiB at most), and show a unified diff in an approval.
 
-A write is a workspace_write call: gated unless `allowedit`, an allow rule such as `fs.edit`, or `bypass` clears it,
-and free inside the conversation's own directory. A write to the agent's own persona directory is persistent_state
+A write is a workspace_write call: gated unless `allowedit` (in the agent's workspace and the folders it trusts), an
+allow rule such as `fs.edit`, or `bypass` clears it, and free inside the conversation's own directory. A write to the agent's own persona directory is persistent_state
 (see alexandrite-agent/persona-and-skills), and writes to instruction places are never cleared by `allowedit` or rules.
 Writing does not taint; a file that a tainted conversation wrote taints whoever reads it later.

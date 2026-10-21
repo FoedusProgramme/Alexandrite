@@ -92,6 +92,7 @@ class CallRulesTest {
                 NoInstructionPlaces,
                 NoForesight,
                 NoMarkOffers,
+                EveryEditPlace,
             )
 
         /** How the gate decided a call of [tool] reviewed as [review] in [turn]: run, rule, mode, ask or refused. */

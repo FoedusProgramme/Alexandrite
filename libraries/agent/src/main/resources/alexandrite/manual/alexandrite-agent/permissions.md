@@ -34,7 +34,8 @@ Each chat has a mode per agent, set with `/mode <mode>` by an operator; a chat t
 - `plan`: no gated call runs; describe the exact call you would make and why.
 - `manual`: a person is asked about every gated call; allow rules do not apply.
 - `ask` (the default): allow rules first, then a person.
-- `allowedit`: file writes that the floor allows run (not writes to instruction places), the rest as in `ask`.
+- `allowedit`: file writes in the agent's workspace and the folders it trusts run (not writes to instruction places),
+  the rest as in `ask`.
 - `auto`: allow rules, then the judge, then a person when the judge asks.
 - `bypass`: every gated call runs, for a limited time: `/mode bypass 2h`, one hour by default, 24 hours at most, after
   which the agent's default mode applies.

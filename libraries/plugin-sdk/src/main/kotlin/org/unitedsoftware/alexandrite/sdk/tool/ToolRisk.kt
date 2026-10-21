@@ -20,7 +20,10 @@ public enum class ToolRisk(
     /** Actions on an external system. */
     EXTERNAL_ACTION(4),
 
-    /** Any file write the floor allows; `allowedit` runs it without asking. */
+    /**
+     * Any file write the floor allows; `allowedit` runs it without asking where the review's diff shows a file in the
+     * agent's workspace or a folder it trusts.
+     */
     WORKSPACE_WRITE(4),
 
     /** Program execution. */
