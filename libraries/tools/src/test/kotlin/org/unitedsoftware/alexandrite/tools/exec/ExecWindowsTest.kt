@@ -106,7 +106,7 @@ class ExecWindowsTest {
     }
 
     @Test
-    fun `a batch file runs through cmd as an opaque program and gets a plain argument as given`() {
+    fun `a batch file runs as a script of its own and gets a plain argument as given`() {
         val script = fs.write("bin/greet.cmd", "@echo off\r\necho hello %~1\r\n")
 
         val review = review(script.toString(), "big world")
@@ -114,8 +114,7 @@ class ExecWindowsTest {
 
         assertNull(review.problem, review.problem)
         val preview = assertIs<ReviewPreview.Command>(review.preview)
-        assertTrue(preview.opaque)
-        assertNull(review.rule)
+        assertFalse(preview.opaque)
         assertFalse(result.isError, result.text)
         assertTrue(result.text.contains("hello big world"), result.text)
     }

@@ -225,7 +225,7 @@ internal class Planner(
         val real = programName(executable.fileName.toString())
         val batch = listOf(resolved, executable).map(Path::toString).firstOrNull(Platform.HOST::runsThroughCmd)
         batch?.let { Platform.HOST.cmdSyntaxArgument(it, arguments) }?.let { throw cmdSyntaxRefusal(name, it) }
-        val opaque = batch != null || isOpaque(program, arguments) || (!isMultiCall(real) && isOpaque(real, arguments))
+        val opaque = isOpaque(program, arguments) || (!isMultiCall(real) && isOpaque(real, arguments))
         val system = resolved.parent in SYSTEM_DIRECTORIES
         val listed = !opaque && system && program in VETTED_READ_ONLY && environment.isEmpty()
         val tabled = if (listed) CommandOptions.parse(argv, withTable = true) else null
