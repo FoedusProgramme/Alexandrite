@@ -28,8 +28,8 @@ internal class DelegatedRuns {
     fun cancel(run: RunId, tree: Boolean, cause: CancellationException): Boolean {
         val cancelled = synchronized(lock) {
             val target = live[run] ?: return false
-            val runs = listOf(target) + if (tree) below(target) else emptyList()
-            runs.sortedByDescending { it.delegation.lineage.depth }
+            // Parents first: a run cancelled before the run above it would hand that one a result to go on with
+            listOf(target) + if (tree) below(target) else emptyList()
         }
         cancelled.forEach { it.job.cancel(cause) }
         return true
