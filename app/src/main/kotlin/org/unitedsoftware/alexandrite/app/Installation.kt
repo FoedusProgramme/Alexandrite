@@ -16,6 +16,11 @@ internal const val INSTALL_DIR = "ALEXANDRITE_INSTALL_DIR"
 private const val VERSIONS = "versions"
 private const val LAUNCHER = "alexandrite"
 
+/** The marks around the lines the install script adds to a shell's startup file, as in install.sh. */
+private const val PATH_BEGIN = "# >>> alexandrite >>>"
+private const val PATH_END = "# <<< alexandrite <<<"
+private const val FISH_PROFILE = "alexandrite.fish"
+
 /** The lock file a runtime keeps in its data directory. */
 private const val DATA_LOCK = "runtime.lock"
 private val RELEASE = Regex("v?[0-9]+(\\.[0-9]+)*([-+.][0-9A-Za-z.]+)?")
@@ -86,18 +91,23 @@ internal fun updateCommand(
     }
 }
 
-/** Removes the service, the installed program and, unless [keepData], the config, secrets, data and cache. */
+/**
+ * Removes the service, the installed program, the install script's PATH lines and, unless [keepData], the config,
+ * secrets, data and cache.
+ */
 internal fun uninstall(cli: Cli, keepData: Boolean, yes: Boolean): Int {
     val service = installedService(cli)
     val root = installRoot(cli).takeIf { Files.isDirectory(it) && isInstallRoot(it) }
     val launcher = launcher(cli, root)
+    val profiles = pathProfiles(cli)
     val files = if (keepData) emptyList() else dataFiles(cli)
     val trees = if (keepData) emptyList() else dataTrees(cli)
     val plan = listOfNotNull(
         service?.let { "${it.description}${it.definition?.let { file -> " ($file)" }.orEmpty()}" },
         root?.let { cli.t("uninstall.program", "directory" to it) },
         launcher?.let { cli.t("uninstall.launcher", "file" to it) },
-    ) + files.map { "$it" } + trees.map { cli.t("uninstall.tree", "directory" to it) }
+    ) + profiles.map { cli.t("uninstall.path_lines", "file" to it) } + files.map { "$it" } +
+        trees.map { cli.t("uninstall.tree", "directory" to it) }
     if (plan.isEmpty()) return cli.done(cli.t("uninstall.nothing"))
     cli.out.println(cli.t("uninstall.removes"))
     plan.forEach { cli.out.println("  $it") }
@@ -126,6 +136,7 @@ internal fun uninstall(cli: Cli, keepData: Boolean, yes: Boolean): Int {
     service?.let { removing(it.description) { it.remove() } }
     launcher?.let { removing(it) { Files.deleteIfExists(it) } }
     root?.let { removing(it) { deleteTree(it) } }
+    profiles.forEach { removing(it) { removePathLines(it) } }
     files.forEach { removing(it) { Files.deleteIfExists(it) } }
     trees.forEach { removing(it) { deleteTree(it) } }
     if (!keepData) {
@@ -158,6 +169,54 @@ private fun launcher(cli: Cli, root: Path?): Path? {
         return null
     }
     return link.takeIf { target.startsWith(root.normalize()) }
+}
+
+/** The shell startup files the install script put its PATH lines into, each when it still holds them. */
+private fun pathProfiles(cli: Cli): List<Path> {
+    if (cli.platform == Platform.WINDOWS) return emptyList()
+    fun named(variable: String): Path? = try {
+        cli.environment[variable]?.takeIf { it.isNotEmpty() }?.let { Path.of(it) }
+    } catch (e: InvalidPathException) {
+        null
+    }
+    val zsh = named("ZDOTDIR") ?: cli.home
+    val config = named("XDG_CONFIG_HOME") ?: cli.home.resolve(".config")
+    return listOf(
+        cli.home.resolve(".profile"),
+        cli.home.resolve(".bashrc"),
+        cli.home.resolve(".bash_profile"),
+        zsh.resolve(".zshrc"),
+        config.resolve("fish").resolve("conf.d").resolve(FISH_PROFILE),
+    ).distinct().filter { file ->
+        try {
+            Files.isRegularFile(file) && pathBlock(Files.readAllLines(file)) != null
+        } catch (e: IOException) {
+            false
+        }
+    }
+}
+
+/** The lines from the install script's begin mark through its end mark, null when [lines] hold no such block. */
+private fun pathBlock(lines: List<String>): IntRange? {
+    val begin = lines.indexOfFirst { it.trim() == PATH_BEGIN }.takeIf { it >= 0 } ?: return null
+    val end = (begin + 1 until lines.size).firstOrNull { lines[it].trim() == PATH_END } ?: return null
+    return begin..end
+}
+
+/**
+ * Takes the install script's block out of [file], writing through a link so a managed dotfile stays one; deletes the
+ * fish file the script made when nothing else is left in it.
+ */
+private fun removePathLines(file: Path) {
+    val text = Files.readString(file)
+    val lines = text.split("\n")
+    val block = pathBlock(lines) ?: return
+    val kept = lines.filterIndexed { index, _ -> index !in block }.joinToString("\n")
+    if (file.fileName.toString() == FISH_PROFILE && kept.isBlank()) {
+        Files.delete(file)
+    } else {
+        Files.writeString(file, kept)
+    }
 }
 
 private fun dataFiles(cli: Cli): List<Path> {

@@ -22,7 +22,8 @@ places (`~/.config/alexandrite/alexandrite.json` on Linux).
   Telegram, the secrets, the disk and the service.
 - `alexandrite update [--version <release>]` — install the latest release, or the one named, checking it against the
   config before switching and restarting the service; the release before is kept, and a failed update switches back.
-- `alexandrite uninstall [--keep-data] [--yes]` — remove the service, the program and, unless kept, config and data.
+- `alexandrite uninstall [--keep-data] [--yes]` — remove the service, the program, the PATH lines the install script added
+  to shell startup files and, unless kept, config and data.
 
 ## Updates
 

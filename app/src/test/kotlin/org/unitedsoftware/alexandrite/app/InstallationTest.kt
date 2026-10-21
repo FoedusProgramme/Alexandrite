@@ -132,6 +132,32 @@ class InstallationTest {
     }
 
     @Test
+    fun `uninstall takes the install script's PATH lines out of the shell's startup files, even when data stays`() {
+        val cli = Commands(directory)
+        installed(cli)
+        val block = "# >>> alexandrite >>>\nexport PATH=\"/opt/bin:\$PATH\"\n# <<< alexandrite <<<\n"
+        val profile = cli.home.resolve(".profile")
+        Files.writeString(profile, "umask 022\n$block")
+        val dotfiles = Files.createDirectories(directory.resolve("dotfiles"))
+        Files.writeString(dotfiles.resolve("zshrc"), "alias ll='ls -l'\n${block}bindkey -e\n")
+        val zshrc = Files.createSymbolicLink(cli.home.resolve(".zshrc"), dotfiles.resolve("zshrc"))
+        val fish = cli.home.resolve(".config/fish/conf.d/alexandrite.fish")
+        Files.createDirectories(fish.parent)
+        Files.writeString(fish, block.replace("export PATH=\"/opt/bin:\$PATH\"", "set -gx PATH /opt/bin \$PATH"))
+        val bashrc = Files.writeString(cli.home.resolve(".bashrc"), "# >>> alexandrite >>>\nunfinished\n")
+
+        val printed = cli("uninstall", "--keep-data", "--yes")
+
+        assertEquals(0, printed.code, printed.err)
+        assertContains(printed.out, "the lines the install script added to $profile to put Alexandrite on PATH")
+        assertEquals("umask 022\n", Files.readString(profile))
+        assertTrue(Files.isSymbolicLink(zshrc))
+        assertEquals("alias ll='ls -l'\nbindkey -e\n", Files.readString(zshrc))
+        assertFalse(Files.exists(fish))
+        assertEquals("# >>> alexandrite >>>\nunfinished\n", Files.readString(bashrc))
+    }
+
+    @Test
     fun `a data directory that holds no runtime's data is not removed`() {
         val cli = Commands(directory)
         cli.config("{}")
