@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.tools.exec
 
+import org.junit.jupiter.api.condition.DisabledOnOs
+import org.junit.jupiter.api.condition.OS
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -98,6 +100,7 @@ class ProgramsTest {
     }
 
     @Test
+    @DisabledOnOs(OS.WINDOWS)
     fun `a program is searched in the system directories first, then the package managers', then PATH`() {
         val search = searchPath(mapOf("PATH" to "/opt/tools/bin:relative/bin:/usr/bin"))
 

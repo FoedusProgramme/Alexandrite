@@ -19,7 +19,7 @@ internal fun unwrap(argv: List<String>): Unwrapped? {
     var timeout: Duration? = null
     while (rest.isNotEmpty()) {
         val arguments = rest.drop(1)
-        val inner = when (rest.first().substringAfterLast('/')) {
+        val inner = when (baseName(rest.first())) {
             "env" -> {
                 val assignments = arguments.takeWhile { ASSIGNMENT.matches(it) }
                 for (assignment in assignments) {

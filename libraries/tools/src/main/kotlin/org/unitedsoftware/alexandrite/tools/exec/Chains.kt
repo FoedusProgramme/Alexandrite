@@ -36,7 +36,7 @@ internal class Chain(val steps: List<ChainStep>, val errexit: Boolean)
  * the wildcards `*` and `?`.
  */
 internal fun shellChain(argv: List<String>, home: String?): Chain? {
-    val program = argv.first().substringAfterLast('/')
+    val program = baseName(argv.first())
     val (shell, arguments) = when {
         program in POSIX_SHELLS -> program to argv.drop(1)
         program == "busybox" && argv.getOrNull(1) == "sh" -> "sh" to argv.drop(2)

@@ -15,6 +15,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
+import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
@@ -52,7 +53,7 @@ internal class PlannedRun(
     val name: String get() = argv.first()
 
     /** The base name of [name]. */
-    val program: String get() = name.substringAfterLast('/')
+    val program: String get() = baseName(name)
 }
 
 /** A step of a planned call: [run], or a change of directory to [cwd] when that is null. */
@@ -184,7 +185,8 @@ internal class Planner(
      * Throws a [ToolRefusal], blocked for one that the floor refuses.
      */
     fun changed(target: String, from: Path): Path {
-        val directory = allowed(floor.checkTree(candidatePath(target, from), agent, conversation)) {
+        val path = candidatePath(target, from) ?: throw ToolRefusal("cd $target names no directory.")
+        val directory = allowed(floor.checkTree(path, agent, conversation)) {
             "cd $target reaches $it"
         }
         if (Files.exists(directory) &&
@@ -210,16 +212,16 @@ internal class Planner(
         val name = argv.first()
         val resolved = resolveProgram(name, directory, searchPath(System.getenv()))
             ?: throw ToolRefusal(
-                if ('/' in name) {
+                if (namesDirectory(name)) {
                     "No executable file '$name' exists."
                 } else {
                     "No program '$name' was found in the system directories or on the PATH."
                 },
             )
         val executable = allowed(floor.checkRead(resolved, agent, conversation)) { "The program $name lies in $it" }
-        val program = name.substringAfterLast('/')
+        val program = baseName(name)
         val arguments = argv.drop(1)
-        val real = executable.fileName.toString()
+        val real = baseName(executable.fileName.toString())
         val opaque = isOpaque(program, arguments) || (!isMultiCall(real) && isOpaque(real, arguments))
         val system = resolved.parent in SYSTEM_DIRECTORIES
         val listed = !opaque && system && program in VETTED_READ_ONLY && environment.isEmpty()
@@ -230,7 +232,7 @@ internal class Planner(
         if (vetted) {
             val candidates = parsed.operands + parsed.optionValues
             for (candidate in candidates) {
-                val canonical = checkVetted(candidate, directory, parsed.isRecursive)
+                val canonical = checkVetted(candidate, directory, parsed.isRecursive) ?: continue
                 if (Files.exists(canonical, LinkOption.NOFOLLOW_LINKS)) reached.add(canonical)
             }
         } else {
@@ -275,8 +277,8 @@ internal class Planner(
     }
 
     /** The canonical path of [candidate], which the floor allows. */
-    private fun checkVetted(candidate: String, directory: Path, recursive: Boolean): Path {
-        val path = candidatePath(candidate, directory)
+    private fun checkVetted(candidate: String, directory: Path, recursive: Boolean): Path? {
+        val path = candidatePath(candidate, directory) ?: return null
         val check = if (recursive) {
             floor.checkTree(
                 path,
@@ -300,7 +302,7 @@ internal class Planner(
 
     /** Checks [candidate] as a tree, or as a plain write when it is a [glued] value naming the root. */
     private fun checkUnparsed(candidate: String, directory: Path, glued: Boolean) {
-        val path = candidatePath(candidate, directory)
+        val path = candidatePath(candidate, directory) ?: return
         val root = glued && candidate.all { it == '/' }
         val check = if (root) {
             floor.checkWrite(
@@ -335,7 +337,7 @@ internal class Planner(
 
     /** The rule that would allow calls of [name] (real path [executable]) with [word] for good. */
     private fun rule(name: String, executable: Path, word: String?): RuleSubject {
-        val program = if ('/' in name) executable.toString() else name
+        val program = if (namesDirectory(name)) executable.toString() else name
         val tokens = listOfNotNull(program, word)
         return RuleSubject("command.exec", tokens, tokens.joinToString(" "))
     }
@@ -372,40 +374,55 @@ private fun gluedValues(argv: List<String>): List<String> = buildList {
     }
 }
 
-/** The path-looking pieces an unparsed operand embeds: after its first `=`, and a `:`-separated side. */
+/**
+ * The path-looking pieces an unparsed operand embeds: after its first `=`, and a `:`-separated side.
+ */
 private fun pathPieces(candidate: String): List<String> = buildList {
     val equals = candidate.indexOf('=')
-    if (equals >= 0) candidate.substring(equals + 1).takeUnless(::isUrl)?.let(::add)
-    if (isUrl(candidate)) return@buildList
+    if (equals >= 0) candidate.substring(equals + 1).takeUnless(::isAddress)?.let(::add)
+    if (isAddress(candidate)) return@buildList
     val colon = candidate.indexOf(':')
     if (colon >= 0) {
         val after = candidate.substring(colon + 1)
-        if (looksLikePath(after) && !isUrl(after)) add(after)
+        if (looksLikePath(after) && !isAddress(after)) add(after)
         candidate.substring(0, colon).takeIf(::looksLikePath)?.let(::add)
     }
 }
 
-/** Whether [text] starts with a URL scheme. */
-private fun isUrl(text: String): Boolean = URL_SCHEME.containsMatchIn(text)
+/** Whether [text] is an address rather than a place: a URL, or the `user@host:path` that git is given. */
+private fun isAddress(text: String): Boolean = URL_SCHEME.containsMatchIn(text) || SCP_ADDRESS.matches(text)
 
-private fun looksLikePath(text: String): Boolean = '/' in text || text.startsWith('~') || text.startsWith('.')
+/** Whether [text] names a place rather than a plain word: it holds a separator or starts with `~` or `.`. */
+private fun looksLikePath(text: String): Boolean =
+    '/' in text || (File.separatorChar == '\\' && '\\' in text) || text.startsWith('~') || text.startsWith('.')
 
 private val URL_SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")
+private val SCP_ADDRESS = Regex("^[^/\\\\:]+@[^/\\\\:]+:.+")
 
-/** [candidate] as a path: a leading `~` as the home directory, relative to [directory]. */
-private fun candidatePath(candidate: String, directory: Path): Path = try {
-    directory.resolve(expandHome(candidate)).normalize()
-} catch (e: InvalidPathException) {
-    throw ToolRefusal.blocked(
-        "'$candidate' is no valid path, so the floor cannot check it: command.exec does not run this call.",
-    )
+/**
+ * [candidate] as a path: a leading `~` as the home directory, relative to [directory]; null when it is no path of this
+ * host at all, such as an address or a word that holds a character no file name of the host may hold.
+ *
+ * A word that names no place has nothing in it that the floor could check, as a shell script has not. A word that
+ * does look like a path, and that the host cannot name, is refused instead: the floor cannot see through it.
+ */
+private fun candidatePath(candidate: String, directory: Path): Path? {
+    if (isAddress(candidate)) return null
+    return try {
+        directory.resolve(expandHome(candidate)).normalize()
+    } catch (e: InvalidPathException) {
+        if (!looksLikePath(candidate)) return null
+        throw ToolRefusal.blocked(
+            "'$candidate' is no valid path, so the floor cannot check it: command.exec does not run this call.",
+        )
+    }
 }
 
 /** Whether a pattern of [chain], whose first step runs in [directory], may match a file that a shell would put in. */
 private fun globbing(chain: Chain, directory: Path): Boolean {
     var current = directory
     return chain.steps.any { step ->
-        if (step.changesDirectory) current = candidatePath(step.words[1], current)
+        if (step.changesDirectory) candidatePath(step.words[1], current)?.let { current = it }
         step.patterns.any { mayMatch(it, current) }
     }
 }
