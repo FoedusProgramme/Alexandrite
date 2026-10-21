@@ -32,20 +32,7 @@ class RetryPolicyTest {
     ): ModelError = ModelError.builder(kind, "Scripted.").retryAfter(retryAfter).outputStarted(outputStarted).build()
 
     @Test
-    fun `a failure that may pass is retried after 1 s, then 4 s, until the call succeeds`() = runTest {
-        val calls = mutableListOf<Long>()
-
-        val result = policy().retrying(turn) {
-            calls += testScheduler.currentTime
-            if (calls.size < 3) throw ModelException(error()) else "Hello"
-        }
-
-        assertEquals("Hello", result)
-        assertEquals(listOf(0L, 1_000L, 5_000L), calls)
-    }
-
-    @Test
-    fun `the retries run out after 1 s, 4 s and 10 s, and the last failure is thrown`() = runTest {
+    fun `the retries run out after 1 s, 4 s and 10 s, and the last failure is thrown unless one succeeds`() = runTest {
         val calls = mutableListOf<Long>()
         val last = ModelException(error(ModelErrorKind.TIMEOUT))
 
@@ -58,6 +45,19 @@ class RetryPolicyTest {
 
         assertSame(last, thrown)
         assertEquals(listOf(0L, 1_000L, 5_000L, 15_000L), calls)
+        var attempts = 0
+        assertEquals(
+            "Hello",
+            policy().retrying(turn) {
+                if (++attempts <
+                    3
+                ) {
+                    throw ModelException(error())
+                } else {
+                    "Hello"
+                }
+            },
+        )
     }
 
     @Test

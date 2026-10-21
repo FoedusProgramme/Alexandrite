@@ -5,9 +5,9 @@ import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.ADA
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.BOT_MENTION
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.CODE
-import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.CODER
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.FAST_MODEL
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.GROUP
+import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
@@ -31,6 +31,33 @@ class TelegramChatTest {
     }
 
     @Test
+    fun `chat send answers an earlier message of a direct chat as a reply to it`() {
+        app.model.reply { text("Noted.") }
+        lateinit var answer: FakeBotMessage
+        var first = 0L
+
+        app.run(app.builder(directory)) {
+            first = app.send(app.ada, app.adaChat, "First question.")
+            app.message(app.adaChat, "Noted.")
+            idle()
+            app.model
+                .reply { toolCall("chat.send", """{"to": "here", "replyTo": "$first", "text": "About that one."}""") }
+                .reply { text("") }
+            app.send(app.ada, app.adaChat, "Second question.")
+            answer = app.message(app.adaChat, "About that one.")
+            idle()
+        }
+
+        assertEquals(first, answer.replyTo)
+        assertEquals(
+            listOf("Noted.", "Sending 1 message\nhere", "About that one."),
+            app.fake.botMessages(ADA).map {
+                it.text
+            },
+        )
+    }
+
+    @Test
     fun `cancel ends the answer that is running, keeps its preview and lets the next message run`() {
         app.model
             .reply {
@@ -43,7 +70,7 @@ class TelegramChatTest {
             app.send(app.ada, app.adaChat, "Summarize the whole repository.")
             app.messages(app.adaChat, 1)
             app.send(app.ada, app.adaChat, "/cancel")
-            app.message(app.adaChat, "The answers and the jobs that were running in this chat are stopped.")
+            app.message(app.adaChat, CANCELLED)
             idle()
             app.send(app.ada, app.adaChat, "Are you there?")
             app.message(app.adaChat, "Still here.")
@@ -53,7 +80,7 @@ class TelegramChatTest {
         assertEquals(
             listOf(
                 "Reading every file of the repository first." to 0,
-                "The answers and the jobs that were running in this chat are stopped." to 0,
+                CANCELLED to 0,
                 "Still here." to 0,
             ),
             app.fake.botMessages(ADA).map { it.text to it.edits },
@@ -88,44 +115,17 @@ class TelegramChatTest {
     }
 
     @Test
-    fun `model and settings show each value in force with its source, and the next message uses the chosen model`() {
+    fun `the model chosen in a chat answers its next message`() {
         app.model.reply { text("I run on the fast model.") }
 
         app.run(app.builder(directory)) {
-            app.send(app.ada, app.adaChat, "/model")
-            app.messages(app.adaChat, 1)
             app.send(app.ada, app.adaChat, "/model scripted/$FAST_MODEL")
-            app.messages(app.adaChat, 2)
-            app.send(app.ada, app.adaChat, "/settings")
-            app.messages(app.adaChat, 3)
+            app.message(app.adaChat, "This chat now uses the model scripted/$FAST_MODEL.")
             app.send(app.ada, app.adaChat, "Which model are you?")
             app.message(app.adaChat, "I run on the fast model.")
             idle()
         }
 
-        val (model, chosen, settings) = app.fake.botMessages(ADA).map { it.text }
-        assertEquals(
-            "Model: scripted/test-model (the agent's setting).\nEndpoints: scripted. List an endpoint's models with " +
-                "/model <endpoint>, switch with /model <endpoint>/<model>, go back to the agent's model with " +
-                "/model reset.",
-            model,
-        )
-        assertEquals("This chat now uses the model scripted/$FAST_MODEL.", chosen)
-        assertEquals(
-            """
-            Settings of telegram:work:$ADA
-            Agent: coder "Coder" (the default agent of telegram:work)
-            Model: scripted/$FAST_MODEL (set in this chat)
-            Reasoning effort: low (the agent's setting)
-            Language: default (the host's language)
-            Time zone: UTC (the host's time zone)
-            Permission mode: ask (the default)
-            Home: coder has no home chat on telegram:work
-            Linked: no other chat shares the conversation of coder
-            You are an operator here.
-            """.trimIndent(),
-            settings,
-        )
         assertEquals(FAST_MODEL, app.model.requests.single().model.model)
     }
 
@@ -146,6 +146,8 @@ class TelegramChatTest {
             app.send(app.ada, app.group, "/link $code")
             app.message(app.group, "This chat now shares the conversation of coder with telegram:work:$ADA.")
             app.message(app.adaChat, "telegram:work:$GROUP now shares the conversation of coder with this chat.")
+            // The group's command records itself for the model after it replies.
+            idle()
             app.send(app.ada, app.adaChat, "Remember: the release is on Friday.")
             app.message(app.adaChat, "Noted: the release is on Friday.")
             val asked = app.send(app.bob, app.group, "$BOT_MENTION when is the release?")
@@ -182,8 +184,14 @@ class TelegramChatTest {
         )
         assertEquals(
             listOf("Noted: the release is on Friday.", "Still on Friday."),
-            listOf(app.fake.botMessages(ADA).last().text, app.fake.botMessages(GROUP).last().text),
+            listOf(
+                app.fake.botMessages(ADA).last { !it.text.startsWith(TelegramApp.OFFERED) }.text,
+                app.fake.botMessages(GROUP).last().text,
+            ),
         )
         assertEquals(config, Files.readString(configFile))
     }
 }
+
+private const val CANCELLED = "The answer that was running in this chat is stopped. Messages that were waiting are " +
+    "answered next, and background jobs go on (stop one with /jobs stop <id>)."

@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
+import org.unitedsoftware.alexandrite.sdk.turn.CommandForms
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
@@ -38,9 +39,13 @@ class TelegramHarness(outcome: TurnOutcome? = TurnOutcome.Completed(null)) : Aut
     val group = fake.group(GROUP, "Backend")
 
     /** The config of an instance of the fake's bot, with [allowed] as its paired chats, plus the members [more]. */
-    fun instance(allowed: String = "[$ADA, $BOB, $GROUP]", token: String = fake.token, more: String = ""): String =
-        """{"botToken": "$token", "apiBaseUrl": "${fake.baseUrl}", "adminUserIds": [$ADA], """ +
-            """"allowedChats": $allowed, "polling": {"timeoutSeconds": 1}$more}"""
+    fun instance(
+        allowed: String = "[$ADA, $BOB, $GROUP]",
+        token: String = fake.token,
+        more: String = "",
+        admins: String = "[$ADA]",
+    ): String = """{"botToken": "$token", "apiBaseUrl": "${fake.baseUrl}", "adminUserIds": $admins, """ +
+        """"allowedChats": $allowed, "polling": {"timeoutSeconds": 1}$more}"""
 
     /** A harness of the plugin whose instances are [instances], by name. */
     fun builder(vararg instances: Pair<String, String> = arrayOf("work" to instance())): PluginHarness.Builder =
@@ -79,9 +84,19 @@ class TelegramHarness(outcome: TurnOutcome? = TurnOutcome.Completed(null)) : Aut
     }
 }
 
-/** A handler that claims the commands [names] and is never asked to run them. */
+/**
+ * A handler that claims the commands [names] and is never asked to run them, each keeping for operators the forms its
+ * own plugin keeps.
+ */
 class ClaimedCommands(vararg names: String) : CommandHandler {
-    override val commands: List<CommandSpec> = names.map { CommandSpec.builder(it, "The test's /$it").build() }
+    override val commands: List<CommandSpec> = names.map { name ->
+        val kept = when (name) {
+            "trust", "untrust", "untaint", "allow" -> CommandForms.ALL
+            "usage", "schedule", "mcp" -> CommandForms.WITH_ARGUMENTS
+            else -> CommandForms.NONE
+        }
+        CommandSpec.builder(name, "The test's /$name").operatorsOnly(kept).build()
+    }
 
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext): Unit =
         error("The test runs no command.")

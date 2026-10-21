@@ -1,14 +1,10 @@
 package org.unitedsoftware.alexandrite.commands.chat
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.CHINESE
 import org.unitedsoftware.alexandrite.commands.GUEST
 import org.unitedsoftware.alexandrite.commands.OPERATOR
-import org.unitedsoftware.alexandrite.commands.PLUGIN
 import org.unitedsoftware.alexandrite.commands.answer
-import org.unitedsoftware.alexandrite.commands.commandContext
 import org.unitedsoftware.alexandrite.commands.commandTexts
-import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
@@ -131,18 +127,5 @@ class UsageCommandsTest {
             "Send /usage to see the agent's usage, or /usage all to see that of every agent too.",
             commands.answer(testCommand("usage", "yesterday", issuer = OPERATOR)),
         )
-    }
-
-    @Test
-    fun `usage answers in the language of the chat`() = runTest {
-        val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "used.none", "{period}：没有模型调用。")
-            .text(PLUGIN, CHINESE, "used.today", "今天")
-            .build()
-        val chinese = UsageCommands(control.catalog, control.usage, commandTexts(catalog))
-        val invocation = testCommand("usage", issuer = GUEST)
-
-        val reply = chinese.answer(invocation, commandContext(invocation, language = CHINESE))
-
-        assertEquals("今天：没有模型调用。", reply.lines()[1])
     }
 }

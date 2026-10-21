@@ -9,21 +9,17 @@ import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.ADA
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.BOB
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.BOT_MENTION
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.CODE
-import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.CODER
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.GROUP
 import org.unitedsoftware.alexandrite.app.control.ControlAnswers
 import org.unitedsoftware.alexandrite.app.control.controlSocket
 import org.unitedsoftware.alexandrite.app.control.serveControl
 import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesk
 import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesks
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
-import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
 import java.nio.file.Files
@@ -57,29 +53,6 @@ class TelegramAccessTest {
             PrintStream(ByteArrayOutputStream(), true),
         )
         return code to out.toString(Charsets.UTF_8)
-    }
-
-    @Test
-    fun `a home chat or linked chat that the agent keeps but that is not paired is warned of at start`() {
-        app.run(app.builder(directory)) {
-            get<ChatSettings>().update(app.address(app.group), ChatSettingsUpdate.builder().home().build(), null)
-            get<ChatLinks>().link(CODER, app.address(app.adaChat), app.address(app.bobChat), null)
-        }
-
-        Files.delete(configFile())
-        val lines = logged("org.unitedsoftware.alexandrite.channel.telegram") {
-            app.run(app.builder(directory, paired = listOf(ADA))) {}
-        }
-
-        val hint = "but not paired, so the bot sends it nothing: add %s to channels.telegram.instances.work." +
-            "allowedChats, or approve the code it is offered when it addresses the bot with `alexandrite pair <code>`"
-        assertEquals(
-            listOf(
-                "WARN Chat telegram:work:$GROUP is the home chat of agent coder ${hint.format(GROUP)}",
-                "WARN Chat telegram:work:$BOB is linked at agent coder ${hint.format(BOB)}",
-            ),
-            lines.filter { "not paired" in it },
-        )
     }
 
     @Test

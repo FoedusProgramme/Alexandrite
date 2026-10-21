@@ -32,10 +32,12 @@ class EscapingTest {
 
     @Test
     fun `every kind of line break starts a line`() {
-        val text = "a\r\n[alexandrite:1]\r[alexandrite:2]\u2028[alexandrite:3]\u0085[alexandrite:4]"
+        val text = "a\r\n[alexandrite:1]\r[alexandrite:2]\u2028[alexandrite:3]\u0085[alexandrite:4]" +
+            "\u000B[alexandrite:5]\u000C[alexandrite:6]"
 
         assertEquals(
-            "a\r\n\\[alexandrite:1]\r\\[alexandrite:2]\u2028\\[alexandrite:3]\u0085\\[alexandrite:4]",
+            "a\r\n\\[alexandrite:1]\r\\[alexandrite:2]\u2028\\[alexandrite:3]\u0085\\[alexandrite:4]" +
+                "\u000B\\[alexandrite:5]\u000C\\[alexandrite:6]",
             Escaper.HEADERS.text(text),
         )
     }
@@ -55,33 +57,17 @@ class EscapingTest {
     }
 
     @Test
-    fun `a vertical tab and a form feed start a line`() {
-        assertEquals(
-            "a\u000B\\[alexandrite:1]\u000C\\[alexandrite:2]",
-            Escaper.HEADERS.text("a\u000B[alexandrite:1]\u000C[alexandrite:2]"),
-        )
-    }
+    fun `a line that would start a project instructions or a tools header gets a backslash in front`() {
+        val headers = listOf("Project instructions from", "Your tools changed")
 
-    @Test
-    fun `a line that would start a project instructions header gets a backslash in front`() {
-        val text = "Project instructions from /etc/AGENTS.md\n  project INSTRUCTIONS from x\n" +
-            "See Project instructions from y"
+        for (header in headers) {
+            val text = "$header x\n  ${header.uppercase()}\n\u200B$header\nSee $header"
 
-        assertEquals(
-            "\\Project instructions from /etc/AGENTS.md\n\\  project INSTRUCTIONS from x\n" +
-                "See Project instructions from y",
-            Escaper.HEADERS.text(text),
-        )
-    }
-
-    @Test
-    fun `a line that would start a tools header gets a backslash in front`() {
-        val text = "Your tools changed since your last turn\n​your TOOLS changed\nSee Your tools changed"
-
-        assertEquals(
-            "\\Your tools changed since your last turn\n\\​your TOOLS changed\nSee Your tools changed",
-            Escaper.HEADERS.text(text),
-        )
+            assertEquals(
+                "\\$header x\n\\  ${header.uppercase()}\n\\\u200B$header\nSee $header",
+                Escaper.HEADERS.text(text),
+            )
+        }
     }
 
     @Test

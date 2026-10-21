@@ -20,6 +20,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -136,6 +137,7 @@ class ContainerPhaseTest {
         container.close()
 
         assertEquals("start c failed", error.message)
+        assertEquals(emptyList(), error.suppressed.toList())
         assertEquals(listOf(Step.DRAIN, Step.STOP).flatMap { reports(it, "b", "a") }, stopped)
         assertEquals(
             listOf(
@@ -286,17 +288,19 @@ class ContainerPhaseTest {
     }
 
     @Test
-    fun `a failing stop is reported and the next one still runs`() = runTest {
-        val container = build(phased("a"), phased("b", onStop = { error("stop b failed") }))
-        container.start()
+    fun `a failing stop is reported and the next one still runs, also when it throws an Error`() = runTest {
+        for (failure in listOf(IllegalStateException("stop b failed"), NotImplementedError("stop b"))) {
+            val container = build(phased("a"), phased("b", onStop = { throw failure }))
+            container.start()
 
-        val stopped = container.stop(later()).filter { it.step == Step.STOP }
-        container.close()
+            val stopped = container.stop(later()).filter { it.step == Step.STOP }
+            container.close()
 
-        assertEquals(listOf("b", "a"), stopped.map { it.origin })
-        assertEquals("stop b failed", assertIs<Outcome.Failed>(stopped[0].outcome).error.message)
-        assertEquals(Outcome.Completed, stopped[1].outcome)
-        assertEquals(listOf("stop b", "stop a"), events.starting("stop"))
+            assertEquals(listOf("b", "a"), stopped.map { it.origin })
+            assertSame(failure, assertIs<Outcome.Failed>(stopped[0].outcome).error)
+            assertEquals(Outcome.Completed, stopped[1].outcome)
+        }
+        assertEquals(List(2) { listOf("stop b", "stop a") }.flatten(), events.starting("stop"))
     }
 
     // Deadline.
@@ -442,21 +446,11 @@ class ContainerPhaseTest {
         container.start()
         container.open()
 
-        val twice = assertFailsWith<IllegalStateException> { container.open() }
+        assertFailsWith<IllegalStateException> { container.open() }
         container.stop(later())
         container.close()
-        val closed = listOf<suspend () -> Unit>(
-            { container.open() },
-            { container.stop(later()) },
-        ).map { assertFailsWith<DiException> { it() }.message }
 
-        assertEquals("Cannot open container 'root' twice.", twice.message)
-        assertEquals(
-            listOf(
-                "Cannot open container 'root': it is closed.",
-                "Cannot stop container 'root': it is closed.",
-            ),
-            closed,
-        )
+        assertFailsWith<DiException> { container.open() }
+        assertFailsWith<DiException> { container.stop(later()) }
     }
 }

@@ -18,6 +18,8 @@ import org.unitedsoftware.alexandrite.sdk.di.key
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginInfo
+import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
+import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import java.nio.file.Path
@@ -79,6 +81,37 @@ class TelegramScheduleTest {
         assertEquals(listOf("Both are scheduled.", "Time to check the build."), texts.take(2))
         assertEquals("Tasks scheduled in this chat:", texts[2].lines().first())
         assertEquals("Only an admin of this bot may use /schedule.", texts[3])
+    }
+
+    @Test
+    fun `a notice that quotes a task's prompt is not vouched for, so a reply quoting it marks the conversation`() {
+        app.model.reply { toolCall("schedule.create", """{"prompt": "Remind Ada of the build.", "in": "1m"}""") }
+            .reply { text("Scheduled.") }
+            .reply { text("Fine.") }
+        val builder = app.builder(directory, sqlite = true)
+            .plugin(AlexandriteAutomationScheduleIndex())
+            .plugin(TimePlugin(time))
+            .config(AlexandriteAutomationScheduleIndex(), """{"missedWindowHours": 1}""")
+        var taint: ConversationTaint? = null
+
+        app.run(builder) {
+            app.send(app.ada, app.adaChat, "Remind me of the build in a minute.")
+            app.message(app.adaChat, "Scheduled.")
+            idle()
+        }
+        time.advance(3 * 3600)
+        app.run(builder) {
+            val notice = app.fake.await(TelegramApp.WAIT) {
+                botMessages(TelegramApp.ADA).firstOrNull { it.text.startsWith("Scheduled task ") }
+            }
+            assertContains(notice.text, "Remind Ada of the build.")
+            app.fake.send(app.ada, app.adaChat, "Test.", replyTo = notice.id)
+            app.message(app.adaChat, "Fine.")
+            idle()
+            taint = get<ConversationStore>().taint(get<ConversationStore>().current(app.key(app.adaChat)).id)
+        }
+
+        assertEquals("a quote that its channel does not vouch for", taint?.reason)
     }
 }
 

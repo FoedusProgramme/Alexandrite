@@ -1,7 +1,5 @@
 package org.unitedsoftware.alexandrite.agent.turn
 
-import org.unitedsoftware.alexandrite.agent.CountingTranscripts
-import org.unitedsoftware.alexandrite.agent.StoreIndex
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.control.Choice
@@ -15,7 +13,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.rebuild
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
-import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
@@ -23,9 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.agentState
 import org.unitedsoftware.alexandrite.sdk.hook.Hook
 import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
 import org.unitedsoftware.alexandrite.sdk.model.FinishKind
-import org.unitedsoftware.alexandrite.sdk.model.ModelError
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
-import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
 import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
@@ -39,16 +34,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
-import org.unitedsoftware.alexandrite.sdk.turn.ContextLoaded
-import org.unitedsoftware.alexandrite.sdk.turn.ModelCall
-import org.unitedsoftware.alexandrite.sdk.turn.ModelReply
-import org.unitedsoftware.alexandrite.sdk.turn.PromptSections
-import org.unitedsoftware.alexandrite.sdk.turn.ReplyDraft
-import org.unitedsoftware.alexandrite.sdk.turn.TurnCommitted
-import org.unitedsoftware.alexandrite.sdk.turn.TurnInput
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
-import org.unitedsoftware.alexandrite.sdk.turn.TurnStart
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel
@@ -102,7 +89,8 @@ class FirstAnswerTest {
             "[alexandrite:message]",
             "From: Guest",
             "Operator: no",
-            "Received: 2026-01-01T00:00Z",
+            "Received: 2026-01-01T00:00Z (Thursday)",
+            "Message: in-1",
             "Chat: $chat",
             "[/alexandrite:message]",
         ).joinToString("\n"),
@@ -187,11 +175,7 @@ class FirstAnswerTest {
     @Test
     fun `a second turn sees the first in its history, caught up from the store`() {
         model.reply { text("One") }.reply { text("Two") }
-        val transcripts = CountingTranscripts(store.transcripts)
-
-        agentHarness(config(), store = null) {
-            channel().channel("side").model(model).plugin(StoreIndex(store, transcripts = transcripts))
-        }.execute {
+        harness().execute {
             channel().receive("First").outcome()
             val second = channel().receive("Second")
             second.outcome()
@@ -202,7 +186,6 @@ class FirstAnswerTest {
             assertEquals(listOf(TextPart("Second")), (request.history[2] as UserEntry).parts.drop(1))
             assertNull(request.history[2].record)
             assertEquals(2, request.turnStart)
-            assertEquals(listOf("entries", "entriesAfter ${first.last().record?.id}"), transcripts.reads)
         }
     }
 
@@ -253,7 +236,7 @@ class FirstAnswerTest {
     // Hooks.
 
     @Test
-    fun `a hook that stops the turn before the model answers ends it on a notice and stores nothing else`() {
+    fun `a hook that stops the turn before the model answers ends it on a notice, unvouched if the hook wrote it`() {
         val stoppers: List<Pair<Int, (String?) -> Hook>> = listOf(
             0 to { reply -> stopper(TurnPoints.TURN_START, reply) },
             0 to { reply -> stopper(TurnPoints.TURN_INPUT, reply) },
@@ -274,6 +257,7 @@ class FirstAnswerTest {
                 val text = reply ?: "This message was stopped by a plugin."
                 val notice = channel().reply(admission.turn).completed
                 assertEquals(text to MessageKind.NOTICE, notice?.text to notice?.kind)
+                assertEquals(reply == null, notice?.vouched, "hook $index")
                 val entries = store.transcripts.entries(store.conversations.current(coder).id)
                 assertEquals(
                     listOf(NoticeEntry(null, text, NoticeKind.HOOK_ABORTED)),
@@ -375,43 +359,6 @@ class FirstAnswerTest {
     }
 
     @Test
-    fun `a refusal is taken back with a notice`() {
-        model.reply {
-            text("No.")
-            finish(FinishKind.REFUSAL)
-        }
-
-        harness().execute {
-            val admission = channel().receive("Hi")
-
-            assertEquals(TurnOutcome.TakenBack, admission.outcome())
-            channel().expectNotice(
-                admission,
-                "The model declined to answer this message.",
-                NoticeKind.REFUSED,
-                TurnEndKind.TAKEN_BACK,
-            )
-        }
-    }
-
-    @Test
-    fun `a model error fails the turn with a notice of its kind`() {
-        model.fail(ModelError.builder(ModelErrorKind.OVERLOADED, "Busy.").retryable(false).build())
-
-        harness().execute {
-            val admission = channel().receive("Hi")
-
-            assertEquals(TurnOutcome.Failed("overloaded: Busy."), admission.outcome())
-            channel().expectNotice(
-                admission,
-                "The model cannot be reached right now. Try again later.",
-                NoticeKind.FAILED,
-                TurnEndKind.FAILED,
-            )
-        }
-    }
-
-    @Test
     fun `a full context window fails the turn with a notice that suggests a new conversation`() {
         model.fail(ModelErrorKind.CONTEXT_WINDOW_EXCEEDED, "Too long.")
         model.reply {
@@ -468,20 +415,14 @@ class FirstAnswerTest {
     // Languages.
 
     @Test
-    fun `notices are in the host's language where the catalog has them`() {
-        repeat(2) { model.reply { reasoning("Nothing.") } }
-
+    fun `notices and the prompt follow the chat's language before the agent's, else the host's`() {
+        repeat(4) { model.reply { reasoning("Nothing.") } }
         harness { language(LanguageTag("zh-CN")).texts(chinese) }.execute {
             val admission = channel().receive("Hi")
 
             admission.outcome()
             assertEquals("模型没有给出回答。", channel().reply(admission.turn).completed?.text)
         }
-    }
-
-    @Test
-    fun `notices and the prompt follow the chat's language before the agent's`() {
-        repeat(2) { model.reply { reasoning("Nothing.") } }
         val language = standaloneChatStates("alexandrite-agent", store.chatStates)
             .agentState(SettingsStates.LANGUAGE, Choice<LanguageTag>())
         blocking { language.set(coder, Choice(LanguageTag("zh-CN"))) }

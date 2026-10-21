@@ -1,7 +1,5 @@
 package org.unitedsoftware.alexandrite.agent.history
 
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -122,18 +120,25 @@ internal class HistorySearchTool(
         (context as? AgentToolContext)?.delegating?.chatKind == ChatKind.DIRECT &&
             Principal.of(turn) == Principal.OPERATOR
 
-    /** Reports untrusted content for every other conversation found that took some in or whose mark is unread. */
+    /**
+     * Reports untrusted content for every other conversation found that took some in, and for a message found there
+     * from someone who is no operator.
+     */
     private suspend fun taintFrom(found: List<TranscriptMatch>, context: ToolContext) {
         val own = context.turn.conversation
         val others = found.mapNotNullTo(LinkedHashSet()) { it.entry.record?.conversation }.filter { it != own }
+        found.firstOrNull { match ->
+            val origin = (match.entry as? UserEntry)?.origin as? UserOrigin.FromChat
+            origin != null && !origin.sender.isOperator && match.entry.record?.conversation != own
+        }?.let { match ->
+            val conversation = match.entry.record?.conversation?.value
+            context.untrusted("$NAME found a message from someone who is no operator in conversation $conversation")
+        }
         for (conversation in others) {
-            val reason = try {
-                conversations.taint(conversation)?.let { "it took in untrusted content (${it.reason})" }
-            } catch (e: Exception) {
-                currentCoroutineContext().ensureActive()
-                "its taint mark could not be read"
-            } ?: continue
-            context.untrusted("$NAME found conversation ${conversation.value}, and $reason")
+            val taint = conversations.taint(conversation) ?: continue
+            context.untrusted(
+                "$NAME found conversation ${conversation.value}, and it took in untrusted content (${taint.reason})",
+            )
         }
     }
 

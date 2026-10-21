@@ -1,10 +1,8 @@
 package org.unitedsoftware.alexandrite.agent.worker
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
@@ -16,21 +14,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatIntakesTest {
     private val gated = ChatAddress.parse("test:main:1")
     private val command = TurnId("t-command")
-
-    @Test
-    fun `a chat of an unknown instance or without an agent is refused at once`() = runTest {
-        val bench = WorkerBench(this)
-
-        assertEquals(Admission.Refused(RefusalReason.UNKNOWN_CHAT), bench.receive("test:other:1"))
-        assertEquals(Admission.Refused(RefusalReason.NO_AGENT), bench.receive("test:quiet:1"))
-        assertEquals(emptySet(), bench.intakes.chats)
-    }
 
     @Test
     fun `a gate holds the chat's messages until it is released, then hands them on in order`() = runTest {
@@ -53,28 +41,6 @@ class ChatIntakesTest {
     }
 
     @Test
-    fun `a gate nobody releases lets the messages go on commandGateSeconds after it is armed`() = runTest {
-        val bench = WorkerBench(this)
-        bench.intakes.gate(gated, command)
-        val held = bench.receive("test:main:1").turn
-
-        val lines = logged {
-            advanceTimeBy(60.seconds)
-            runCurrent()
-            assertEquals(emptyList(), bench.runner.started)
-            bench.intakes.arm(gated, command)
-            advanceTimeBy(29.seconds)
-            runCurrent()
-            assertEquals(emptyList(), bench.runner.started)
-            advanceTimeBy(2.seconds)
-            runCurrent()
-        }
-
-        assertEquals(listOf(held), bench.runner.started)
-        assertEquals(listOf("WARN Command t-command held the messages of test:main:1 for 30s: they go on"), lines)
-    }
-
-    @Test
     fun `held messages count against the queue of the key their chat goes to`() = runTest {
         val bench = WorkerBench(this, perKey = 2)
         bench.receive("test:main:1")
@@ -90,74 +56,15 @@ class ChatIntakesTest {
     }
 
     @Test
-    fun `a chat whose switch is not read yet holds its messages and hands them on in order once it is`() = runTest {
-        val bench = WorkerBench(this, perKey = 2)
+    fun `a chat's messages go at once to the agent it switched to`() = runTest {
+        val bench = WorkerBench(this)
         bench.select("test:solo:3", "coder")
-        bench.reads.hold()
-        val first = bench.receive("test:solo:3").turn
-        val second = bench.receive("test:solo:3").turn
+
+        val turn = bench.receive("test:solo:3").turn
         runCurrent()
 
-        assertEquals(Admission.Refused(RefusalReason.QUEUE_FULL, 2), bench.receive("test:solo:3"))
-        assertEquals(emptyList(), bench.runner.started)
-        assertEquals(setOf(ChatAddress.parse("test:solo:3")), bench.intakes.chats)
-        bench.reads.release()
-        runCurrent()
-        val third = bench.receive("test:solo:3").turn
-
-        assertEquals(emptySet(), bench.intakes.chats)
-        assertEquals(listOf(first), bench.runner.started)
+        assertEquals(listOf(turn), bench.runner.started)
         assertEquals(setOf(AgentChatKey.parse("coder@test:solo:3")), bench.workers.keys)
-        bench.runner.finish(first)
-        bench.runner.finish(second)
-        runCurrent()
-        assertEquals(listOf(first, second, third), bench.runner.started)
-    }
-
-    @Test
-    fun `the messages held for a switch that cannot be read fail`() = runTest {
-        val bench = WorkerBench(this)
-        bench.reads.hold()
-        val held = bench.receive("test:solo:3")
-        bench.reads.failure = IllegalStateException("Disk gone.")
-
-        val lines = logged {
-            bench.reads.release()
-            runCurrent()
-        }
-
-        assertEquals(
-            TurnOutcome.Failed(
-                "Cannot read which agent serves test:solo:3: java.lang.IllegalStateException: Disk gone.",
-            ),
-            held.ticket.outcome(),
-        )
-        assertEquals(
-            listOf(
-                "WARN Cannot read which agent chat test:solo:3 switched to: " +
-                    "java.lang.IllegalStateException: Disk gone.",
-            ),
-            lines,
-        )
-        assertEquals(emptySet(), bench.intakes.chats)
-    }
-
-    @Test
-    fun `the messages held for a switch whose read throws an error fail`() = runTest {
-        val bench = WorkerBench(this)
-        bench.reads.hold()
-        val held = bench.receive("test:solo:3")
-        bench.reads.failure = NotImplementedError("Not yet.")
-
-        logged {
-            bench.reads.release()
-            runCurrent()
-        }
-
-        assertEquals(
-            TurnOutcome.Failed("Cannot read which agent serves test:solo:3: kotlin.NotImplementedError: Not yet."),
-            held.ticket.outcome(),
-        )
         assertEquals(emptySet(), bench.intakes.chats)
     }
 

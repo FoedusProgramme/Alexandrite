@@ -17,8 +17,7 @@ import org.unitedsoftware.alexandrite.agent.job.Detached
 import org.unitedsoftware.alexandrite.agent.job.JobInboxes
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.messaging.MessageBudget
-import org.unitedsoftware.alexandrite.agent.permission.Principal
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
+import org.unitedsoftware.alexandrite.agent.permission.actorBelow
 import org.unitedsoftware.alexandrite.agent.profile.Profiles
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
@@ -40,7 +39,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.DelegatedRun
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
@@ -139,11 +137,12 @@ internal class Delegator(
             rootConversation = turn.lineage?.rootConversation ?: turn.conversation,
             depth = depth,
         )
+        var resumed: String? = null
         val conversation = withContext(NonCancellable) {
             val from = earlier?.let { lastEntryOf(it.conversation) } ?: forkPoint(turn.conversation, call, fork)
             val created = conversations.createDelegated(turn.key, lineage, from)
-            if (context.taint.tainted) inherit(created.id, run, turn, context.taint)
-            if (earlier != null) carryTaint(checkNotNull(resume), earlier.conversation, created.id, run)
+            context.taint.known?.let { inherit(created.id, run, turn, it.reason) }
+            resumed = earlier?.let { carryTaint(checkNotNull(resume), it.conversation, created.id, run) }
             runRecords.put(run, RunRecord(created.id, root, profile.id.value))
             created
         }
@@ -161,7 +160,8 @@ internal class Delegator(
             detachedParent ?: parent,
             chain(parent, profile, task),
             background,
-        )
+            resumed,
+        ) { reason -> context.report("sub-agent run $run (${profile.id}) took in untrusted content: $reason") }
         val plan = TurnPlan(
             id = newTurnId(now),
             key = turn.key,
@@ -194,7 +194,7 @@ internal class Delegator(
             val job = jobs.start(
                 turn,
                 callPart,
-                id.orEmpty(),
+                profile.id.value,
                 context,
                 Duration.INFINITE,
                 run,
@@ -230,7 +230,7 @@ internal class Delegator(
                 activityReady.complete(Unit)
             }
             return InTurnResult(
-                "[alexandrite:background] Run $run of profile $id started; its report will arrive later.",
+                "[alexandrite:background] Run $run of profile ${profile.id} started; its report will arrive later.",
                 ToolOutcome.Detached(run),
             )
         }
@@ -245,12 +245,6 @@ internal class Delegator(
     ): InTurnResult {
         val outcome = run(delegation, plan, permit)
         val result = result(delegation, plan.id, outcome)
-        delegation.taint?.takeIf { it.tainted }?.let { taint ->
-            val why = taint.known?.reason ?: "its mark could not be read"
-            context.taint.mark(
-                "sub-agent run ${delegation.run} (${delegation.profile.id}) took in untrusted content: $why",
-            )
-        }
         return result
     }
 
@@ -360,33 +354,26 @@ internal class Delegator(
     private suspend fun lastEntryOf(conversation: ConversationId): ForkPoint? =
         transcripts.entries(conversation).lastOrNull()?.record?.id?.let { ForkPoint(conversation, it) }
 
-    /** Marks [conversation] of [run] tainted when [earlier], the conversation of the run [resumed] it goes on from, is. */
-    private suspend fun carryTaint(resumed: RunId, earlier: ConversationId, conversation: ConversationId, run: RunId) {
-        try {
-            val taint = conversations.taint(earlier) ?: return
-            val reason = "run $run resumes run $resumed, whose conversation took in untrusted content (${taint.reason})"
-            conversations.markTainted(conversation, reason, clock.instant())
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn("The taint of run {} could not be carried to run {}: {}", resumed, run, e.toString())
-        }
+    /**
+     * Marks [conversation] of [run] tainted when [earlier], the conversation of the run [resumed] it goes on from, is,
+     * and returns why; null when it is clean.
+     */
+    private suspend fun carryTaint(
+        resumed: RunId,
+        earlier: ConversationId,
+        conversation: ConversationId,
+        run: RunId,
+    ): String? {
+        val why = conversations.taint(earlier)?.reason ?: return null
+        val reason = "run $run resumes run $resumed, whose conversation took in untrusted content ($why)"
+        conversations.markTainted(conversation, reason, clock.instant())
+        return reason
     }
 
-    /** Marks [conversation] of [run] tainted like [turn], which delegated it. */
-    private suspend fun inherit(conversation: ConversationId, run: RunId, turn: TurnInfo, taint: TurnTaint) {
-        val why = taint.known?.reason ?: "its mark could not be read"
+    /** Marks [conversation] of [run] tainted like [turn], which delegated it, tainted for [why]. */
+    private suspend fun inherit(conversation: ConversationId, run: RunId, turn: TurnInfo, why: String) {
         val reason = "run $run was delegated by a turn of tainted conversation ${turn.conversation} ($why)"
-        try {
-            conversations.markTainted(conversation, reason, clock.instant())
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn(
-                "The conversation {} of run {} could not be marked tainted: {}",
-                conversation,
-                run,
-                e.toString(),
-            )
-        }
+        conversations.markTainted(conversation, reason, clock.instant())
     }
 
     /** Seals the conversation of [delegation], whose run ended. */
@@ -415,13 +402,6 @@ private fun chain(parent: DelegatingTurn, profile: AgentProfile, task: String): 
         above?.modes.orEmpty() + listOfNotNull(profile.mode),
         above?.tasks.orEmpty() + DelegatedTask(agents[agents.size - 2], profile.id, task),
     )
-}
-
-/** The actor of a run below [turn]: its own, an operator only where [turn] is an operator's. */
-private fun actorBelow(turn: TurnInfo): ChatUser? {
-    val actor = turn.actor ?: return null
-    if (!actor.isOperator || Principal.of(turn) == Principal.OPERATOR) return actor
-    return ChatUser(actor.address, actor.displayName, actor.username, actor.isBot, isOperator = false)
 }
 
 private val logger = LoggerFactory.getLogger(Delegator::class.java)

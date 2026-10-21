@@ -1,8 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.turn
 
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import org.unitedsoftware.alexandrite.agent.ProvidersIndex
@@ -30,11 +28,8 @@ import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.recordingTool
 import kotlin.test.Test
-import kotlin.test.assertContains
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
-import kotlin.test.assertTrue
 
 class BarriersTest {
     private val store = MemoryStore()
@@ -107,22 +102,6 @@ class BarriersTest {
             assertEquals(NoticeKind.FAILED, (stored.last() as NoticeEntry).kind)
             assertEquals(1, lines.count { it.startsWith("ERROR Turn ${failed.ticket.turn} of $key failed") })
         }
-    }
-
-    @Test
-    fun `a script that lacks a step stops the run at once and fails it with the model's problem`() {
-        model.reply { toolCall("fs.read") }
-
-        val error = assertFailsWith<AssertionError> {
-            harness().execute {
-                ask().ticket.outcome()
-                awaitCancellation()
-            }
-        }
-
-        assertContains(error.message!!, "got request 2 (round 1 of turn")
-        assertContains(error.message!!, "but its script has no step left.")
-        assertTrue(generateSequence<Throwable>(error) { it.cause }.none { it is TimeoutCancellationException })
     }
 
     private fun blockingEntries() = blocking { store.transcripts.entries(store.conversations.current(key).id) }

@@ -38,7 +38,7 @@ internal class Deliveries(
         val target = targetOf(request.turn.chat) ?: return Undelivered(Delivery.NotDelivered(DeliveryFailure.CHAT_GONE))
         val style = styles.of(request.turn.chat)
         val shownIn: (Collection<Long>) -> Unit =
-            if (request.turn.actorIsOperator) ({ vouched.note(target.chat, it) }) else ({})
+            if (request.vouched) ({ vouched.note(target.chat, it) }) else ({})
         val reply = TelegramReply(
             request,
             target,
@@ -56,17 +56,24 @@ internal class Deliveries(
     }
 
     /** Sends [message] to [chat], its files after what the chat's open replies have shown so far. */
-    suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = when {
-        stopped -> STOPPED
+    suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery {
+        val delivery = when {
+            stopped -> STOPPED
 
-        !gate.isPaired(chat) -> NOT_PAIRED
+            !gate.isPaired(chat) -> NOT_PAIRED
 
-        message.files.isEmpty() -> outbox.send(chat, message)
+            message.files.isEmpty() -> outbox.send(chat, message)
 
-        else -> {
-            flush(chat)
-            outbox.sendFiles(chat, message)
+            else -> {
+                flush(chat)
+                outbox.sendFiles(chat, message)
+            }
         }
+        if (message.vouched && delivery is Delivery.Delivered) {
+            val target = targetOf(chat)
+            if (target != null) vouched.note(target.chat, delivery.messages.mapNotNull { it.id.toLongOrNull() })
+        }
+        return delivery
     }
 
     /** Shows what the open replies in [chat] hold so far, so that a message sent beside them follows it. */

@@ -57,7 +57,7 @@ class ProjectFramingTest {
         val text = "x".repeat(MAX_INSTRUCTION_BYTES - 1) + "é" + "y".repeat(70_000 - MAX_INSTRUCTION_BYTES - 1)
         Files.writeString(file, text)
 
-        val read = read(file)
+        val read = read(file, oneLink = true)
 
         assertEquals(70_000, Files.size(file))
         assertEquals("x".repeat(MAX_INSTRUCTION_BYTES - 1), read?.text)
@@ -71,22 +71,23 @@ class ProjectFramingTest {
         Files.writeString(whole, "z".repeat(MAX_INSTRUCTION_BYTES))
         Files.writeString(blank, " \n\n")
 
-        val read = read(whole)
+        val read = read(whole, oneLink = true)
 
         assertEquals(MAX_INSTRUCTION_BYTES, read?.text?.length)
         assertNull(read?.cutFrom)
-        assertNull(read(blank))
+        assertNull(read(blank, oneLink = true))
     }
 
     @Test
-    fun `a file swapped for a link, a second hard link or a directory after it was found is not read`() {
+    fun `a file swapped for a link, a hard-linked one under a protecting floor or a directory is not read`() {
         val secret = directory.resolve("id_rsa").also { Files.writeString(it, "KEY") }
         val linked = Files.createSymbolicLink(directory.resolve("AGENTS.md"), secret)
         val hardLinked = Files.createLink(directory.resolve("CLAUDE.md"), secret)
         val folder = Files.createDirectories(directory.resolve("sub/AGENTS.md"))
 
-        assertNull(read(linked))
-        assertNull(read(hardLinked))
-        assertNull(read(folder))
+        assertNull(read(linked, oneLink = true))
+        assertNull(read(hardLinked, oneLink = true))
+        assertEquals("KEY", read(hardLinked, oneLink = false)?.text)
+        assertNull(read(folder, oneLink = true))
     }
 }

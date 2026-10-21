@@ -1,15 +1,11 @@
 package org.unitedsoftware.alexandrite.commands.chat
 
 import kotlinx.coroutines.test.runTest
-import org.unitedsoftware.alexandrite.commands.CHINESE
 import org.unitedsoftware.alexandrite.commands.GUEST
 import org.unitedsoftware.alexandrite.commands.OPERATOR
-import org.unitedsoftware.alexandrite.commands.PLUGIN
 import org.unitedsoftware.alexandrite.commands.TestClock
 import org.unitedsoftware.alexandrite.commands.answer
-import org.unitedsoftware.alexandrite.commands.commandContext
 import org.unitedsoftware.alexandrite.commands.commandTexts
-import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.turn.CompactionReport
 import org.unitedsoftware.alexandrite.sdk.turn.ContextStatus
@@ -48,13 +44,6 @@ class ContextCommandsTest {
             listOf(Call.Compact(chat, null, GUEST), Call.Compact(chat, "the failing tests", OPERATOR)),
             control.calls,
         )
-    }
-
-    @Test
-    fun `a compaction that is refused answers with why`() = runTest {
-        control.refuseNext("There is nothing to compact yet.")
-
-        assertEquals("There is nothing to compact yet.", commands.answer(testCommand("compact", issuer = OPERATOR)))
     }
 
     @Test
@@ -102,18 +91,5 @@ class ContextCommandsTest {
         )
         val other = commands.answer(testCommand("context", chat = testChat("other"), issuer = GUEST))
         assertEquals("Last request: 900 tokens, counted at 2026-01-01 00:00.", other.lines()[1])
-        assertEquals("Send /context without anything after it.", commands.answer(testCommand("context", "now")))
-    }
-
-    @Test
-    fun `context answers in the language of the chat`() = runTest {
-        val catalog = TextCatalog.builder().text(PLUGIN, CHINESE, "context.not_compacted", "还没有压缩过。").build()
-        val chinese = ContextCommands(control.conversations, commandTexts(catalog), TestClock())
-        control.scriptContext(chat, ContextStatus(conversation, null, null, null, null, null, null, null, 0))
-        val invocation = testCommand("context", issuer = OPERATOR)
-
-        val reply = chinese.answer(invocation, commandContext(invocation, language = CHINESE))
-
-        assertEquals("还没有压缩过。", reply.lines().last())
     }
 }

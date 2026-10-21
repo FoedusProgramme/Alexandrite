@@ -110,26 +110,10 @@ class JudgeTurnsTest {
             read.release()
             turn.ticket.outcome()
 
-            assertEquals(
-                """
-                What the operator typed in this turn, one block per message:
-                <<<
-                Write hello into notes.md.
-                >>>
-                <<<
-                Use the root folder.
-                >>>
-
-                The conversation took in untrusted content: a quote that its channel does not vouch for
-
-                The call:
-                Tool: fs.write
-                Risk: WORKSPACE_WRITE
-                Arguments (canonical JSON):
-                | {"content":"hello","path":"notes.md"}
-                """.trimIndent(),
-                asked(),
-            )
+            val asked = asked()
+            assertContains(asked, "<<<\nWrite hello into notes.md.\n>>>")
+            assertContains(asked, "<<<\nUse the root folder.\n>>>")
+            assertContains(asked, "a quote that its channel does not vouch for")
             val turnRequest = model.requests.last().toString()
             for (unseen in listOf("Quoted words.", "Forwarded words.", "Tool output.", "Let me look first.")) {
                 assertContains(turnRequest, unseen)
@@ -153,7 +137,8 @@ class JudgeTurnsTest {
             repeat(3) { ask().ticket.outcome() }
 
             val request = channel().approvals.single()
-            assertEquals("the judge is unsure: It is unclear", request.reason)
+            assertEquals("the judge is unsure", request.reason)
+            assertEquals("It is unclear", request.note)
             assertEquals(
                 listOf(
                     ToolOutcome.Succeeded to "Written.",
@@ -195,7 +180,7 @@ class JudgeTurnsTest {
             override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = CallReview.builder()
                 .preview(
                     ReviewPreview.Command(
-                        listOf("sh", "-c", "ls | wc -l"),
+                        listOf("sh", "-c", "wc -l < files"),
                         Path.of("/srv"),
                         Path.of("/bin/sh"),
                         opaque = true,
@@ -208,13 +193,17 @@ class JudgeTurnsTest {
                 return ToolResult("3")
             }
         }
-        model.reply { toolCall("command.exec", """{"argv": ["sh", "-c", "ls | wc -l"]}""") }.reply { text("Three.") }
+        model.reply { toolCall("command.exec", """{"argv": ["sh", "-c", "wc -l < files"]}""") }.reply { text("Three.") }
         judgeAnswers("""{"verdict":"allow"}""")
 
         harness { tool(exec) }.execute {
-            ask("Count the files with sh -c 'ls | wc -l'.").ticket.outcome()
+            ask("Count the lines of files with sh -c 'wc -l < files'.").ticket.outcome()
 
-            assertContains(asked(), "Program: /bin/sh\nOpaque: yes\nCommand line:\n| sh -c 'ls | wc -l'")
+            assertContains(
+                asked(),
+                "Program: /bin/sh\nOpaque: yes\nRuns in: no sandbox, on the host with the operator's full rights\n" +
+                    "Command line:\n| sh -c 'wc -l < files'",
+            )
             assertEquals(listOf(Clearance(ClearanceKind.JUDGE)), cleared.toList())
         }
     }

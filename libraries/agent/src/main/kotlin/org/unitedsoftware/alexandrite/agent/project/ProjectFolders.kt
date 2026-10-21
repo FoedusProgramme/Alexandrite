@@ -23,8 +23,8 @@ internal class Project(val folder: Path, val files: List<FoundInstructionFile>, 
 /** Finds the projects that the paths a tool call touched lie in. */
 internal class ProjectFolders(
     private val floor: HardFloor,
-    /** Whether a folder (canonical) is a trusted folder itself, which makes it a project folder. */
-    private val trusted: (Path) -> Boolean,
+    /** Whether an agent trusts a folder (canonical) itself, which makes it a project folder. */
+    private val trusted: (AgentId, Path) -> Boolean,
 ) {
     /**
      * The projects that [touched] (absolute) lie in for [agent], each once with the instruction files of all of them,
@@ -81,7 +81,7 @@ internal class ProjectFolders(
                     break
                 }
                 walked.add(current)
-                if (trusted(current) || isRepository(current)) {
+                if (trusted(agent, current) || isRepository(current)) {
                     mark = current
                     break
                 }
@@ -94,14 +94,17 @@ internal class ProjectFolders(
         private fun files(directory: Path): List<FoundInstructionFile> =
             found.getOrPut(directory) { NAMES.mapNotNull { file(directory.resolve(it)) } }
 
-        /** The instruction file at [path], null when there is none, it is refused or it is no single-link file. */
+        /**
+         * The instruction file at [path], null when there is none, it is refused or it is no regular file, or one with
+         * a second hard link while the floor protects anything.
+         */
         private fun file(path: Path): FoundInstructionFile? {
             if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null
             val canonical = allowed(path) ?: return null
             val single = try {
                 val attributes =
                     Files.readAttributes(canonical, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
-                attributes.isRegularFile && hardLinks(canonical) == 1
+                attributes.isRegularFile && (!floor.protectsAnything || hardLinks(canonical) == 1)
             } catch (e: IOException) {
                 false
             }
@@ -114,6 +117,18 @@ internal class ProjectFolders(
 
 /** Whether [directory] holds `.git`. */
 internal fun isRepository(directory: Path): Boolean = Files.exists(directory.resolve(GIT), LinkOption.NOFOLLOW_LINKS)
+
+/** Whether [directory] holds a file or directory that marks a project's root, such as `.git` or a build file. */
+internal fun hasProjectMarker(directory: Path): Boolean =
+    PROJECT_MARKERS.any { Files.exists(directory.resolve(it), LinkOption.NOFOLLOW_LINKS) }
+
+/** What a project's root holds. */
+private val PROJECT_MARKERS = listOf(
+    GIT, ".hg", ".svn", "AGENTS.md", "CLAUDE.md", "build.gradle", "build.gradle.kts", "settings.gradle",
+    "settings.gradle.kts", "pom.xml", "build.xml", "package.json", "deno.json", "pyproject.toml", "setup.py",
+    "requirements.txt", "Cargo.toml", "go.mod", "Gemfile", "composer.json", "mix.exs", "Package.swift",
+    "CMakeLists.txt", "Makefile", "meson.build", "flake.nix", "pubspec.yaml", "build.sbt", "project.clj",
+)
 
 /** Where a project keeps its skills, one directory per skill. */
 private val SKILL_DIRECTORIES = listOf(".agents/skills", ".claude/skills")

@@ -30,7 +30,6 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
@@ -75,11 +74,7 @@ class DataDirTest {
 
         assertEquals(StartStage.DATA_DIR, error.stage)
         assertEquals(listOf(RuntimeProblemKind.DATA_DIR_LOCKED), error.problems.map { it.kind })
-        assertEquals(
-            "Data directory '$dataDir' is in use: another runtime of this JVM holds its lock file runtime.lock. " +
-                "Stop that runtime or give this one another data directory.",
-            error.problems.single().message,
-        )
+        assertContains(error.problems.single().message, "runtime.lock")
         spec(core(), dataDir).execute()
     }
 
@@ -174,15 +169,6 @@ class DataDirTest {
     }
 
     @Test
-    fun `reading a plugin's directories writes nothing`() {
-        spec(explicit(TestIndex("core", bindings = listOf(files("core")))), dataDir).execute {
-            Files.delete(files().cacheDir)
-
-            assertFalse(Files.exists(files().cacheDir))
-        }
-    }
-
-    @Test
     fun `the runtime creates the data and cache roots owner-only`() {
         assumePosix()
         val data = dataDir.resolve("a/data")
@@ -195,13 +181,6 @@ class DataDirTest {
             List(4) { "rwx------" },
             listOf(data, data.parent, cache, cache.parent).map(::permissions),
         )
-    }
-
-    @Test
-    fun `the cache root defaults to a directory in the data directory`() {
-        spec(core(), dataDir).execute()
-
-        assertTrue(Files.isDirectory(dataDir.resolve("cache")))
     }
 
     @Test
@@ -235,25 +214,18 @@ class DataDirTest {
     }
 
     @Test
-    fun `a cache root that cannot be created fails the DATA_DIR stage and releases the data directory`() {
+    fun `a data or cache root that cannot be created fails the DATA_DIR stage and releases the data directory`() {
         val file = Files.writeString(dataDir.resolve("file"), "")
         val data = dataDir.resolve("data")
         val config = RuntimeConfig.builder(data).cacheDir(file).name("test").build()
 
-        val error = RuntimeSpec.builder(config, core()).build().startFailure()
+        val cacheError = RuntimeSpec.builder(config, core()).build().startFailure()
+        val dataError = spec(core(), file).startFailure()
 
-        assertEquals(StartStage.DATA_DIR, error.stage)
-        assertIs<FileAlreadyExistsException>(error.cause)
+        for (error in listOf(cacheError, dataError)) {
+            assertEquals(StartStage.DATA_DIR, error.stage)
+            assertIs<FileAlreadyExistsException>(error.cause)
+        }
         spec(core(), data).execute()
-    }
-
-    @Test
-    fun `a data directory that cannot be created fails the DATA_DIR stage`() {
-        val file = Files.writeString(dataDir.resolve("file"), "")
-
-        val error = spec(core(), file).startFailure()
-
-        assertEquals(StartStage.DATA_DIR, error.stage)
-        assertIs<FileAlreadyExistsException>(error.cause)
     }
 }

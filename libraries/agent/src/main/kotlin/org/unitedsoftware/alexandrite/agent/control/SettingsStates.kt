@@ -17,20 +17,29 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.agentState
-import org.unitedsoftware.alexandrite.sdk.chat.state
+import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
+import org.unitedsoftware.alexandrite.sdk.store.Records
+import org.unitedsoftware.alexandrite.sdk.store.collection
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
+import java.util.concurrent.ConcurrentHashMap
 
-/** The chat settings the agent stores, where null is the default of the agent that serves the chat. */
+/**
+ * The chat settings the agent stores, where null is the default of the agent that serves the chat, and the agents that
+ * chats switched to, all read at start.
+ */
 @Singleton
-internal class SettingsStates(states: ChatStates) {
-    private val agent: ChatState<ChatAddress, Choice<AgentId>> = states.state(AGENT, Choice())
+internal class SettingsStates(states: ChatStates, records: Records) : Lifecycle {
+    private val agents = records.collection<AgentId>(SELECTIONS)
+
+    /** The agent that each chat switched to, by its address. */
+    private val selections = ConcurrentHashMap<ChatAddress, AgentId>()
     private val model: ChatState<AgentChatKey, Choice<ModelRef>> = states.agentState(MODEL, Choice())
     private val reasoning: ChatState<AgentChatKey, Choice<ReasoningEffort>> = states.agentState(REASONING, Choice())
     private val language: ChatState<AgentChatKey, Choice<LanguageTag>> = states.agentState(LANGUAGE, Choice())
@@ -39,28 +48,27 @@ internal class SettingsStates(states: ChatStates) {
     /** The zone's id, kept as text so that a zone a later JDK drops reads as none. */
     private val zone: ChatState<AgentChatKey, Choice<String>> = states.agentState(ZONE, Choice())
 
-    /** The agents that the [CAPACITY] chats read last switched to. */
-    private val selections = object : LinkedHashMap<ChatAddress, Choice<AgentId>>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<ChatAddress, Choice<AgentId>>) = size > CAPACITY
+    override suspend fun onStart() {
+        for (record in agents.list()) ChatAddress.parseOrNull(record.key)?.let { selections[it] = record.value }
     }
 
-    /** The agent that [chat] or its parent switched to, null while [loadAgent] has not read it. */
-    fun cachedAgent(chat: ChatAddress): Choice<AgentId>? = synchronized(selections) { selections[chat] }
+    /** The agent that [chat] or its parent switched to, null when neither did. */
+    fun selectedAgent(chat: ChatAddress): AgentId? = selections[chat] ?: selections[chat.parent]
 
-    /** Reads the agent that [chat] or its parent switched to, unless it is cached. */
-    suspend fun loadAgent(chat: ChatAddress): Choice<AgentId> {
-        cachedAgent(chat)?.let { return it }
-        val read = agent.get(chat)
-        return synchronized(selections) { selections.putIfAbsent(chat, read) ?: read }
-    }
-
-    /** Stores [change] of the agent that [chat] switched to, and caches what [chat] reads then. */
+    /** Stores [change] of the agent that [chat] switched to. */
     suspend fun selectAgent(chat: ChatAddress, change: SettingChange<AgentId>) {
-        if (!agent.change(chat, change) { Choice(it) }) return
-        val read = agent.get(chat)
-        synchronized(selections) {
-            selections[chat] = read
-            if (chat.thread == null) selections.keys.removeAll { it.thread != null && it.parent == chat }
+        when (change) {
+            is SettingChange.SetTo -> {
+                agents.put("$chat", change.value, null)
+                selections[chat] = change.value
+            }
+
+            SettingChange.Reset -> {
+                agents.remove("$chat")
+                selections.remove(chat)
+            }
+
+            else -> Unit
         }
     }
 
@@ -95,14 +103,12 @@ internal class SettingsStates(states: ChatStates) {
     }
 
     companion object {
-        const val AGENT: String = "agent.selected"
+        const val SELECTIONS: String = "agent_selections"
         const val MODEL: String = "settings.model"
         const val REASONING: String = "settings.reasoning"
         const val LANGUAGE: String = "settings.language"
         const val MODE: String = "settings.mode"
         const val ZONE: String = "settings.zone"
-
-        const val CAPACITY: Int = 4096
     }
 }
 

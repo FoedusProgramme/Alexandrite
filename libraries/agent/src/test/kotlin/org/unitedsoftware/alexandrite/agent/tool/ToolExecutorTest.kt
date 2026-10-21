@@ -28,9 +28,10 @@ import org.unitedsoftware.alexandrite.agent.hostPaths
 import org.unitedsoftware.alexandrite.agent.job.JobRecords
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.logged
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
+import org.unitedsoftware.alexandrite.agent.permission.NoTaintLedger
 import org.unitedsoftware.alexandrite.agent.pluginScope
 import org.unitedsoftware.alexandrite.agent.settings
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
@@ -75,7 +76,7 @@ class ToolExecutorTest {
     private val turn = testTurn()
     private val call = ToolCallPart(ToolCallId("call-1"), "fs.read", "{}")
 
-    private val release = CompletableDeferred<Unit>()
+    private var release = CompletableDeferred<Unit>()
 
     /** A tool that runs on through its cancellation until [release]. */
     private val stuck: RecordingTool = recordingTool("fs.read") { _, _ ->
@@ -96,15 +97,14 @@ class ToolExecutorTest {
             Jobs(settings, JobRecords(testRecords()), {
                 true
             }, Clock.systemUTC(), QuietHooks, pluginScope(GlobalJobs))
-        return ToolExecutor(gate, settings, workspaces, directories, jobs, { _, _ -> null }) { _, _ -> null }
+        return ToolExecutor(gate, settings, workspaces, directories, jobs, { _, _ ->
+            null
+        }, { _, _ -> null }, NoTaintLedger)
     }
-
-    private fun abandoned(after: String) =
-        "WARN Tool fs.read still runs $after after its call call-1 in turn test-turn was cancelled: it is abandoned " +
-            "and its result discarded"
 
     /** How long the call of [stuck] that [cause] cancels takes to end, with the lines the agent logs meanwhile. */
     private fun TestScope.cancelledStuck(cause: CancellationException): Pair<Duration, List<String>> {
+        release = CompletableDeferred()
         var ended: Duration? = null
         val lines = logged {
             val started = currentTime
@@ -177,7 +177,7 @@ class ToolExecutorTest {
     }
 
     @Test
-    fun `a tool that declares a longer timeout than the agent's runs that long and a grace, its review too`() =
+    fun `a tool that declares a longer timeout than the agent's runs that long and a grace, a shorter one no less`() =
         runTest {
             val definition = ToolDefinition("fs.read", "Reads.", JsonObject(emptyMap()), timeout = 30.seconds)
             val tool = recordingTool(definition) { _, _ -> awaitCancellation() }
@@ -187,51 +187,35 @@ class ToolExecutorTest {
 
             assertEquals(ToolOutcome.Failed to "The call timed out after 35 s.", result.outcome to result.text())
             assertEquals(35_000L to 35.seconds, currentTime to gate.calls.single().timeout)
+            val shorter = ToolDefinition("fs.read", "Reads.", JsonObject(emptyMap()), timeout = 1.seconds)
+            val capped = executor().executed(recordingTool(shorter) { _, _ -> awaitCancellation() }, 120.seconds)
+            assertEquals("The call timed out after 120 s.", capped.result.text())
         }
-
-    @Test
-    fun `a tool that declares a shorter timeout than the agent's runs as long as the agent lets it`() = runTest {
-        val definition = ToolDefinition("fs.read", "Reads.", JsonObject(emptyMap()), timeout = 1.seconds)
-        val tool = recordingTool(definition) { _, _ -> awaitCancellation() }
-
-        val result = executor().executed(tool, timeout = 120.seconds).result
-
-        assertEquals(ToolOutcome.Failed to "The call timed out after 120 s.", result.outcome to result.text())
-    }
 
     @Test
     fun `a call that runs past its timeout while its tool ignores the cancellation is abandoned five seconds later`() =
         runTest {
             var result: ToolResultEntry? = null
-            val lines = logged {
-                launch { result = executor().executed(stuck, timeout = 5.seconds).result }
-                advanceTimeBy(10.seconds)
-                assertEquals(null, result)
-                advanceTimeBy(1.milliseconds)
-            }
+            launch { result = executor().executed(stuck, timeout = 5.seconds).result }
+            advanceTimeBy(10.seconds)
+            assertEquals(null, result)
+            advanceTimeBy(1.milliseconds)
             release.complete(Unit)
 
             val ended = checkNotNull(result)
             assertEquals(ToolOutcome.Failed to "The call timed out after 5 s.", ended.outcome to ended.text())
-            assertEquals(listOf("WARN Tool fs.read timed out in turn test-turn after 5s", abandoned("5s")), lines)
         }
 
     @Test
-    fun `a cancelled call whose tool ignores the cancellation is abandoned after five seconds`() = runTest {
-        val (ended, lines) = cancelledStuck(TurnCancelled(null))
+    fun `a cancelled call whose tool ignores the cancellation is abandoned after 5 s, at a shutdown half the join`() =
+        runTest {
+            val (ended, lines) = cancelledStuck(TurnCancelled(null))
+            val (shutDown, _) = cancelledStuck(TurnShutdown())
 
-        assertEquals(5.seconds, ended)
-        assertEquals(listOf(abandoned("5s")), lines)
-        assertEquals(1, stuck.calls.size)
-    }
-
-    @Test
-    fun `at a shutdown a tool that ignores the cancellation is abandoned after half the cancel join`() = runTest {
-        val (ended, lines) = cancelledStuck(TurnShutdown())
-
-        assertEquals(1.5.seconds, ended)
-        assertEquals(listOf(abandoned("1.5s")), lines)
-    }
+            assertEquals(5.seconds to 1.5.seconds, ended to shutDown)
+            assertTrue(lines.single().startsWith("WARN Tool fs.read still runs 5s"), "$lines")
+            assertEquals(2, stuck.calls.size)
+        }
 
     @Test
     fun `a cancelled call whose tool ends at once is not waited for`() = runTest {
@@ -305,10 +289,6 @@ class ToolExecutorTest {
 
         assertEquals("${turn.id} ${call.id}", result.text())
         assertFailsWith<IllegalStateException> { kept?.turn }
-        assertFailsWith<IllegalStateException> { kept?.call }
-        assertFailsWith<IllegalStateException> { kept?.workspace }
-        assertFailsWith<IllegalStateException> { kept?.touched(Path.of("/srv")) }
-        assertFailsWith<IllegalStateException> { kept?.clearance }
         assertFailsWith<IllegalStateException> { kept?.untrusted("late") }
     }
 

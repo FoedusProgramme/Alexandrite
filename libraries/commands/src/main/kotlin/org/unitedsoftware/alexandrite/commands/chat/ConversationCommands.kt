@@ -8,6 +8,8 @@ import org.unitedsoftware.alexandrite.commands.support.groupOf
 import org.unitedsoftware.alexandrite.commands.support.refusing
 import org.unitedsoftware.alexandrite.commands.support.replies
 import org.unitedsoftware.alexandrite.commands.support.spec
+import org.unitedsoftware.alexandrite.commands.support.words
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -38,10 +40,11 @@ internal class ConversationCommands(
     override suspend fun handle(invocation: CommandInvocation, context: CommandContext) {
         val replies = texts.replies(context.turn.language)
         val name = commandWord(invocation.name)
+        val words = words(invocation.arguments)
         when {
-            invocation.arguments.isNotBlank() -> context.reply(replies.usage(name))
+            name == CANCEL && words.size <= 1 -> cancel(words.singleOrNull(), invocation, context, replies)
+            words.isNotEmpty() -> context.reply(replies.usage(name))
             name == NEW -> new(invocation, context, replies)
-            name == CANCEL -> cancel(invocation, context, replies)
         }
     }
 
@@ -58,9 +61,26 @@ internal class ConversationCommands(
         context.reply(text)
     }
 
-    private suspend fun cancel(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
-        val cancelled = turns.cancel(invocation.chat, invocation.issuer)
-        context.reply(replies.text(if (cancelled) TextKeys.CANCEL_DONE else TextKeys.CANCEL_NONE))
+    private suspend fun cancel(
+        word: String?,
+        invocation: CommandInvocation,
+        context: CommandContext,
+        replies: Replies,
+    ) {
+        if (word == null) {
+            val cancelled = turns.cancel(invocation.chat, invocation.issuer)
+            context.reply(replies.text(if (cancelled) TextKeys.CANCEL_DONE else TextKeys.CANCEL_NONE))
+            return
+        }
+        val agent = try {
+            AgentId(word)
+        } catch (e: IllegalArgumentException) {
+            context.reply(replies.text(TextKeys.AGENT_MALFORMED, "text" to word))
+            return
+        }
+        val cancelled = turns.cancel(invocation.chat, invocation.issuer, agent)
+        val key = if (cancelled) TextKeys.CANCEL_AGENT_DONE else TextKeys.CANCEL_AGENT_NONE
+        context.reply(replies.text(key, "agent" to agent))
     }
 
     private companion object {

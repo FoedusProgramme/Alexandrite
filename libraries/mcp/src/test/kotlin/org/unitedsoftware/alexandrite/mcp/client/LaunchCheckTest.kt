@@ -7,40 +7,39 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class LaunchCheckTest {
-    private fun refused(command: String, vararg args: String): String =
-        assertNotNull(LaunchCheck.problem(command, args.toList()), "$command ${args.joinToString(" ")} is refused")
+    private fun warned(command: String, vararg args: String): String =
+        assertNotNull(LaunchCheck.warning(command, args.toList()), "$command ${args.joinToString(" ")} is warned of")
 
-    private fun allowed(command: String, vararg args: String) =
-        assertNull(LaunchCheck.problem(command, args.toList()), "$command ${args.joinToString(" ")} is allowed")
+    private fun quiet(command: String, vararg args: String) =
+        assertNull(LaunchCheck.warning(command, args.toList()), "$command ${args.joinToString(" ")} is not warned of")
 
     @Test
     fun `ordinary servers start`() {
-        allowed("npx", "-y", "@modelcontextprotocol/server-filesystem", "/srv/docs")
-        allowed("uvx", "mcp-server-git")
-        allowed("/usr/local/bin/my-server", "--port", "0")
-        allowed("node", "server.js", "-e", "production")
-        allowed("node", "--require", "dotenv/config", "server.js")
-        allowed("python3", "-u", "server.py", "-c", "config.yaml")
-        allowed("python", "-m", "mcp_server", "-c", "x")
-        allowed("python3", "-W", "ignore::DeprecationWarning", "server.py")
-        allowed("bash", "server.sh")
-        allowed("bash", "-o", "pipefail", "server.sh")
-        allowed("deno", "run", "--allow-net", "server.ts")
-        allowed("docker", "run", "-i", "--rm", "-v", "/srv/docs:/docs:ro", "mcp/filesystem")
-        allowed("docker", "run", "--privileged=false", "image")
-        allowed("C:\\Tools\\server.exe")
+        quiet("npx", "-y", "@modelcontextprotocol/server-filesystem", "/srv/docs")
+        quiet("uvx", "mcp-server-git")
+        quiet("/usr/local/bin/my-server", "--port", "0")
+        quiet("node", "server.js", "-e", "production")
+        quiet("node", "--require", "dotenv/config", "server.js")
+        quiet("python3", "-u", "server.py", "-c", "config.yaml")
+        quiet("python", "-m", "mcp_server", "-c", "x")
+        quiet("python3", "-W", "ignore::DeprecationWarning", "server.py")
+        quiet("bash", "server.sh")
+        quiet("bash", "-o", "pipefail", "server.sh")
+        quiet("deno", "run", "--allow-net", "server.ts")
+        quiet("docker", "run", "-i", "--rm", "-v", "/srv/docs:/docs:ro", "mcp/filesystem")
+        quiet("docker", "run", "--privileged=false", "image")
+        quiet("C:\\Tools\\server.exe")
     }
 
     @Test
-    fun `the command is a name or an absolute path`() {
-        assertContains(refused("./server"), "relative path")
-        assertContains(refused("bin/server"), "relative path")
-        assertContains(refused("npx -y server"), "spaces")
-        assertContains(refused(" "), "empty")
+    fun `a command that is no name or absolute path is warned of`() {
+        assertContains(warned("./server"), "relative path")
+        assertContains(warned("bin/server"), "relative path")
+        assertContains(warned("npx -y server"), "spaces")
     }
 
     @Test
-    fun `a shell running code is refused`() {
+    fun `a shell running code is warned of`() {
         for ((command, args) in listOf(
             "sh" to listOf("-c", "npx server"),
             "bash" to listOf("-lc", "npx server"),
@@ -54,12 +53,12 @@ class LaunchCheckTest {
             "pwsh" to listOf("-c", "x"),
             "pwsh.exe" to listOf("-EncodedCommand", "eAA="),
         )) {
-            assertContains(refused(command, *args.toTypedArray()), "runs the c")
+            assertContains(warned(command, *args.toTypedArray()), "runs the c")
         }
     }
 
     @Test
-    fun `inline code of an interpreter is refused`() {
+    fun `inline code of an interpreter is warned of`() {
         for ((command, args) in listOf(
             "node" to listOf("-e", "x"),
             "node" to listOf("--eval=x"),
@@ -75,19 +74,19 @@ class LaunchCheckTest {
             "ruby" to listOf("-e", "x"),
             "php" to listOf("-r", "x"),
         )) {
-            assertContains(refused(command, *args.toTypedArray()), "runs the code")
+            assertContains(warned(command, *args.toTypedArray()), "runs the code")
         }
     }
 
     @Test
     fun `a wrapping env is looked through`() {
-        assertContains(refused("/usr/bin/env", "FOO=1", "bash", "-c", "x"), "bash runs the code")
-        assertContains(refused("env", "-S", "bash -c x"), "env -S")
-        allowed("env", "FOO=1", "npx", "server")
+        assertContains(warned("/usr/bin/env", "FOO=1", "bash", "-c", "x"), "bash runs the code")
+        assertContains(warned("env", "-S", "bash -c x"), "env -S")
+        quiet("env", "FOO=1", "npx", "server")
     }
 
     @Test
-    fun `privileged containers are refused`() {
+    fun `privileged containers are warned of`() {
         val cases = mapOf(
             listOf("run", "--privileged", "image") to "every privilege",
             listOf("run", "--pid=host", "image") to "pid namespace",
@@ -100,11 +99,11 @@ class LaunchCheckTest {
             listOf("--context", "x", "run", "--cap-add", "all", "image") to "every capability",
         )
         for ((args, why) in cases) {
-            assertContains(refused("docker", *args.toTypedArray()), why)
+            assertContains(warned("docker", *args.toTypedArray()), why)
         }
         assertEquals(
-            "podman run with --privileged is refused: it gives the container every privilege of the host.",
-            refused("podman", "run", "--privileged", "image"),
+            "podman run with --privileged is risky: it gives the container every privilege of the host.",
+            warned("podman", "run", "--privileged", "image"),
         )
     }
 }

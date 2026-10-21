@@ -42,7 +42,7 @@ class TelegramQuoteTest {
             app.message(app.bobChat, "Answered.")
             idle()
         }
-        val toAda = app.fake.botMessages(TelegramApp.ADA).body().single().id
+        val toAda = app.fake.botMessages(TelegramApp.ADA).body().single { !it.text.startsWith(TelegramApp.OFFERED) }.id
         val toBob = app.fake.botMessages(TelegramApp.BOB).body().single().id
 
         app.run(builder) {

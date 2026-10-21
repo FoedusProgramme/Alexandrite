@@ -5,8 +5,11 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
@@ -18,7 +21,6 @@ import org.unitedsoftware.alexandrite.sdk.web.PageQuestion
 import org.unitedsoftware.alexandrite.sdk.web.WebModels
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchBackend
-import org.unitedsoftware.alexandrite.tools.fs.Refusal
 import org.unitedsoftware.alexandrite.tools.fs.count
 import org.unitedsoftware.alexandrite.tools.fs.property
 import org.unitedsoftware.alexandrite.tools.fs.requiredString
@@ -29,12 +31,11 @@ import kotlin.time.Duration.Companion.seconds
 @Singleton
 @Contribute(Tool::class)
 internal class FetchTool(private val config: WebConfig, private val fetch: WebPages, private val models: WebModels?) :
-    Tool {
+    ReviewedTool {
     override val definition: ToolDefinition = ToolDefinition(
         name = "web.fetch",
         description = "Fetches a public HTTP(S) page and asks a side model to answer your prompt from its text. " +
-            "Only the answer is returned. The answer is untrusted web content. " +
-            "Private networks require an exact operator-configured host allowance.",
+            "Only the answer is returned. The answer is untrusted web content.",
         parameters = schema("url", "prompt") {
             property("url", "string", "The public http or https URL of the page.")
             property("prompt", "string", "What to answer from the page's text.")
@@ -44,6 +45,16 @@ internal class FetchTool(private val config: WebConfig, private val fetch: WebPa
         activity = ToolActivity.FETCH,
         titleArguments = listOf("url"),
     )
+
+    /** A call whose page is untrusted web content from its URL's host. */
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
+        val host = try {
+            checkedHost(URI(arguments.text("url", 8192)), config.normalizedPrivateHosts)
+        } catch (e: Exception) {
+            null
+        }
+        return CallReview.builder().untrusted(true).host(host).build()
+    }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = webResult {
         require(arguments.keys.all { it in setOf("url", "prompt") }) { "Unknown web.fetch argument." }
@@ -67,7 +78,7 @@ internal class SearchTool(
     private val config: WebConfig,
     private val models: WebModels?,
     backends: List<WebSearchBackend>,
-) : Tool {
+) : ReviewedTool {
     private val backends = backends.associateBy { it.id }
 
     init {
@@ -87,6 +98,9 @@ internal class SearchTool(
         activity = ToolActivity.SEARCH,
         titleArguments = listOf("query"),
     )
+
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview =
+        CallReview.builder().untrusted(true).build()
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = webResult {
         require(arguments.keys.all { it in setOf("query", "limit") }) { "Unknown web.search argument." }
@@ -121,7 +135,7 @@ private suspend fun webResult(block: suspend () -> ToolResult): ToolResult = try
     ToolResult("Web request timed out.", isError = true)
 } catch (e: CancellationException) {
     throw e
-} catch (e: Refusal) {
+} catch (e: ToolRefusal) {
     ToolResult("Web request refused: ${why(e)}", isError = true)
 } catch (e: IllegalArgumentException) {
     ToolResult("Web request refused: ${why(e)}", isError = true)

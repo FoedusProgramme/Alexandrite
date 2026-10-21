@@ -12,8 +12,12 @@ import org.unitedsoftware.alexandrite.automation.common.Beats
 import org.unitedsoftware.alexandrite.automation.common.TimeSource
 import org.unitedsoftware.alexandrite.automation.common.restarting
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.config.ConfigSnapshot
+import org.unitedsoftware.alexandrite.sdk.config.LiveConfig
+import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.di.key
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginScope
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
@@ -37,6 +41,7 @@ internal class HeartbeatRunner(
 ) : Lifecycle,
     BeatEvents<AgentId> {
     private val time = time ?: TimeSource.system
+    private val beats = Beats(heartbeats.all.map { it.plan }, Beater { beat(it) }, this, this.time)
 
     /** The refusals logged per agent since its last admitted beat. */
     private val refusals = ConcurrentHashMap<AgentId, MutableSet<RefusalReason>>()
@@ -45,19 +50,33 @@ internal class HeartbeatRunner(
     private var started: Instant? = null
     private var loop: Job? = null
 
-    override suspend fun onOpen() {
-        if (heartbeats.all.isEmpty()) {
-            logger.debug("No agent has a heartbeat")
-            return
+    /** What beats the heartbeats of [config] in place of these. */
+    fun take(config: HeartbeatConfig): () -> Unit {
+        val next = heartbeats.read(config)
+        return {
+            val added = next.filter { heartbeats.of(it.agent) == null }
+            heartbeats.replace(next)
+            beats.update(next.map { it.plan })
+            val beating = next.joinToString { "${it.agent} every ${it.every}" }.ifEmpty { "none" }
+            logger.info("The heartbeats are now {}", beating)
+            warnHomeless(added)
         }
-        for (heartbeat in heartbeats.all.filter { heartbeats.homeless(it.agent) }) {
+    }
+
+    override suspend fun onOpen() {
+        if (heartbeats.all.isEmpty()) logger.debug("No agent has a heartbeat")
+        warnHomeless(heartbeats.all)
+        loop = scope.launch(CoroutineName("heartbeats")) { supervise() }
+    }
+
+    private fun warnHomeless(beating: List<Heartbeat>) {
+        for (heartbeat in beating.filter { heartbeats.homeless(it.agent) }) {
             logger.warn(
                 "Agent '{}' has a heartbeat but no home chat, so a beat reaches nobody through \"home\": send /home " +
                     "in the chat that should be its home, or set its channels.<instance>.home in the config",
                 heartbeat.agent,
             )
         }
-        loop = scope.launch(CoroutineName("heartbeats")) { supervise() }
     }
 
     override suspend fun onClose() {
@@ -79,13 +98,12 @@ internal class HeartbeatRunner(
             steady = Duration.INFINITE,
             failed = { e, pause -> logger.error("The heartbeats stopped, restarting them in {}", pause, e) },
         ) {
-            val start = time.now().also { started = it }
-            Beats(heartbeats.all.map { it.plan }, Beater { beat(it) }, this, time).run(start)
+            beats.run(time.now().also { started = it })
         }
     }
 
     private suspend fun beat(agent: AgentId) {
-        val heartbeat = checkNotNull(heartbeats.of(agent))
+        val heartbeat = heartbeats.of(agent) ?: return
         val turn = InitiatedTurn.heartbeat(agent, heartbeat.prompt).trust(Trust.TRUSTED).build()
         when (val admission = initiator.initiate(turn)) {
             is Admission.Accepted -> {
@@ -124,6 +142,16 @@ internal class HeartbeatRunner(
     override fun failed(id: AgentId, error: Exception) {
         logger.warn("A heartbeat of agent '{}' failed", id, error)
     }
+}
+
+/** Takes the changes of the heartbeats while the runtime runs. */
+@Singleton
+@Contribute(LiveConfig::class)
+internal class HeartbeatChanges(private val runner: Lazy<HeartbeatRunner>) : LiveConfig {
+    override val paths: List<String> = listOf("agents")
+
+    override fun prepare(config: ConfigSnapshot): () -> Unit =
+        runner.value.take(config.section(key<HeartbeatConfig>()) ?: HeartbeatConfig())
 }
 
 private val HORIZON = java.time.Duration.ofDays(7)

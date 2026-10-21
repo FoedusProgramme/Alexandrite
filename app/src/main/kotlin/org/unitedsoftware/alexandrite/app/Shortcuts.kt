@@ -260,8 +260,8 @@ private fun addTelegram(
 internal fun telegramVariable(name: String): String = "ALEXANDRITE_TELEGRAM_${name.uppercase().replace('-', '_')}_TOKEN"
 
 /**
- * The changes that add the Telegram instance [name] whose token [secret] holds, with [admins] as its admins, their
- * direct chats paired and the first one the home of [agent].
+ * The changes that add the Telegram instance [name] whose token [secret] holds, with [admins] as its admins and the
+ * first one's direct chat the home of [agent].
  */
 internal fun telegramChanges(
     name: String,
@@ -273,7 +273,6 @@ internal fun telegramChanges(
     val instance = buildJsonObject {
         put("botToken", envReference(secret))
         put("adminUserIds", buildJsonArray { admins.forEach { add(it) } })
-        put("allowedChats", buildJsonArray { admins.forEach { add(it) } })
         apiBaseUrl?.let { put("apiBaseUrl", it) }
     }
     val attachment = buildJsonObject { admins.firstOrNull()?.let { put("home", "$it") } }

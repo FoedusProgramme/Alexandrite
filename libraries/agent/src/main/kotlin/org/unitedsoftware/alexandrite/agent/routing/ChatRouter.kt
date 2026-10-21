@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.agent.routing
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.Agent
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
-import org.unitedsoftware.alexandrite.agent.control.Choice
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
@@ -35,20 +34,10 @@ internal class ChatRouter(
 ) {
     private val warned = ConcurrentHashMap.newKeySet<ChatAddress>()
 
-    /** How [chat] resolves from memory, null while the agent it switched to is not read yet. */
-    fun cached(chat: ChatAddress): Resolution? {
+    fun resolve(chat: ChatAddress): Resolution {
         unserved(chat)?.let { return it }
         val attached = directory.attached(chat.instance)
-        val choice = if (attached.size < 2) Choice() else settings.cachedAgent(chat) ?: return null
-        return served(chat, attached, choice.value)
-    }
-
-    /** How [chat] resolves, reading the agent it switched to the first time. */
-    suspend fun resolve(chat: ChatAddress): Resolution {
-        unserved(chat)?.let { return it }
-        val attached = directory.attached(chat.instance)
-        val choice = if (attached.size < 2) Choice() else settings.loadAgent(chat)
-        return served(chat, attached, choice.value)
+        return served(chat, attached, settings.selectedAgent(chat).takeIf { attached.size > 1 })
     }
 
     /** How [chat] resolves where it switched to [selected], or to no agent when it is null. */

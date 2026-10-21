@@ -8,7 +8,6 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.withContext
 import org.unitedsoftware.alexandrite.agent.TestClock
 import org.unitedsoftware.alexandrite.agent.agentDirectory
-import org.unitedsoftware.alexandrite.agent.control.Choice
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.pluginScope
 import org.unitedsoftware.alexandrite.agent.provider
@@ -26,9 +25,8 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
-import org.unitedsoftware.alexandrite.sdk.chat.state
-import org.unitedsoftware.alexandrite.sdk.store.ChatStateStore
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.Capacity
@@ -55,8 +53,7 @@ internal class WorkerBench(
 ) {
     val clock = TestClock()
     val runner = FakeRunner()
-    val reads = GatedReads(store.chatStates)
-    private val states = standaloneChatStates("alexandrite-agent", reads)
+    private val selections = SettingsStates(standaloneChatStates("alexandrite-agent", store.chatStates), testRecords())
     private val settings = settings(
         """
         {
@@ -74,9 +71,8 @@ internal class WorkerBench(
         """.trimIndent(),
     )
     private val directory = agentDirectory(settings, INSTANCES, listOf(provider(ScriptedModel())))
-    private val router =
-        ChatRouter(channels(), directory, ChatTopology(directory, testRecords()), SettingsStates(states))
-    val lock = SubmitLock(pluginScope(scope))
+    private val router = ChatRouter(channels(), directory, ChatTopology(directory, testRecords()), selections)
+    private val lock = SubmitLock(pluginScope(scope))
     val workers = TurnWorkers(settings, lock, conversations, runner, clock).also { it.open() }
     val intakes = ChatIntakes(settings, lock, workers, router)
 
@@ -87,7 +83,7 @@ internal class WorkerBench(
     }
 
     suspend fun select(chat: String, agent: String) {
-        states.state(SettingsStates.AGENT, Choice<AgentId>()).set(ChatAddress.parse(chat), Choice(AgentId(agent)))
+        selections.selectAgent(ChatAddress.parse(chat), SettingChange.SetTo(AgentId(agent)))
     }
 
     private fun channels() = object : ChannelDirectory {
@@ -159,31 +155,4 @@ internal class FakeRunner : TurnRunner {
     }
 
     private fun end(turn: TurnId) = ends.computeIfAbsent(turn) { CompletableDeferred() }
-}
-
-/** Chat states in [store], whose reads wait while they are held and fail while [failure] is set. */
-internal class GatedReads(private val store: ChatStateStore) : ChatStateStore {
-    @Volatile
-    private var gate: CompletableDeferred<Unit>? = null
-
-    @Volatile
-    var failure: Throwable? = null
-
-    fun hold() {
-        gate = CompletableDeferred()
-    }
-
-    fun release() {
-        gate?.complete(Unit)
-    }
-
-    override suspend fun read(plugin: String, name: String, agent: AgentId?, chat: ChatAddress): String? {
-        gate?.await()
-        failure?.let { throw it }
-        return store.read(plugin, name, agent, chat)
-    }
-
-    override suspend fun write(plugin: String, name: String, agent: AgentId?, chat: ChatAddress, json: String?) {
-        store.write(plugin, name, agent, chat, json)
-    }
 }

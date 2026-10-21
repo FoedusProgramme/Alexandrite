@@ -56,19 +56,3 @@ internal fun envReference(name: String): String = "\${env:$name}"
 internal fun referencedVariable(text: String): String? = ENV_REFERENCE.matchEntire(text)?.groupValues?.get(1)
 
 internal fun referencedVariables(text: String): Sequence<String> = ENV_REFERENCE.findAll(text).map { it.groupValues[1] }
-
-/** [text] with its `${env:NAME}` references replaced from [environment], null when one is unset. */
-internal fun resolveReferences(text: String, environment: Map<String, String>): String? {
-    val parts = text.split("$\${")
-    return parts.map { part ->
-        var missing = false
-        val replaced = ENV_REFERENCE.replace(part) { match ->
-            environment[match.groupValues[1]] ?: run {
-                missing = true
-                ""
-            }
-        }
-        if (missing) return null
-        replaced
-    }.joinToString("\${")
-}

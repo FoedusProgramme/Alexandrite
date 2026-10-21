@@ -11,11 +11,15 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.testkit.plugin.ScriptedDeliveries
 
-/** A [CommandContext] that records the notices its handler replies with, each in reply to [trigger]. */
+/**
+ * A [CommandContext] that records the notices its handler replies with, each in reply to [trigger], vouched for as the
+ * agent does when the turn's actor is an operator or trusted.
+ */
 public class TestCommandContext(
     override val turn: TurnInfo = testTurn(TurnKind.COMMAND),
     private val trigger: ChannelMessageRef? = null,
 ) : CommandContext {
+    private val vouched = turn.actor?.let { it.isOperator || it.isTrusted } == true
     private val lock = Any()
     private val sent = mutableListOf<OutboundMessage>()
     private val visibility = mutableListOf<Boolean>()
@@ -32,7 +36,11 @@ public class TestCommandContext(
     }
 
     override suspend fun reply(text: String, markup: Markup, forModel: Boolean): Delivery = synchronized(lock) {
-        sent += OutboundMessage.builder(text, MessageKind.NOTICE).markup(markup).replyTo(trigger).build()
+        sent += OutboundMessage.builder(text, MessageKind.NOTICE)
+            .markup(markup)
+            .replyTo(trigger)
+            .vouched(vouched)
+            .build()
         visibility += forModel
         deliveries.next(turn.chat) ?: Delivery.Delivered(listOf(ChannelMessageRef(turn.chat, "reply-${sent.size}")))
     }

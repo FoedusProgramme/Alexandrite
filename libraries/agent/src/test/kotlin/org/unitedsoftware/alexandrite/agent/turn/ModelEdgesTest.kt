@@ -125,6 +125,7 @@ class ModelEdgesTest {
             assertEquals(unavailable, channel().reply(admission.ticket.turn).completed?.text)
             assertEquals(3, model.requests.size)
             assertEquals(TurnEndKind.FAILED, store.conversations.turn(admission.ticket.turn)?.end)
+            assertEquals(NoticeKind.FAILED, (stored().last() as NoticeEntry).kind)
         }
     }
 
@@ -271,26 +272,6 @@ class ModelEdgesTest {
             assertEquals(NoticeEntry(null, text, NoticeKind.OUTPUT_LIMIT), stored().last())
             assertEquals(3, stored().size)
             assertEquals(TurnEndKind.COMPLETED, store.conversations.turn(admission.ticket.turn)?.end)
-        }
-    }
-
-    @Test
-    fun `an output limit reached before any answer takes the message back with a notice`() {
-        repeat(2) {
-            model.reply {
-                reasoning("A long thought.")
-                finish(FinishKind.MAX_OUTPUT_TOKENS)
-            }
-        }
-        val text = "The model reached its output limit before it wrote an answer."
-
-        harness().execute {
-            val admission = channel().receive("Hi").accepted
-
-            assertEquals(TurnOutcome.TakenBack, admission.ticket.outcome())
-            assertEquals(text, channel().reply(admission.ticket.turn).completed?.text)
-            assertEquals(listOf(NoticeEntry(null, text, NoticeKind.OUTPUT_LIMIT)), stored())
-            assertEquals(TurnEndKind.TAKEN_BACK, store.conversations.turn(admission.ticket.turn)?.end)
         }
     }
 

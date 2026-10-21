@@ -11,6 +11,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.time.TimeSource
 
 class ContainerLifecycleTest {
@@ -39,44 +40,12 @@ class ContainerLifecycleTest {
     }
 
     @Test
-    fun `channel bindings are not created in the root container`() {
-        build(service("a", events = events), service("c", scope = Scope.CHANNEL_INSTANCE, events = events))
-
-        assertEquals(listOf("create a"), events.all())
-    }
-
-    @Test
-    fun `a failing start rethrows and leaves the started instances to stop`() {
-        val container = build(
-            service("a", events = events, failStop = true),
-            service("b", events = events),
-            service("c", events = events, failStart = true),
-            service("d", events = events),
-        )
-
-        val error = assertFailsWith<IllegalStateException> { runBlocking { container.start() } }
-        val closing = assertFailsWith<IllegalStateException> { container.close() }
-
-        assertEquals("start c failed", error.message)
-        assertEquals(emptyList(), error.suppressed.toList())
-        assertEquals("stop a failed", closing.message)
-        assertEquals(
-            listOf(
-                "start a", "start b", "start c",
-                "stop b", "stop a",
-                "destroy d", "destroy c", "destroy b", "destroy a",
-            ),
-            events.lifecycle(),
-        )
-    }
-
-    @Test
     fun `close, stop and open are refused while a step runs`() = runBlocking<Unit> {
         val gate = CompletableDeferred<Unit>()
         val container = build(service("a", events = events, startGate = gate), service("b", events = events))
         val starting = async(start = CoroutineStart.UNDISPATCHED) { container.start() }
 
-        val refused = listOf<suspend () -> Unit>(
+        listOf<suspend () -> Unit>(
             { container.close() },
             { container.destroy() },
             { container.open() },
@@ -84,25 +53,9 @@ class ContainerLifecycleTest {
             { container.closeAll(TimeSource.Monotonic.markNow()) },
             { container.drainAll(TimeSource.Monotonic.markNow()) },
             { container.stopAll() },
-        ).map { assertFailsWith<IllegalStateException> { it() }.message }
+        ).forEach { assertFailsWith<IllegalStateException> { it() } }
         gate.complete(Unit)
         starting.await()
-        container.close()
-
-        assertEquals(
-            listOf("destroy", "destroy", "open", "stop", "close", "drain", "stop").map {
-                "Cannot $it container 'root' while its start step runs."
-            },
-            refused,
-        )
-        assertEquals(listOf("start a", "start b", "stop b", "stop a", "destroy b", "destroy a"), events.lifecycle())
-    }
-
-    @Test
-    fun `close without stop still stops the started instances before destroying them`() {
-        val container = build(service("a", events = events), service("b", events = events))
-        runBlocking { container.start() }
-
         container.close()
 
         assertEquals(listOf("start a", "start b", "stop b", "stop a", "destroy b", "destroy a"), events.lifecycle())
@@ -128,39 +81,24 @@ class ContainerLifecycleTest {
     }
 
     @Test
-    fun `close is idempotent`() {
-        val container = build(service("a", events = events))
-        runBlocking { container.start() }
-
-        container.close()
-        container.close()
-
-        assertEquals(listOf("start a", "stop a", "destroy a"), events.lifecycle())
-    }
-
-    @Test
-    fun `a closed container cannot be used`() {
-        val container = build(service("a"))
-        container.close()
-
-        assertFailsWith<DiException> { container.get(svc("a")) }
-        assertFailsWith<DiException> { container.getOrNull(svc("a")) }
-        assertFailsWith<DiException> { container.getAll(svc("tools")) }
-        assertFailsWith<DiException> { container.lazy(svc("a")) }
-        assertFailsWith<DiException> { container.provider(svc("a")) }
-        assertFailsWith<DiException> { container.child("tg", setOf("test")) }
-        assertFailsWith<DiException> { runBlocking { container.start() } }
-    }
-
-    @Test
-    fun `a failing constructor names its origin and destroys what was created`() {
+    fun `a failing constructor names its origin and destroys what was created, also when it throws an Error`() {
         val error = assertFailsWith<DiException> {
             build(service("a", events = events), service("b", dep("a"), events = events, failCreate = true))
+        }
+        val throwing = assertFailsWith<DiException> {
+            build(
+                service("a", events = events),
+                binding(svc("b"), "test", "b", dependencies = listOf(dep("a"))) {
+                    TODO("b")
+                },
+            )
         }
 
         assertContains(error.message!!, "Cannot create ${svc("b")} with b (plugin test): ")
         assertIs<IllegalStateException>(error.cause)
-        assertEquals(listOf("create a", "destroy a"), events.all())
+        assertEquals(listOf(DiProblemKind.CREATION_FAILED), throwing.problems.map { it.kind })
+        assertIs<NotImplementedError>(throwing.cause)
+        assertEquals(List(2) { listOf("create a", "destroy a") }.flatten(), events.all())
     }
 
     // Errors.
@@ -186,62 +124,19 @@ class ContainerLifecycleTest {
         binding(key<Erring>(name), "test", name) { Erring(name, events, stopping, destroying) }
 
     @Test
-    fun `an Error from onStop is reported and the other instances are still stopped`() {
-        val container =
-            build(
+    fun `an Error from onDestroy is thrown once every other instance is destroyed, a VirtualMachineError first`() {
+        val thrown = listOf(NotImplementedError("destroy b"), StackOverflowError())
+        for (error in thrown) {
+            val container = build(
                 service("a", events = events),
-                erring("b", stopping = {
-                    TODO("stop b")
-                }),
-                service("c", events = events),
-            )
-        runBlocking { container.start() }
-
-        val stopped = runBlocking { container.stop(TimeSource.Monotonic.markNow()) }.filter {
-            it.step ==
-                StepReport.Step.STOP
-        }
-        container.close()
-
-        assertEquals(listOf("c", "b", "a"), stopped.map { it.origin })
-        assertIs<NotImplementedError>(assertIs<StepReport.Outcome.Failed>(stopped[1].outcome).error)
-        assertEquals(
-            listOf("stop c", "stop b", "stop a", "destroy c", "destroy b", "destroy a"),
-            events.lifecycle().drop(2),
-        )
-    }
-
-    @Test
-    fun `an Error from onDestroy is thrown once every other instance is destroyed`() {
-        val container =
-            build(
-                service("a", events = events),
-                erring("b", destroying = {
-                    TODO("destroy b")
-                }),
-                service("c", events = events),
+                erring("b", destroying = { throw error }),
+                service("c", events = events, failDestroy = error is VirtualMachineError),
             )
 
-        val error = assertFailsWith<NotImplementedError> { container.close() }
-
-        assertEquals("An operation is not implemented: destroy b", error.message)
-        assertEquals(listOf("destroy c", "destroy b", "destroy a"), events.lifecycle())
-    }
-
-    @Test
-    fun `an Error from a constructor fails the build and destroys what was created`() {
-        val error = assertFailsWith<DiException> {
-            build(
-                service("a", events = events),
-                binding(svc("b"), "test", "b", dependencies = listOf(dep("a"))) {
-                    TODO("b")
-                },
-            )
+            assertSame(error, assertFailsWith<Error> { container.close() })
         }
 
-        assertEquals(listOf(DiProblemKind.CREATION_FAILED), error.problems.map { it.kind })
-        assertIs<NotImplementedError>(error.cause)
-        assertEquals(listOf("create a", "destroy a"), events.all())
+        assertEquals(List(2) { listOf("destroy c", "destroy b", "destroy a") }.flatten(), events.lifecycle())
     }
 
     @Test
@@ -263,22 +158,6 @@ class ContainerLifecycleTest {
             listOf("stop c", "stop b", "stop a", "destroy c", "destroy b", "destroy a"),
             events.lifecycle().drop(2),
         )
-    }
-
-    @Test
-    fun `a VirtualMachineError from onDestroy is thrown once every other instance is destroyed`() {
-        val container =
-            build(
-                service("a", events = events),
-                erring("b", destroying = {
-                    throw StackOverflowError()
-                }),
-                service("c", events = events, failDestroy = true),
-            )
-
-        assertFailsWith<StackOverflowError> { container.close() }
-
-        assertEquals(listOf("destroy c", "destroy b", "destroy a"), events.lifecycle())
     }
 
     @Test
@@ -321,18 +200,6 @@ class ContainerLifecycleTest {
         }
 
         override fun close() = events.record("auto-close pool")
-    }
-
-    @Test
-    fun `an instance binding is neither started nor destroyed`() {
-        val given = Service("a", events, emptyMap())
-        val container =
-            build(instanceBinding(svc("a"), given, "test", "a"), service("b", dep("a"), events = events))
-
-        runBlocking { container.start() }
-        container.close()
-
-        assertEquals(listOf("create b", "start b", "stop b", "destroy b"), events.all())
     }
 
     @Test

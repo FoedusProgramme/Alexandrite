@@ -25,6 +25,10 @@ public class CommandInvocation private constructor(
     public val issuer: ChatUser,
     /** The kind of [chat] as the channel saw it, [ChatKind.UNKNOWN] when it did not say. */
     public val chatKind: ChatKind,
+    /** The sender of the message that the command replies to, null when it replies to none. */
+    public val replyTo: ChatUser?,
+    /** The users that [arguments] name, as the channel could tell who they are, in order. */
+    public val mentions: List<ChatUser>,
 ) {
     init {
         require(name.isNotEmpty() && name.none { it.isWhitespace() || it.isISOControl() } && !name.startsWith('/')) {
@@ -37,12 +41,17 @@ public class CommandInvocation private constructor(
         require(issuer.address.instance == chat.instance) {
             "The issuer ${issuer.address} is no user of channel instance ${chat.instance}."
         }
+        require((listOfNotNull(replyTo) + mentions).all { it.address.instance == chat.instance }) {
+            "A user that a command invocation in $chat names is no user of channel instance ${chat.instance}."
+        }
     }
 
     public fun toBuilder(): Builder = Builder(chat, name, issuer)
         .arguments(arguments)
         .trigger(trigger)
         .chatKind(chatKind)
+        .replyTo(replyTo)
+        .mentions(mentions)
 
     public class Builder internal constructor(
         private val chat: ChatAddress,
@@ -52,6 +61,8 @@ public class CommandInvocation private constructor(
         private var arguments: String = ""
         private var trigger: ChannelMessageRef? = null
         private var chatKind: ChatKind = ChatKind.UNKNOWN
+        private var replyTo: ChatUser? = null
+        private var mentions: List<ChatUser> = emptyList()
 
         public fun arguments(arguments: String): Builder = apply { this.arguments = arguments }
 
@@ -59,7 +70,12 @@ public class CommandInvocation private constructor(
 
         public fun chatKind(chatKind: ChatKind): Builder = apply { this.chatKind = chatKind }
 
-        public fun build(): CommandInvocation = CommandInvocation(chat, name, arguments, trigger, issuer, chatKind)
+        public fun replyTo(replyTo: ChatUser?): Builder = apply { this.replyTo = replyTo }
+
+        public fun mentions(mentions: List<ChatUser>): Builder = apply { this.mentions = mentions.toList() }
+
+        public fun build(): CommandInvocation =
+            CommandInvocation(chat, name, arguments, trigger, issuer, chatKind, replyTo, mentions)
     }
 
     public companion object {

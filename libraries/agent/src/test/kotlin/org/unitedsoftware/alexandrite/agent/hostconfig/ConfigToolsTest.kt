@@ -55,6 +55,10 @@ class ConfigToolsTest {
     private val root: Path get() = directory.toRealPath()
     private val configFile: Path get() = root.resolve("config/alexandrite.json")
     private val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE) { _, _ -> ToolResult("Written.") }
+    private val paste = recordingTool("notes.paste") { _, context ->
+        context.untrusted("a pasted page")
+        ToolResult("Pasted.")
+    }
 
     @Serializable
     class Vault(val name: String = "", val token: Secret? = null, val key: Secret? = null)
@@ -84,7 +88,7 @@ class ConfigToolsTest {
         """.trimIndent(),
         store,
     ) {
-        channel(operators = setOf("operator")).model(model).model(judge).tool(write)
+        channel(operators = setOf("operator")).model(model).model(judge).tool(write).tool(paste)
         plugin(vault).config(vault, """{"name": "main", "token": "s3cret-value", "key": "${'$'}{env:VAULT_KEY}"}""")
         environment(mapOf("VAULT_KEY" to "k3y-value"))
         configFile(configFile).dataRoot(root.resolve("data"))
@@ -162,7 +166,7 @@ class ConfigToolsTest {
             )
             assertEquals(List(3) { "Changed $path. $restart" }, results().drop(2).map { it.text() })
             assertEquals(
-                List(2) { ReviewPreview.Text("Set $path to 2\n$restart") },
+                List(2) { ReviewPreview.Text("Set $path to:\n2\n$restart") },
                 channel().approvals.map { it.preview },
             )
             assertEquals(
@@ -218,6 +222,63 @@ class ConfigToolsTest {
             assertContains(result.text(), "write an \${env:NAME} reference instead")
             assertEquals(emptyList(), channel().approvals)
             assertEquals(false, "an-actual-token" in Files.readString(configFile))
+        }
+    }
+
+    @Test
+    fun `under taint every change asks a person in every mode`() {
+        model.reply { toolCall("notes.paste") }.reply { text("Pasted.") }
+            .reply { toolCall("config.set", set("agent.agents.coder.permission.judgeMaxChars", "1000")) }
+            .reply { text("Ok.") }
+            .reply { toolCall("config.set", set("agent.maxConcurrentTurns", "2")) }.reply { text("Ok.") }
+            .reply { toolCall("config.unset", """{"path": "agent.agents.coder.permission"}""") }.reply { text("Ok.") }
+
+        harness().execute {
+            val operator = channel().user("operator")
+            channel().scriptApprovals(
+                ApprovalAnswer.Allowed(operator),
+                ApprovalAnswer.Allowed(operator),
+                ApprovalAnswer.Denied(operator),
+            )
+            setMode(PermissionMode.AUTO)
+            repeat(3) { ask() }
+            setMode(PermissionMode.BYPASS)
+            ask()
+
+            val tainted = "the conversation took in untrusted content, and in such a conversation only a person may " +
+                "change the config"
+            assertEquals(List(3) { tainted }, channel().approvals.map { it.reason })
+            assertEquals(
+                listOf(
+                    ToolOutcome.Succeeded,
+                    ToolOutcome.Succeeded,
+                    ToolOutcome.Succeeded,
+                    ToolOutcome.NotRun(NotRunReason.DENIED, channel().approvals[2].id),
+                ),
+                results().map { it.outcome },
+            )
+            assertEquals(0, judge.requests.size)
+            assertContains(checkNotNull(channel().approvals[0].taint).reason, "a pasted page")
+        }
+    }
+
+    @Test
+    fun `a change is shown whole, and one too long to review whole is refused before anyone is asked`() {
+        val long = "x".repeat(3000)
+        model.reply { toolCall("config.set", set("agent.agents.coder.description", "\"$long\"")) }
+            .reply { text("Ok.") }
+            .reply { toolCall("config.set", set("agent.agents.coder.description", "\"${"y".repeat(13_000)}\"")) }
+            .reply { text("Ok.") }
+
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
+            repeat(2) { ask() }
+
+            val shown = (channel().approvals.single().preview as ReviewPreview.Text).text
+            assertContains(shown, "\"$long\"")
+            val refused = results()[1]
+            assertEquals(ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS), refused.outcome)
+            assertContains(refused.text(), "too long for a person to review whole")
         }
     }
 }

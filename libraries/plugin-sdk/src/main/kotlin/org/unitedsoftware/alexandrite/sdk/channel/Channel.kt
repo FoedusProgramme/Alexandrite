@@ -39,6 +39,13 @@ public interface Channel {
         ApprovalAnswer.Unavailable("this channel cannot ask for approvals")
 
     /**
+     * Offers an operator to trust what [offer] names and waits for the answer, within the channel's own limit, as
+     * [askApproval] does.
+     */
+    public suspend fun offerTrust(offer: TrustOffer): ApprovalAnswer =
+        ApprovalAnswer.Unavailable("this channel cannot offer trust")
+
+    /**
      * Whether [issuer] may run [command] in [chat], bare or with arguments, which the agent checks before it runs a
      * command; an operator alone may where the channel sets no rules.
      */
@@ -106,6 +113,11 @@ public class ReplyRequest(
     public val trigger: ChannelMessageRef?,
     /** The background run of [turn] whose activity alone this reply shows, null for the turn's own reply. */
     public val run: DelegatedRun? = null,
+    /**
+     * Whether the agent vouches for the reply's words — the turn is an operator's or a trusted person's in a clean
+     * conversation — so that a channel may tell a quote of them as trusted content.
+     */
+    public val vouched: Boolean = false,
 )
 
 /** Why a reply ended without a final message. */

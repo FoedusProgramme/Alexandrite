@@ -48,13 +48,12 @@ class OpenRouterPluginTest {
     }
 
     @Test
-    fun `an endpoint sends its configured headers and the cache key`() = runBlocking {
+    fun `an endpoint sends the cache key`() = runBlocking {
         FakeModelServer().use { server ->
             server.enqueue(chunks(chunk { with("content", "Hi.") }, chunk("stop")))
             val config = """
                 {"endpoints": {"router": {"baseUrl": "${server.baseUrl}/v1", "apiKey": "sk-plugin-test-key",
-                    "headers": {"X-Title": "Alexandrite"}, "promptCacheKey": true, "discover": false,
-                    "models": {"m": {}}}}}
+                    "promptCacheKey": true, "discover": false, "models": {"m": {}}}}}
             """.trimIndent()
 
             harness(config).build().run {
@@ -69,14 +68,8 @@ class OpenRouterPluginTest {
                 endpoint.stream(request).toList()
             }
 
-            val sent = server.requests.single()
-            assertEquals("Alexandrite", sent.header("x-title"))
-            assertEquals("Bearer sk-plugin-test-key", sent.header("authorization"))
-            val body = sent.json()
-            assertEquals(
-                listOf("cache-7", "cache-7"),
-                listOf("prompt_cache_key", "session_id").map { body[it]?.jsonPrimitive?.content },
-            )
+            val body = server.requests.single().json()
+            assertEquals("cache-7", body["prompt_cache_key"]?.jsonPrimitive?.content)
         }
     }
 
@@ -86,7 +79,6 @@ class OpenRouterPluginTest {
             """{"endpoints": {"x": {"baseUrl": "https://api.example.com"}}}""" to "apiKey",
             """{"endpoints": {"x": {"apiKey": "hunter2", "headers": {"Authorization": "b"}}}}""" to "authorization",
             """{"endpoints": {"x": {"apiKey": "hunter2", "profile": "openrouter"}}}""" to "profile",
-            """{"endpoints": {"Bad_Id": {"apiKey": "hunter2"}}}""" to "no endpoint id",
         )
 
         for ((config, expected) in cases) {

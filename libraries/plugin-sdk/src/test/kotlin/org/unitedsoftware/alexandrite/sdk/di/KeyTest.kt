@@ -12,18 +12,10 @@ class KeyTest {
     interface Other
 
     @Test
-    fun `keys of the same type are equal`() {
+    fun `keys differ by type argument and qualifier`() {
         assertEquals(key<List<Tool>>(), key<List<Tool>>())
         assertEquals(key<List<Tool>>().hashCode(), key<List<Tool>>().hashCode())
-    }
-
-    @Test
-    fun `keys of different type arguments differ`() {
         assertNotEquals<Key<*>>(key<List<Tool>>(), key<List<Other>>())
-    }
-
-    @Test
-    fun `a qualifier distinguishes keys`() {
         assertNotEquals(key<String>("a"), key<String>("b"))
         assertNotEquals(key<String>("a"), key<String>())
     }
@@ -31,13 +23,5 @@ class KeyTest {
     @Test
     fun `a nullable type is rejected`() {
         assertFailsWith<IllegalArgumentException> { Key<String>(typeOf<String?>(), null) }
-    }
-
-    @Test
-    fun `a key renders its qualifier and type`() {
-        assertEquals(
-            "@Named(\"db\") kotlin.collections.List<org.unitedsoftware.alexandrite.sdk.di.KeyTest.Tool>",
-            key<List<Tool>>("db").toString(),
-        )
     }
 }

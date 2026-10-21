@@ -25,6 +25,7 @@ import org.unitedsoftware.alexandrite.agent.turn.TurnPlan
 import org.unitedsoftware.alexandrite.agent.turn.TurnRunner
 import org.unitedsoftware.alexandrite.agent.turn.TurnSource
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
@@ -209,9 +210,9 @@ internal class TurnWorkers(
         }.sortedBy { it.queuedAt }
     }
 
-    /** Cancels the running turns that came from [chat], and returns whether there was one. */
-    fun cancelRunning(chat: ChatAddress, cause: CancellationException): Boolean = lock.locked {
-        val running = workers.values.mapNotNull { it.current }
+    /** Cancels the running turns of [agent] that came from [chat], and returns whether there was one. */
+    fun cancelRunning(chat: ChatAddress, agent: AgentId, cause: CancellationException): Boolean = lock.locked {
+        val running = workers.values.filter { it.key.agent == agent }.mapNotNull { it.current }
             .filter { it.startedAt != null && it.turn?.plan?.origin == chat }
         running.forEach { it.cancel(cause) }
         running.isNotEmpty()

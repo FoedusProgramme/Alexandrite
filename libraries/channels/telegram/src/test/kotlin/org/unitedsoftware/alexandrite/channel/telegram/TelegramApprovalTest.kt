@@ -3,9 +3,6 @@ package org.unitedsoftware.alexandrite.channel.telegram
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.serialization.json.int
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.unitedsoftware.alexandrite.channel.telegram.TelegramHarness.Companion.ADA
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
@@ -14,7 +11,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.QuoteTrust
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
-import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -36,7 +32,7 @@ class TelegramApprovalTest {
 
     @Test
     fun `a button pressed in Telegram answers the request, and the message then shows who answered`() {
-        val request = request(null)
+        val request = request()
 
         telegram.run {
             val answer = coroutineScope {
@@ -57,30 +53,10 @@ class TelegramApprovalTest {
     }
 
     @Test
-    fun `a preview longer than twelve lines reaches Telegram folded in an expandable blockquote`() {
-        val preview = ReviewPreview.Text((1..30).joinToString("\n") { "line $it" })
-
-        telegram.run {
-            val asked = coroutineScope {
-                val asking = async(Dispatchers.Default) { telegramChannel().askApproval(request(preview)) }
-                asked().also {
-                    fake.press(telegram.ada, it, "Deny")
-                    asking.await()
-                }
-            }
-
-            val folded = asked.entities.map { it.jsonObject }.single { it["type"]?.jsonPrimitive?.content == FOLDED }
-            val start = folded.getValue("offset").jsonPrimitive.int
-            val end = start + folded.getValue("length").jsonPrimitive.int
-            assertEquals(preview.text, asked.text.substring(start, end))
-        }
-    }
-
-    @Test
     fun `a reply to the request quotes the line that stands for it, which the channel vouches for`() {
         telegram.run {
             val asked = coroutineScope {
-                val asking = async(Dispatchers.Default) { telegramChannel().askApproval(request(null)) }
+                val asking = async(Dispatchers.Default) { telegramChannel().askApproval(request()) }
                 asked().also {
                     fake.press(telegram.ada, it, "Deny")
                     asking.await()
@@ -98,9 +74,9 @@ class TelegramApprovalTest {
         }
     }
 
-    private fun request(preview: ReviewPreview?): ApprovalRequest {
+    private fun request(): ApprovalRequest {
         val turn = testTurn(chat = telegram.address(ADA)) { actor(ada) }
-        return ApprovalRequest("k3x9", turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", preview, "a test")
+        return ApprovalRequest("k3x9", turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "a test")
     }
 
     private fun PluginHarness.Running.telegramChannel() = checkNotNull(get<ChannelDirectory>().channel(WORK))
@@ -108,8 +84,4 @@ class TelegramApprovalTest {
     /** The request in Ada's chat, once it waits for an answer. */
     private fun asked(): FakeBotMessage =
         fake.await { botMessages(ADA).singleOrNull()?.takeIf { it.buttons.isNotEmpty() } }
-
-    private companion object {
-        const val FOLDED = "expandable_blockquote"
-    }
 }

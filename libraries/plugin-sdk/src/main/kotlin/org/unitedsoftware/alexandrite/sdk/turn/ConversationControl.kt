@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.sdk.turn
 
 import dev.drewhamilton.poko.Poko
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -40,14 +41,32 @@ public interface ConversationControl {
     public suspend fun context(chat: ChatAddress): ContextStatus
 
     /**
-     * Clears the taint of the conversation of the chat's agent once the turns queued at its key before the call have
-     * ended, so that its next turns run as in a clean conversation until something taints it again, and returns the
-     * mark it had, null when it had none.
+     * Clears the taint of the conversations that the chat's agents have in the chat, or of [agent]'s alone, once the
+     * turns queued at their keys before the call have ended, so that their next turns run as in clean conversations
+     * until something new taints them, and returns those that had a mark in the order of the chat's agents. Background
+     * jobs and sub-agent runs started before taint it again only with what they take in themselves.
      *
      * Throws [IllegalStateException] where [newConversation] does.
      */
-    public suspend fun untaint(chat: ChatAddress, by: ChatUser?): ConversationTaint?
+    public suspend fun untaint(chat: ChatAddress, by: ChatUser?, agent: AgentId? = null): List<UntaintedConversation>
+
+    /**
+     * Clears the taint of the heartbeat conversation of the chat's agent, or of [agent], as [untaint] does for the
+     * chat's own, once the heartbeat queued before the call has ended, and returns the mark it had, null when it had
+     * none.
+     *
+     * Throws [IllegalStateException] where [newConversation] does.
+     */
+    public suspend fun untaintHeartbeat(chat: ChatAddress, by: ChatUser?, agent: AgentId? = null): ConversationTaint?
 }
+
+/** The conversation of [agent] in a chat whose mark [ConversationControl.untaint] cleared. */
+@Poko
+public class UntaintedConversation(
+    public val agent: AgentId,
+    /** The mark it had. */
+    public val taint: ConversationTaint,
+)
 
 /** What a compaction folded into the rolling summary. */
 @Poko

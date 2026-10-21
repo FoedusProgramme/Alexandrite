@@ -19,7 +19,10 @@ import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
 import kotlin.coroutines.cancellation.CancellationException
 
-/** Lets the messages of paired chats through and offers each chat that is not paired its pairing code. */
+/**
+ * Lets the messages of paired chats through and offers each chat that is not paired its pairing code. The config
+ * pairs the chats it allows and the admins' direct chats.
+ */
 @ChannelInstanceScoped
 internal class AccessGate(
     private val instance: ChannelInstance,
@@ -35,7 +38,8 @@ internal class AccessGate(
     private var pairing: InstancePairing? = null
 
     override suspend fun onStart() {
-        val pairing = desk.open(instance.id, config.allowedChats.map { ChatAddress(instance.id, "$it") })
+        val declared = (config.allowedChats + config.adminUserIds).distinct().map { ChatAddress(instance.id, "$it") }
+        val pairing = desk.open(instance.id, declared)
         this.pairing = pairing
         if (desk.paired().none { it.chat.instance == instance.id }) {
             logger.warn("{}: no chat is paired yet: the first message of a chat gets a pairing code", instance.id)

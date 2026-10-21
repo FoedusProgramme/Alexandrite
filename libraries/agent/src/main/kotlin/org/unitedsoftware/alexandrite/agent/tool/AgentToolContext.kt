@@ -4,10 +4,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
-import org.unitedsoftware.alexandrite.agent.permission.CallTrust
 import org.unitedsoftware.alexandrite.agent.permission.Principal
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.sandbox.CallSandboxes
+import org.unitedsoftware.alexandrite.agent.trust.CallTrust
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
@@ -22,6 +22,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Mandate
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicReference
 
 /** The context of the call [call] in [turn], cleared by [clearance], which holds only until [close]. */
 internal class AgentToolContext(
@@ -39,6 +40,8 @@ internal class AgentToolContext(
     private val granting: (suspend () -> Mandate?)? = null,
     /** How far the call's output is trusted. */
     val trust: CallTrust = CallTrust.NONE,
+    /** The file that the call writes, which brings nothing into the conversation, null when it writes none. */
+    private val written: Path? = null,
     sandboxes: CallSandboxes? = null,
 ) : ToolContext {
     @Volatile
@@ -52,8 +55,12 @@ internal class AgentToolContext(
         return job.await().also { checkOpen() }
     }
 
-    /** Sets up the call's background job, whose updates go to [updates]. */
-    fun attachBackground(updates: suspend (ToolResult) -> Boolean) {
+    /**
+     * Sets up the call's background job, whose updates go to [updates] and whose untrusted content goes to [untrusted]
+     * as the call reports it from then on.
+     */
+    fun attachBackground(updates: suspend (ToolResult) -> Boolean, untrusted: (String) -> Unit = {}) {
+        detached = untrusted
         job.complete(
             object : BackgroundCall {
                 override suspend fun update(result: ToolResult): Boolean {
@@ -101,8 +108,9 @@ internal class AgentToolContext(
     /** The paths that the call reported as touched, each once, in order. */
     val touchedPaths: List<Path> get() = reported.distinct()
 
-    /** The [touchedPaths] that may taint the conversation, none for a call trusted whole. */
-    val taintingPaths: List<Path> get() = if (trust == CallTrust.WHOLE) emptyList() else touchedPaths
+    /** The [touchedPaths] that may taint the conversation, the written file left out; none for a call trusted whole. */
+    val taintingPaths: List<Path>
+        get() = if (trust == CallTrust.WHOLE) emptyList() else touchedPaths.filterNot { it.isWritten(written) }
 
     private val loading = CopyOnWriteArrayList<UserEntry>()
 
@@ -123,7 +131,24 @@ internal class AgentToolContext(
     override fun untrusted(reason: String) {
         checkOpen()
         if (trust != CallTrust.NONE) return
-        taint.note("call $call reported untrusted content: $reason")
+        report("call $call reported untrusted content: $reason")
+    }
+
+    override val tainted: Boolean
+        get() = taint.tainted.also { checkOpen() }
+
+    private val own = AtomicReference<String?>(null)
+
+    @Volatile
+    private var detached: ((String) -> Unit)? = null
+
+    /** The first untrusted content that the call took in itself, null when it took in none. */
+    val reportedUntrusted: String? get() = own.get()
+
+    /** Counts [reason] as untrusted content that the call took in, whatever its trust. */
+    fun report(reason: String) {
+        taint.note(reason)
+        if (own.compareAndSet(null, reason)) detached?.invoke(reason)
     }
 
     override suspend fun mandate(): Mandate? {
@@ -142,3 +167,6 @@ internal class AgentToolContext(
         check(open) { "A tool context is valid only while its call runs." }
     }
 }
+
+/** Whether this path is [written], the file that a call writes. */
+internal fun Path.isWritten(written: Path?): Boolean = written != null && normalize() == written.normalize()

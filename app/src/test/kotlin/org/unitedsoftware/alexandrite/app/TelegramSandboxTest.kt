@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
+import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.WAIT
 import org.unitedsoftware.alexandrite.sandbox.seatbelt.AlexandriteSandboxSeatbeltIndex
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
@@ -49,7 +50,7 @@ class TelegramSandboxTest {
     }
 
     @Test
-    fun `contained commands run unasked, reach only listed hosts through the proxy and write only in the boundary`() {
+    fun `a contained command asks before it taints, then under taint, and reaches and writes only inside`() {
         val port = server.address.port
         val outside = Path.of("build/sandbox-test").toAbsolutePath().createDirectories().toRealPath()
         Files.deleteIfExists(outside.resolve("escaped"))
@@ -61,8 +62,17 @@ class TelegramSandboxTest {
             }
             .reply { text("Done.") }
 
+        val asked = mutableListOf<String>()
+
         app.run(builder(port)) {
             app.send(app.ada, app.adaChat, "Fetch it.")
+            repeat(3) { index ->
+                val request = app.fake.await(WAIT) {
+                    botMessages(app.adaChat.id).firstOrNull { it.buttons.isNotEmpty() && it.text !in asked }
+                }
+                asked += request.text
+                app.fake.press(app.ada, request, if (index == 0) "Allow, mark tainted" else "Allow")
+            }
             app.message(app.adaChat, "Done.")
             idle()
         }
@@ -75,7 +85,13 @@ class TelegramSandboxTest {
         assertContains(results[1], "The sandbox's proxy refused example.org")
         assertContains(results[2], "Operation not permitted")
         assertFalse(Files.exists(outside.resolve("escaped")))
-        assertFalse(app.fake.botMessages(app.adaChat.id).any { it.text.startsWith("Approval needed") })
+        assertContains(asked.first(), "Why: the call would bring the first untrusted content into the conversation")
+        assertContains(asked.first(), "Sandbox: runs in the seatbelt sandbox")
+        for (request in asked.drop(1)) {
+            assertContains(request, "Why: the chat is in ask mode")
+            assertContains(request, "Sandbox: runs in the seatbelt sandbox")
+            assertContains(request, "this conversation holds untrusted content")
+        }
     }
 
     private fun exec(vararg argv: String): String =

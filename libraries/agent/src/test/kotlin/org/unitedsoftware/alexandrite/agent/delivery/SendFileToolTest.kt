@@ -26,7 +26,7 @@ import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
+import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.testkit.RecordingChannel
@@ -56,8 +56,11 @@ class SendFileToolTest {
     private val turn = testTurn()
     private val report: Path get() = root.resolve("out/report.pdf").also { it.parent.createDirectories() }
 
-    private fun tool(open: Boolean = true): SendFileTool {
-        val settings = settings("""{"floor": {"deny": ["credentials", "system", "alexandrite"]}}""")
+    private fun tool(
+        open: Boolean = true,
+        protecting: String = """{"deny": ["credentials", "system", "alexandrite"]}""",
+    ): SendFileTool {
+        val settings = settings("""{"floor": $protecting}""")
         val paths = hostPaths(null, data)
         val floor =
             AgentFloor(
@@ -98,12 +101,8 @@ class SendFileToolTest {
         MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
 
     @Test
-    fun `the tool sends, titled by its path, and is always gated as an external action`() {
-        val definition = tool().definition
-
-        assertEquals("chat.send_file", definition.name)
-        assertEquals(ToolRisk.EXTERNAL_ACTION, definition.risk)
-        assertEquals(ToolActivity.SEND to listOf("path"), definition.activity to definition.titleArguments)
+    fun `the tool is always gated as an external action`() {
+        assertEquals(ToolRisk.EXTERNAL_ACTION, tool().definition.risk)
     }
 
     @Test
@@ -118,7 +117,7 @@ class SendFileToolTest {
             review.preview,
         )
         assertEquals("sha256:${sha256(bytes)}", review.snapshot)
-        assertNull(review.rule)
+        assertEquals(RuleSubject("chat.send_file", emptyList(), "chat.send_file"), review.rule)
         assertNull(review.risk)
         assertEquals(false, review.exempt)
     }
@@ -146,6 +145,7 @@ class SendFileToolTest {
 
         assertTrue("is a directory" in review(arguments(root.resolve("folder"))).problem.orEmpty())
         assertTrue("more than one hard link" in review(arguments(link)).refusal.orEmpty())
+        assertNull(review(arguments(link), tool = tool(protecting = "{}")).refusal)
         Files.delete(link)
         channel.scriptCapabilities(FILES.rebuild { maxFileBytes(10) })
         assertEquals(
@@ -185,19 +185,17 @@ class SendFileToolTest {
     }
 
     @Test
-    fun `a file that changed since its review is not sent, nor a call that was not reviewed`() {
+    fun `a file that changed since its review is not sent`() {
         report.writeText("first")
         val review = review(arguments(report))
         report.writeText("second")
 
         val changed = execute(arguments(report), review.snapshot)
-        val unreviewed = execute(arguments(report), null)
 
         assertEquals(
             "failed: $report changed since this call was reviewed, so it was not sent: repeat the call.",
             changed,
         )
-        assertEquals("failed: This call was not reviewed, so it sends nothing.", unreviewed)
         assertEquals(emptyList(), channel.sent)
     }
 
@@ -223,14 +221,6 @@ class SendFileToolTest {
         execute(arguments(report), review(arguments(report), child).snapshot, child)
 
         assertEquals(testChat("root-chat"), channel.sent.single().chat)
-    }
-
-    @Test
-    fun `media types follow the file's extension`() {
-        assertEquals(
-            listOf("image/png", "application/pdf", "text/markdown", "application/octet-stream"),
-            listOf("a.PNG", "b.pdf", "c.md", "d").map(::mediaTypeOf),
-        )
     }
 
     private companion object {

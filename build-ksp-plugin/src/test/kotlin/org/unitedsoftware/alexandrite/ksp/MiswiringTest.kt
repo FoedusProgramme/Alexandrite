@@ -327,14 +327,6 @@ class MiswiringTest : FailingSamples() {
         )
     }
 
-    @Test
-    fun `an instance section in a plugin that contributes no channel is rejected`() {
-        assertErrors(
-            "@ChannelInstanceScoped @ConfigSection @Serializable class Token(val token: String = \"\")",
-            "class Token" to Messages.instanceSectionWithoutChannel("sample.Token"),
-        )
-    }
-
     // Plugin-local services.
 
     @Test

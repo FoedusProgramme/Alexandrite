@@ -130,17 +130,17 @@ internal class ControlSocket private constructor(
         private const val MAX_REQUEST_BYTES = 1024 * 1024
 
         private val SOCKET_PERMISSIONS = setOf(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE)
-        private val OWNER_PERMISSIONS = SOCKET_PERMISSIONS + PosixFilePermission.OWNER_EXECUTE
+        private val SHARED_WRITES = setOf(PosixFilePermission.GROUP_WRITE, PosixFilePermission.OTHERS_WRITE)
 
-        /** Binds the socket at [path] in an owner-only directory, or throws why it cannot. */
+        /** Binds the socket at [path] in a directory only its owner writes, or throws why it cannot. */
         fun open(path: Path): ControlSocket {
             val directory = checkNotNull(path.parent) { "$path lies in no directory" }
             val view = Files.getFileAttributeView(directory, PosixFileAttributeView::class.java)
             val permissions = view?.readAttributes()?.permissions()
-            if (permissions != null && !OWNER_PERMISSIONS.containsAll(permissions)) {
+            if (permissions != null && permissions.any { it in SHARED_WRITES }) {
                 throw IOException(
-                    "$directory is open to other users (${PosixFilePermissions.toString(permissions)}); make it " +
-                        "owner-only with chmod 700",
+                    "Other users may write $directory (${PosixFilePermissions.toString(permissions)}); run chmod " +
+                        "go-w on it",
                 )
             }
             replaceStale(path)

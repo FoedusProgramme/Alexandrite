@@ -32,16 +32,17 @@ class CommandLanesTest {
     private val model = ScriptedModel()
     private val commands = TestCommands()
 
-    private fun harness(perChat: Int = 10, gateSeconds: Int = 30): PluginHarness = agentHarness(
-        """
+    private fun harness(perChat: Int = 10, gateSeconds: Int = 30, operators: Set<String> = emptySet()): PluginHarness =
+        agentHarness(
+            """
         {
           "queue": {"commandsPerChat": $perChat, "commandGateSeconds": $gateSeconds},
           "shutdown": {"turnGraceSeconds": 0, "cancelJoinSeconds": 2},
           "agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {}}}}
         }
-        """.trimIndent(),
-        store,
-    ) { channel().model(model).commandHandler(commands) }
+            """.trimIndent(),
+            store,
+        ) { channel(operators = operators).model(model).commandHandler(commands) }
 
     private val Admission.accepted: Admission.Accepted get() = this as Admission.Accepted
 
@@ -108,28 +109,6 @@ class CommandLanesTest {
                 List(3) { TurnOutcome.Completed(null) },
                 listOf(first, second, elsewhere).map { it.ticket.outcome() },
             )
-        }
-    }
-
-    @Test
-    fun `a command that runs alongside starts at once beside a waiting one, however few commands may run`() {
-        model.reply {
-            text("Hel")
-            hang()
-        }
-
-        harness().execute {
-            commands.connect(get(), get(), get())
-            val channel = channel()
-            val running = channel.receive("Hi").accepted
-            model.awaitRequests(1)
-            val new = channel.receiveCommand("new").accepted
-            awaitStarted(1)
-            val cancel = channel.receiveCommand("cancel").accepted
-
-            assertTrue(cancel.ticket.outcome() is TurnOutcome.Completed)
-            assertEquals(TurnOutcome.Cancelled, running.ticket.outcome())
-            assertTrue(new.ticket.outcome() is TurnOutcome.Completed)
         }
     }
 
@@ -250,5 +229,20 @@ class CommandLanesTest {
         }
 
         assertTrue(lines.any { it.startsWith("ERROR Command /boom") })
+    }
+
+    @Test
+    fun `a command's replies are vouched for when the agent trusts its issuer, else not`() {
+        harness(operators = setOf("operator")).execute {
+            commands.connect(get(), get(), get())
+            val channel = channel()
+            channel.receiveCommand("cancel", issuer = channel.user("operator")).accepted.ticket.outcome()
+            channel.receiveCommand("cancel").accepted.ticket.outcome()
+
+            assertEquals(
+                listOf("Nothing runs." to true, "Nothing runs." to false),
+                channel.sent.map { it.message.text to it.message.vouched },
+            )
+        }
     }
 }

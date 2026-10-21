@@ -80,7 +80,7 @@ class ExplicitBackgroundTest {
     }
 
     @Test
-    fun `cancel stops a monitor and its process tree`() {
+    fun `cancel leaves a monitor running, and stopping the job ends its process tree`() {
         val work = work()
         val pidFile = work.resolve("pid")
         app.model.reply { toolCall("command.exec", command("echo $$ > pid; sleep 30", monitor = true).toString()) }
@@ -93,6 +93,10 @@ class ExplicitBackgroundTest {
             val pid = Files.readString(pidFile).trim().toLong()
             assertTrue(ProcessHandle.of(pid).orElseThrow().isAlive)
             app.send(app.ada, app.adaChat, "/cancel")
+            app.message(app.adaChat, "No answer is running in this chat.")
+            val job = get<TurnControl>().jobs(app.address(app.adaChat)).single()
+            assertTrue(ProcessHandle.of(pid).orElseThrow().isAlive)
+            app.send(app.ada, app.adaChat, "/jobs stop ${job.id}")
             withTimeout(10000) {
                 while (get<TurnControl>().jobs(app.address(app.adaChat)).isNotEmpty() ||
                     ProcessHandle.of(pid).map { it.isAlive }.orElse(false)

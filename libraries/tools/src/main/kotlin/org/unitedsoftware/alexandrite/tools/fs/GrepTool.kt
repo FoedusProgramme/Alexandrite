@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.tools.fs
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -29,8 +30,8 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
             "'path' is a file, or a directory searched in name order; 'glob' keeps the files whose path relative " +
             "to it matches a glob as fs.glob takes it, where a glob without / matches the file name at any depth " +
             "(*.kt). Returns at most $MAX_GREP_MATCHES lines, each cut after $MAX_MATCH_CHARS characters. In a " +
-            "directory it skips binary files, files over ${MAX_GREP_FILE_BYTES / MIB} MiB, files with more than one " +
-            "hard link, symbolic links and .git, .hg and .svn directories, and names the protected places it skipped.",
+            "directory it skips binary files, files over ${MAX_GREP_FILE_BYTES / MIB} MiB, symbolic links and " +
+            ".git, .hg and .svn directories, and names the protected places it skipped.",
         parameters = schema("pattern") {
             property("pattern", "string", "The regular expression, or the text with 'literal'.")
             property("literal", "boolean", "Whether the pattern is plain text. Default false.")
@@ -50,12 +51,12 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         floor.readReview(arguments.string("path"), context)
-    } catch (e: Refusal) {
+    } catch (e: ToolRefusal) {
         CallReview.builder().build()
     }
 
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
-        val search = Search(regex(arguments))
+        val search = Search(regex(arguments), floor.protectsAnything)
         val filter = arguments.string("glob")?.let(::filter)
         val path = context.searched(arguments.string("path"))
         blocking { grep(search, filter, path, context) }
@@ -75,12 +76,12 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
             search.files.forEach(context::touched)
             return ToolResult(search.result(path, walk.notes))
         }
-        checkReadable(root, path, attributes)
+        checkReadable(root, path, attributes, floor.protectsAnything)
         if (attributes.size() > MAX_GREP_FILE_BYTES) {
-            throw Refusal("$path is over ${MAX_GREP_FILE_BYTES / MIB} MiB: read it in parts with fs.read.")
+            throw ToolRefusal("$path is over ${MAX_GREP_FILE_BYTES / MIB} MiB: read it in parts with fs.read.")
         }
         context.touched(root)
-        if (!search.file(root)) throw Refusal("$path is no UTF-8 text (it looks binary): fs.grep searches text.")
+        if (!search.file(root)) throw ToolRefusal("$path is no UTF-8 text (it looks binary): fs.grep searches text.")
         return ToolResult(search.result(path, emptyList()))
     }
 
@@ -91,7 +92,7 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
         return try {
             Regex(pattern, options)
         } catch (e: PatternSyntaxException) {
-            throw Refusal("'pattern' is no valid regular expression: ${e.description} near index ${e.index}.")
+            throw ToolRefusal("'pattern' is no valid regular expression: ${e.description} near index ${e.index}.")
         }
     }
 
@@ -102,8 +103,8 @@ internal class GrepTool(private val floor: HardFloor) : ReviewedTool {
     }
 }
 
-/** The lines that match [regex], by file. */
-internal class Search(private val regex: Regex) {
+/** The lines that match [regex], by file, skipping files with a second hard link when [oneLink]. */
+internal class Search(private val regex: Regex, private val oneLink: Boolean) {
     private val found = StringBuilder()
     private var matches = 0
     private var binary = 0
@@ -125,7 +126,7 @@ internal class Search(private val regex: Regex) {
         }
         try {
             when {
-                hardLinks(entry.path) > 1 -> multiLinked.add("${entry.path}")
+                oneLink && hardLinks(entry.path) > 1 -> multiLinked.add("${entry.path}")
                 !file(entry.path) -> binary++
             }
         } catch (e: IOException) {
@@ -137,7 +138,7 @@ internal class Search(private val regex: Regex) {
     fun file(file: Path): Boolean {
         val lines = mutableListOf<String>()
         try {
-            TextLines(file, MAX_GREP_LINE_CHARS, MAX_GREP_FILE_BYTES).use { text ->
+            TextLines(file, oneLink, MAX_GREP_LINE_CHARS, MAX_GREP_FILE_BYTES).use { text ->
                 var number = 0
                 while (matches + lines.size < MAX_GREP_MATCHES) {
                     val line = text.next() ?: break

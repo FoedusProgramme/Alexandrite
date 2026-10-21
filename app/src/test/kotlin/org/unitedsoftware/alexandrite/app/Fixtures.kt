@@ -2,7 +2,7 @@ package org.unitedsoftware.alexandrite.app
 
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.spi.ILoggingEvent
-import ch.qos.logback.core.read.ListAppender
+import ch.qos.logback.core.AppenderBase
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
@@ -38,6 +38,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.time.ZoneId
 import java.util.Locale
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -116,16 +117,25 @@ class GreeterIndex : PluginIndex {
     override fun bindings() = emptyList<Binding<*>>()
 }
 
-fun logged(name: String = "org.unitedsoftware.alexandrite.app", block: () -> Unit): List<String> {
+/** The lines [name] logged while [block] ran, as `LEVEL message`, which [block] sees as they come. */
+fun logged(name: String = "org.unitedsoftware.alexandrite.app", block: (lines: List<String>) -> Unit): List<String> {
     val logger = LoggerFactory.getLogger(name) as Logger
-    val appender = ListAppender<ILoggingEvent>().apply { start() }
-    logger.addAppender(appender)
+    val recorder = LineRecorder().apply { start() }
+    logger.addAppender(recorder)
     try {
-        block()
+        block(recorder.lines)
     } finally {
-        logger.detachAppender(appender)
+        logger.detachAppender(recorder)
     }
-    return appender.list.map { "${it.level} ${it.formattedMessage}" }
+    return recorder.lines.toList()
+}
+
+private class LineRecorder : AppenderBase<ILoggingEvent>() {
+    val lines = CopyOnWriteArrayList<String>()
+
+    override fun append(event: ILoggingEvent) {
+        lines += "${event.level} ${event.formattedMessage}"
+    }
 }
 
 /** Writes [text] to [file] in one step, so that nothing reads it half written. */

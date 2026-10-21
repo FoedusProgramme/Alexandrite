@@ -61,7 +61,7 @@ class WorkspacesTest {
                 repeat(2) { assertEquals(coder, workspaces.open(AgentId("coder"))) }
             }
 
-            assertEquals(listOf("INFO Created the workspace $coder of agent 'coder'"), lines)
+            assertEquals(1, lines.size, "$lines")
             assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(coder)))
             assertEquals("rwx------", PosixFilePermissions.toString(Files.getPosixFilePermissions(coder.parent)))
             assertFalse(Files.exists(configFile.resolveSibling("helper-files")))

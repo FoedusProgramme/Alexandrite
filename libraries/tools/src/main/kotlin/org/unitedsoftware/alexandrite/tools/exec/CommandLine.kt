@@ -1,7 +1,6 @@
 package org.unitedsoftware.alexandrite.tools.exec
 
-/** Thrown for a call that cannot run as given, with what the model is told. */
-internal class CallProblem(override val message: String) : Exception(message)
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 
 /** Splits a command line into words like a shell, without running one. */
 internal object CommandLine {
@@ -9,7 +8,7 @@ internal object CommandLine {
      * [line] split at whitespace outside quotes, with single and double quotes and backslash escapes, a leading
      * unquoted `~` expanded to [home] and nothing else expanded.
      *
-     * Throws [CallProblem] for shell syntax that only a shell would act on.
+     * Throws a [ToolRefusal] for shell syntax that only a shell would act on.
      */
     fun split(line: String, home: String?): List<String> {
         val words = mutableListOf<String>()
@@ -40,7 +39,7 @@ internal object CommandLine {
 
                 c == '\'' -> {
                     val end = line.indexOf('\'', i + 1)
-                    if (end < 0) throw CallProblem(UNTERMINATED)
+                    if (end < 0) throw ToolRefusal(UNTERMINATED)
                     current.append(line, i + 1, end)
                     inWord = true
                     i = end
@@ -57,7 +56,7 @@ internal object CommandLine {
                         current.append(line[i])
                         i++
                     }
-                    if (i >= line.length) throw CallProblem(UNTERMINATED)
+                    if (i >= line.length) throw ToolRefusal(UNTERMINATED)
                     inWord = true
                 }
 
@@ -68,7 +67,7 @@ internal object CommandLine {
                 }
 
                 c == '\\' -> {
-                    if (i + 1 >= line.length) throw CallProblem("The command ends with a lone backslash.")
+                    if (i + 1 >= line.length) throw ToolRefusal("The command ends with a lone backslash.")
                     current.append(line[i + 1])
                     inWord = true
                     i++
@@ -85,7 +84,7 @@ internal object CommandLine {
         return words
     }
 
-    private fun shellSyntax(token: String): CallProblem = CallProblem(
+    private fun shellSyntax(token: String): ToolRefusal = ToolRefusal(
         "The command holds $token, which is shell syntax, but no shell runs it: run one program and set 'cwd' " +
             "instead of using cd; for pipes or redirects pass sh -c '…' explicitly.",
     )

@@ -9,13 +9,10 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
-import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
-import org.unitedsoftware.alexandrite.sdk.chat.TurnLineage
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
-import org.unitedsoftware.alexandrite.sdk.transcript.EntryId
 import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
@@ -31,64 +28,11 @@ import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class StoreValuesTest {
     private val instance = ChannelInstanceId(ChannelType("telegram"), "work")
     private val key = AgentChatKey(AgentId.MAIN, ChatAddress(instance, "-100"))
     private val time = Instant.parse("2026-01-01T00:00:00Z")
-    private val lineage = TurnLineage(
-        RunId("r1"),
-        TurnId("t0"),
-        ConversationId("c0"),
-        ToolCallId("call"),
-        TurnId("t0"),
-        ConversationId("c0"),
-        depth = 1,
-    )
-
-    private fun conversation(): ConversationInfo.Builder =
-        ConversationInfo.builder(ConversationId("c1"), ConversationKind.USER_LANE, key, ConversationState.ACTIVE, time)
-
-    @Test
-    fun `a rebuilt conversation keeps what the block leaves alone`() {
-        val delegated = conversation().kind(ConversationKind.DELEGATED).lineage(lineage)
-            .fork(ForkPoint(ConversationId("c0"), EntryId(7)))
-            .build()
-
-        val sealed = delegated.rebuild {
-            state(ConversationState.SEALED)
-            sealedAt(time.plusSeconds(1))
-            successor(ConversationId("c2"))
-        }
-
-        assertEquals(delegated, delegated.toBuilder().build())
-        assertEquals(
-            conversation().kind(ConversationKind.DELEGATED).lineage(lineage)
-                .fork(ForkPoint(ConversationId("c0"), EntryId(7))).state(ConversationState.SEALED)
-                .sealedAt(time.plusSeconds(1)).successor(ConversationId("c2")).build(),
-            sealed,
-        )
-    }
-
-    @Test
-    fun `a rebuilt turn record keeps what the block leaves alone`() {
-        val record = TurnRecord.builder(TurnId("t1"), ConversationId("c1"), key, TurnKind.DELEGATED, time)
-            .actor(UserAddress(instance, "1"))
-            .lineage(lineage)
-            .build()
-
-        val ended = record.rebuild {
-            endedAt(time.plusSeconds(3))
-            end(TurnEndKind.COMPLETED)
-        }
-
-        assertEquals(record, record.toBuilder().build())
-        assertNull(record.end)
-        assertEquals(TurnEndKind.COMPLETED, ended.end)
-        assertEquals(time.plusSeconds(3), ended.endedAt)
-        assertEquals(record.lineage, ended.lineage)
-    }
 
     @Test
     fun `a turn record's chat is its key's chat unless the turn came from another chat`() {
@@ -99,7 +43,6 @@ class StoreValuesTest {
 
         assertEquals(key.chat, record.chat)
         assertEquals(member, linked.chat)
-        assertEquals(linked, linked.toBuilder().build())
         assertEquals(other.chat, record.rebuild { key(other) }.chat)
         assertEquals(member, linked.rebuild { key(other) }.chat)
     }

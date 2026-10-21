@@ -38,39 +38,18 @@ class ChatValuesTest {
         assertEquals(AgentChatKey(AgentId("coder"), chat), turn().agent(AgentId("coder")).build().key)
         assertEquals(anchor, linked.key)
         assertEquals(chat, linked.chat)
-        assertEquals(linked, linked.toBuilder().build())
         assertEquals(AgentChatKey(AgentId("helper"), chat), turn().build().rebuild { agent(AgentId("helper")) }.key)
         assertFailsWith<IllegalArgumentException> { linked.rebuild { agent(AgentId("helper")) } }
     }
 
     @Test
-    fun `a rebuilt turn keeps what the block leaves alone`() {
-        val lineage = TurnLineage(
-            RunId("r1"),
-            TurnId("t0"),
-            ConversationId("c0"),
-            ToolCallId("call-1"),
-            TurnId("t0"),
-            ConversationId("c0"),
-            depth = 1,
-        )
+    fun `a turn rebuilt under another id keeps the rest, and a lineage has a positive depth`() {
         val turn = turn().actor(operator).language(LanguageTag("en")).build()
 
-        val delegated = turn.rebuild {
-            lineage(lineage)
-            replyTarget(ReplyTarget.CALLER)
-        }
-        val renamed = turn.toBuilder(TurnId("t2"), ConversationId("c2")).build()
-
-        assertEquals(turn, turn.toBuilder().build())
-        assertEquals(
-            turn().actor(operator).language(LanguageTag("en")).lineage(lineage).replyTarget(ReplyTarget.CALLER).build(),
-            delegated,
-        )
         assertEquals(
             TurnInfo.builder(TurnId("t2"), chat, ConversationId("c2"), TurnKind.MESSAGE).actor(operator)
                 .language(LanguageTag("en")).build(),
-            renamed,
+            turn.toBuilder(TurnId("t2"), ConversationId("c2")).build(),
         )
         assertFailsWith<IllegalArgumentException> {
             TurnLineage(RunId("r"), TurnId("p"), ConversationId("c"), null, TurnId("p"), ConversationId("c"), 0)
@@ -85,9 +64,6 @@ class ChatValuesTest {
 
         assertEquals(QuoteTrust.UNTRUSTED, quote.trust)
         assertFalse(quote.external)
-        assertEquals(quote, quote.toBuilder().build())
-        assertEquals("bye", quote.rebuild { text("bye") }.text)
-        assertEquals(operator.address, quote.rebuild { text("bye") }.sender)
         assertFailsWith<IllegalArgumentException> { QuoteTrust(live = false, content = true) }
     }
 

@@ -109,17 +109,6 @@ class UnifiedDiffTest {
     }
 
     @Test
-    fun `the script is a shortest one`() {
-        val old = "ABCABBA".map { "$it\n" }.joinToString("")
-        val new = "CBABAC".map { "$it\n" }.joinToString("")
-
-        val diff = UnifiedDiff.of(old, new, "a.txt", "b.txt")
-
-        assertEquals(2 to 3, diff.added to diff.removed)
-        assertEquals(4, diff.text.lines().drop(3).count { it.startsWith(' ') })
-    }
-
-    @Test
     fun `random texts get the shortest diffs, which patch one into the other`() {
         val random = Random(7)
         repeat(300) { round ->

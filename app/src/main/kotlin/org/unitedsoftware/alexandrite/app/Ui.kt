@@ -52,7 +52,7 @@ internal interface Ui {
     /** One of [choices], the first by default; [unknown] says why a typed answer names none. */
     fun <T> choose(prompt: String, choices: List<Choice<T>>, unknown: (String) -> String): T?
 
-    /** Some of [items] in the order they are picked; null when none is. */
+    /** Some of [items] in the order they are picked, or names typed that match none of them; null when none is. */
     fun pick(prompt: String, items: List<String>, hint: String): List<String>?
 
     /** Runs [work] while [label] says what it waits for. */
@@ -132,6 +132,7 @@ internal class PlainUi(
             val picked = parts.map { part -> part.toIntOrNull()?.let { shown.getOrNull(it - 1) } ?: part }
             if (picked.all { it in items }) return picked.distinct()
             val matching = items.filter { it.contains(answer, ignoreCase = true) }
+            if (matching.isEmpty() && parts.none { it.toIntOrNull() != null }) return picked.distinct()
             if (matching.isEmpty()) out.println(texts("pick.no_match", "answer" to answer)) else shown = matching
         }
         return null

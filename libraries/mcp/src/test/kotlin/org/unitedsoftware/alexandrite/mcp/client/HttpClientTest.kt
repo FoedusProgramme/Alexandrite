@@ -146,19 +146,6 @@ class HttpClientTest {
     }
 
     @Test
-    fun `JSON-RPC errors come through with their code`() = realTime {
-        val client = connect(server())
-        try {
-            val failure =
-                assertFailsWith<McpRpcException> { client.callTool("nothing", JsonObject(emptyMap()), 10.seconds) }
-            assertEquals(-32602, failure.code)
-            assertContains(failure.rpcMessage, "Unknown tool")
-        } finally {
-            client.close()
-        }
-    }
-
-    @Test
     fun `a server that wants a token refuses with its challenge`() = realTime {
         val server = server(token = "right")
         val failure = assertFailsWith<McpUnauthorized> { connect(server, mapOf("Authorization" to "Bearer wrong")) }

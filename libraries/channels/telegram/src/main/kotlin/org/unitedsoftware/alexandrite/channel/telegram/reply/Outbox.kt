@@ -20,11 +20,13 @@ import org.unitedsoftware.alexandrite.channel.telegram.api.SendMessage
 import org.unitedsoftware.alexandrite.channel.telegram.format.FormattedText
 import org.unitedsoftware.alexandrite.channel.telegram.format.formatted
 import org.unitedsoftware.alexandrite.channel.telegram.format.parts
+import org.unitedsoftware.alexandrite.channel.telegram.i18n.TextKeys
 import org.unitedsoftware.alexandrite.channel.telegram.i18n.languageOrNull
 import org.unitedsoftware.alexandrite.channel.telegram.intake.BotSession
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.DeliveryFailure
+import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundFile
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
@@ -76,9 +78,14 @@ internal class Outbox(
         }
     }
 
-    /** Sends [message] to [chat] outside any reply. */
-    suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
-        deliver(chat, formatted(message.text, message.markup), message.replyTo)
+    /**
+     * Sends [message] to [chat] outside any reply, quoting the message it replies to in a group, and in a direct chat
+     * too where the model's reply names it.
+     */
+    suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery {
+        val anyChat = message.kind == MessageKind.REPLY
+        return deliver(chat, formatted(message.text, message.markup), message.replyTo, message.text, anyChat)
+    }
 
     /**
      * Sends [message]'s files to [chat] at the chat's pace, each in a message of its own, the first with the message's
@@ -119,8 +126,8 @@ internal class Outbox(
     }
 
     /**
-     * Sends [parts] to [target] in turn at the chat's pace, each quoting [replyTo], and returns the delivery of the
-     * text whose messages [sent] they follow.
+     * Sends [parts] to [target] in turn at the chat's pace, each quoting [replyTo], then [whole] as a file, and returns
+     * the delivery of the text whose messages [sent] they follow.
      */
     suspend fun sendParts(
         chat: ChatAddress,
@@ -128,17 +135,35 @@ internal class Outbox(
         parts: List<FormattedText>,
         replyTo: Long?,
         sent: List<Long> = emptyList(),
+        whole: OutboundFile? = null,
     ): Delivery {
         val ids = sent.toMutableList()
+        val total = sent.size + parts.size + if (whole == null) 0 else 1
         for (part in parts) {
             try {
                 ids += paced(target) { sendText(target, part, replyTo) }
             } catch (e: BotApiException) {
-                return failed(chat, e).after(ids, sent.size + parts.size)
+                return failed(chat, e).after(ids, total)
+            }
+        }
+        if (whole != null) {
+            try {
+                ids += sendWhole(chat, target, whole)
+            } catch (e: BotApiException) {
+                return failed(chat, e).after(ids, total)
             }
         }
         return Delivery.Delivered(ids.map { ChannelMessageRef(chat, "$it") })
     }
+
+    /** Sends [whole], a text too long for the messages of a reply in [chat], as a file at the chat's pace. */
+    suspend fun sendWhole(chat: ChatAddress, target: Target, whole: OutboundFile): Long {
+        val caption = FormattedText(texts.text(TextKeys.REPLY_FILE, settings.languageOrNull(chat)))
+        return paced(target) { uploaded(target, whole, caption, photo = false) }
+    }
+
+    /** Sends [file] to [target] as a document without pacing, and returns the message's id. */
+    suspend fun sendDocument(target: Target, file: OutboundFile): Long = uploaded(target, file, null, photo = false)
 
     /** Has the message [message] of [target] read [text], without pacing. */
     suspend fun editText(target: Target, message: Long, text: FormattedText) {
@@ -179,14 +204,20 @@ internal class Outbox(
         posting.children.toList().joinAll()
     }
 
-    private suspend fun deliver(chat: ChatAddress, text: FormattedText, replyTo: ChannelMessageRef?): Delivery {
+    private suspend fun deliver(
+        chat: ChatAddress,
+        text: FormattedText,
+        replyTo: ChannelMessageRef?,
+        source: String = text.text,
+        anyChat: Boolean = false,
+    ): Delivery {
         val target = targetOf(chat)
         if (target == null) {
             logger.warn("{} cannot deliver to {}, which names no Telegram chat", instance.id, chat)
             return Delivery.NotDelivered(DeliveryFailure.CHAT_GONE)
         }
-        val parts = partsOf(text) ?: return Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
-        return sendParts(chat, target, parts, target.quoteOf(replyTo))
+        val reply = replyParts(text, source)
+        return sendParts(chat, target, reply.parts, target.quoteOf(replyTo, anyChat), whole = reply.whole)
     }
 
     /** Uploads [file] to [target] as a photo where Telegram takes it as one, else as a document, and returns its id. */
@@ -262,8 +293,16 @@ private fun refusal(files: List<OutboundFile>, caption: FormattedText?): Deliver
     return null
 }
 
-/** The messages [text] takes, null when it takes more than [MAX_PARTS_PER_REPLY]. */
-internal fun partsOf(text: FormattedText): List<FormattedText>? = text.parts().takeIf { it.size <= MAX_PARTS_PER_REPLY }
+/** The messages of a reply, and the whole reply as a file when it takes more than they may. */
+internal class ReplyParts(val parts: List<FormattedText>, val whole: OutboundFile?)
+
+/** The first [MAX_PARTS_PER_REPLY] messages [text] takes, with its [source] as a file when it takes more. */
+internal fun replyParts(text: FormattedText, source: String): ReplyParts {
+    val parts = text.parts()
+    if (parts.size <= MAX_PARTS_PER_REPLY) return ReplyParts(parts, null)
+    val whole = OutboundFile.builder(REPLY_FILE, "text/markdown", source.toByteArray()).asFile(true).build()
+    return ReplyParts(parts.take(MAX_PARTS_PER_REPLY), whole)
+}
 
 /** This failure of a text whose messages [arrived] of [total] reached the chat. */
 private fun Delivery.NotDelivered.after(arrived: List<Long>, total: Int): Delivery.NotDelivered {
@@ -273,6 +312,8 @@ private fun Delivery.NotDelivered.after(arrived: List<Long>, total: Int): Delive
 }
 
 internal const val MAX_PARTS_PER_REPLY = 10
+
+private const val REPLY_FILE = "answer.md"
 
 /** The most bytes of a file that a bot may send. */
 internal const val MAX_UPLOAD_BYTES: Long = 50L * 1024 * 1024

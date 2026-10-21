@@ -16,11 +16,15 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
-/** Where a handler runs the invocation [turn], whose replies are notices in reply to [trigger]. */
+/**
+ * Where a handler runs the invocation [turn], whose replies are notices in reply to [trigger], vouched for when the
+ * agent trusts the command's issuer.
+ */
 internal class AgentCommandContext(
     override val turn: TurnInfo,
     private val trigger: ChannelMessageRef?,
     private val channels: ChannelDirectory,
+    private val vouched: Boolean,
 ) : CommandContext {
     private val sent = LinkedHashMap<ChatAddress, Delivery>()
     private val replied = Collections.synchronizedList(mutableListOf<ReplyRecord>())
@@ -33,7 +37,11 @@ internal class AgentCommandContext(
 
     override suspend fun reply(text: String, markup: Markup, forModel: Boolean): Delivery {
         val chat = turn.chat
-        val message = OutboundMessage.builder(text, MessageKind.NOTICE).markup(markup).replyTo(trigger).build()
+        val message = OutboundMessage.builder(text, MessageKind.NOTICE)
+            .markup(markup)
+            .replyTo(trigger)
+            .vouched(vouched)
+            .build()
         val channel = channels.channel(chat.instance)
         val delivery = if (channel == null) {
             Delivery.NotDelivered(DeliveryFailure.TRANSIENT, "Channel instance ${chat.instance} is closed.")

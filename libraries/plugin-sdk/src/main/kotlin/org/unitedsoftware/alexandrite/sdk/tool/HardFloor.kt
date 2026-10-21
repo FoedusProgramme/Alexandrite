@@ -31,6 +31,9 @@ public interface HardFloor {
      * well when it holds a protected place.
      */
     public fun checkTree(path: Path, agent: AgentId? = null, conversation: ConversationId? = null): FloorCheck
+
+    /** Whether the floor refuses or asks about any place. */
+    public val protectsAnything: Boolean get() = true
 }
 
 /** What the [HardFloor] decided. */

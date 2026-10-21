@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.tools.web
 
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
+import org.unitedsoftware.alexandrite.internal.sandbox.isNonPublicAddress
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import java.io.BufferedInputStream
@@ -56,13 +57,17 @@ internal fun fetchPage(
     exchange: (URI, InetAddress, Int, Int) -> WebResponse = ::exchange,
 ): Pair<URI, String> {
     val allowed = allowedPrivateHosts.map(::normalizeAllowedHost).toSet()
+    val site = checkedHost(start, allowed)
     var uri = start
     val deadline = System.nanoTime() + timeoutMillis * 1_000_000L
     repeat(6) {
         val host = checkedHost(uri, allowed)
         val addresses = resolve(host)
-        require(addresses.isNotEmpty() && (host in allowed || addresses.none(::privateAddress))) {
+        require(addresses.isNotEmpty() && (host in allowed || addresses.none(::isNonPublicAddress))) {
             "Web URL resolves to a non-public network."
+        }
+        require(host == site || (site !in allowed && host !in allowed)) {
+            "Web redirect from $site to $host leaves or reaches an allowed private host."
         }
         val remaining = ((deadline - System.nanoTime()) / 1_000_000L).coerceAtMost(timeoutMillis.toLong()).toInt()
         require(remaining > 0) { "Web fetch timed out." }
@@ -116,36 +121,6 @@ private fun parsedHost(uri: URI): String {
     require(host.isNotBlank() && !host.endsWith('.') && '%' !in host) { "Invalid web host." }
     require(uri.port == -1 || uri.port in 1..65535) { "Invalid web port." }
     return host
-}
-
-internal fun privateAddress(address: InetAddress): Boolean {
-    if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
-        address.isSiteLocalAddress || address.isMulticastAddress
-    ) {
-        return true
-    }
-    val b = address.address.map { it.toInt() and 255 }
-    if (b.size == 4) {
-        val (first, second, third) = b
-        return first == 0 || first == 10 || first == 127 || first >= 224 ||
-            (first == 100 && second in 64..127) || (first == 169 && second == 254) ||
-            (first == 172 && second in 16..31) ||
-            (
-                first == 192 && (
-                    (
-                        second == 0 && third in setOf(
-                            0,
-                            2,
-                        )
-                        ) || second == 168 || (second == 88 && third == 99)
-                    )
-                ) ||
-            (first == 198 && (second in 18..19 || (second == 51 && third == 100))) ||
-            (first == 203 && second == 0 && third == 113)
-    }
-    return b.size != 16 || b[0] !in 0x20..0x3f ||
-        (b[0] == 0x20 && b[1] == 0x01 && (b[2] < 2 || (b[2] == 0x0d && b[3] == 0xb8))) ||
-        (b[0] == 0x20 && b[1] == 0x02)
 }
 
 internal class WebResponse(val status: Int, val headers: Map<String, String>, val body: ByteArray)
@@ -239,8 +214,9 @@ internal fun response(input: InputStream, maxBytes: Int, beforeRead: () -> Unit 
     while (true) {
         val field = line().takeIf(String::isNotEmpty) ?: break
         val name = field.substringBefore(':').trim().lowercase()
-        require(':' in field && name !in headers) { "Invalid or duplicate HTTP header." }
-        headers[name] = field.substringAfter(':').trim()
+        require(':' in field && (name !in headers || name !in SINGLE_HEADERS)) { "Invalid or duplicate HTTP header." }
+        val value = field.substringAfter(':').trim()
+        headers[name] = headers[name]?.let { "$it, $value" } ?: value
     }
     if (status !in 200..299) return WebResponse(status, headers, byteArrayOf())
     require(
@@ -342,3 +318,6 @@ private fun withoutHiddenHtml(html: String): String = buildString {
         }
     }
 }
+
+/** The headers whose repetition makes a response ambiguous. */
+private val SINGLE_HEADERS = setOf("content-length", "transfer-encoding", "content-encoding", "location")

@@ -74,6 +74,9 @@ internal class SentMessages(records: Records, private val conversations: Convers
 
 /** The messages sent to a conversation's chat, with the unstored entry that tells the model about them. */
 internal class SentComparison(val messages: List<SentMessage>, zone: ZoneId) {
+    /** Why the messages taint the conversation they reach, null when none came from a tainted one. */
+    val taint: String? = messages.firstNotNullOfOrNull { it.taint }
+
     val notice: UserEntry = UserEntry(
         null,
         listOf(ContextPart(SENT_SOURCE, sentFraming(messages, zone))),
@@ -97,9 +100,12 @@ internal fun sentFraming(messages: List<SentMessage>, zone: ZoneId): String = bu
 @Serializable
 internal data class SentRecord(val messages: List<SentMessage> = emptyList())
 
-/** [text] sent at the ISO-8601 instant [at] from [from], such as "a heartbeat" or "chat telegram:main:1". */
+/**
+ * [text] sent at the ISO-8601 instant [at] from [from], such as "a heartbeat" or "chat telegram:main:1", with why it
+ * taints the conversation it reaches, null when it came from a clean one.
+ */
 @Serializable
-internal data class SentMessage(val at: String, val from: String, val text: String) {
+internal data class SentMessage(val at: String, val from: String, val text: String, val taint: String? = null) {
     /** This message with its text cut to [MAX_TEXT_CHARS]. */
     fun cut(): SentMessage =
         if (text.length <= MAX_TEXT_CHARS) this else copy(text = "${text.take(MAX_TEXT_CHARS)} [cut]")

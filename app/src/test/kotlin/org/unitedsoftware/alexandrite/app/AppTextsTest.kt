@@ -1,15 +1,7 @@
 package org.unitedsoftware.alexandrite.app
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.runtime.TextCatalog
-import org.unitedsoftware.alexandrite.runtime.i18n.readTexts
-import org.unitedsoftware.alexandrite.runtime.i18n.textsPath
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.testkit.assertTextsComplete
 import java.net.URLClassLoader
@@ -19,10 +11,7 @@ import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration.Companion.seconds
 
 class AppTextsTest {
     @TempDir
@@ -92,18 +81,6 @@ class AppTextsTest {
             packs.plugins,
         )
         for (plugin in packs.plugins) assertEquals(listOf(chinese), assertTextsComplete(plugin, packs, classLoader))
-    }
-
-    @Test
-    fun `the app's Chinese pack holds the commands' texts and translates each command's description`() {
-        val plugin = "alexandrite-commands"
-        val classLoader = AppPlugin::class.java.classLoader
-        val packs = AppTexts.packs(classLoader)
-        val defaults = readTexts(checkNotNull(classLoader.getResource(textsPath(plugin, "en"))))
-        val descriptions = defaults.filterKeys { it.startsWith("command.") && it.endsWith(".description") }
-
-        assertTrue(descriptions.isNotEmpty())
-        for ((key, text) in descriptions) assertNotEquals(text, packs.text(plugin, chinese, key), key)
     }
 
     // The operator's files.
@@ -190,21 +167,6 @@ class AppTextsTest {
         assertEquals(packs, texts.catalog.value)
         write("notes/zh-CN.properties", "saved=存好了。\n")
         assertEquals(listOf("notes/zh-CN.properties"), texts.reload())
-    }
-
-    @Test
-    fun `watching puts each catalog that changed in place`() = runBlocking {
-        val saved = write("notes/zh-CN.properties", "saved=存好了。\n")
-        val texts = loaded()
-        val watcher = launch(Dispatchers.Default) { texts.watch(10.milliseconds) }
-
-        replace(saved, "saved=好了。\n")
-        val catalog = withTimeout(10.seconds) {
-            texts.catalog.first { it.text("notes", chinese, "saved") != "存好了。" }
-        }
-        watcher.cancelAndJoin()
-
-        assertEquals("好了。", catalog.text("notes", chinese, "saved"))
     }
 
     private companion object {

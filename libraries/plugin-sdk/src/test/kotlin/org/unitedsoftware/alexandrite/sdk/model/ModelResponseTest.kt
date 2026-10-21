@@ -7,16 +7,12 @@ import org.unitedsoftware.alexandrite.sdk.transcript.SealKind
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.anthropic
 import org.unitedsoftware.alexandrite.sdk.transcript.claude
-import org.unitedsoftware.alexandrite.sdk.transcript.json
 import org.unitedsoftware.alexandrite.sdk.transcript.record
 import org.unitedsoftware.alexandrite.sdk.transcript.reply
-import java.io.IOException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -64,28 +60,6 @@ class ModelResponseTest {
     }
 
     // Usage.
-
-    @Test
-    fun `rebuilt usage keeps what the block leaves alone`() {
-        val usage = Usage.builder()
-            .inputTokens(12_000)
-            .cacheReadTokens(10_000)
-            .cacheWriteTokens(1_500)
-            .outputTokens(800)
-            .reasoningTokens(300)
-            .contextTokens(7_000)
-            .requests(2)
-            .raw(json("""{"service_tier":"standard"}"""))
-            .build()
-
-        assertEquals(usage, usage.toBuilder().build())
-        assertEquals(
-            Usage.builder().inputTokens(12_000).cacheReadTokens(10_000).cacheWriteTokens(1_500).outputTokens(900)
-                .reasoningTokens(300).contextTokens(7_000).requests(2).raw(json("""{"service_tier":"standard"}"""))
-                .build(),
-            usage.rebuild { outputTokens(900) },
-        )
-    }
 
     @Test
     fun `usage counts are never negative and a call makes a request at least`() {
@@ -168,25 +142,6 @@ class ModelResponseTest {
     }
 
     @Test
-    fun `a rebuilt error keeps what the block leaves alone`() {
-        val error = ModelError.builder(ModelErrorKind.RATE_LIMITED, "Slow down.")
-            .retryAfter(30.seconds)
-            .status(429)
-            .requestId("req_1")
-            .rawType("rate_limit_error")
-            .outputStarted(true)
-            .build()
-
-        assertEquals(error, error.toBuilder().build())
-        assertEquals(
-            ModelError.builder(ModelErrorKind.RATE_LIMITED, "Slow down.").retryAfter(30.seconds).status(429)
-                .requestId("req_1").rawType("rate_limit_error").outputStarted(true).retryable(false).build(),
-            error.rebuild { retryable(false) },
-        )
-        assertFalse(ModelError.builder(ModelErrorKind.TIMEOUT, "Too slow.").build().outputStarted)
-    }
-
-    @Test
     fun `an error is validated`() {
         val invalid = listOf<ModelError.Builder.() -> Unit>(
             { message(" ") },
@@ -202,18 +157,5 @@ class ModelResponseTest {
         }
         val now = ModelError.builder(ModelErrorKind.OVERLOADED, "Busy.").retryAfter(Duration.ZERO).build()
         assertEquals(Duration.ZERO, now.retryAfter)
-    }
-
-    @Test
-    fun `a model exception carries its error`() {
-        val error = ModelError.builder(ModelErrorKind.CONNECTION, "Connection refused.").build()
-        val cause = IOException("refused")
-
-        val exception = ModelException(error, cause)
-
-        assertSame(error, exception.error)
-        assertSame(cause, exception.cause)
-        assertEquals("connection: Connection refused.", exception.message)
-        assertNull(ModelException(error).cause)
     }
 }

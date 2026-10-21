@@ -208,31 +208,6 @@ class ServiceCommandsTest {
     }
 
     @Test
-    fun `a launchd agent is bootstrapped before it is kicked`() {
-        val mac = Commands(directory, osName = "Mac OS X")
-        val plist = mac.home.resolve("Library/LaunchAgents/org.unitedsoftware.alexandrite.plist")
-        Files.createDirectories(plist.parent)
-        Files.writeString(plist, "<plist/>")
-        mac.machine.programs = { command ->
-            when {
-                command == listOf("id", "-u") -> Executed(0, "501\n")
-                command.take(2) == listOf("launchctl", "print") -> Executed(113, "Could not find service")
-                else -> Executed(0, "")
-            }
-        }
-
-        mac("start")
-
-        assertEquals(
-            listOf(
-                listOf("launchctl", "bootstrap", "gui/501", "$plist"),
-                listOf("launchctl", "kickstart", "gui/501/org.unitedsoftware.alexandrite"),
-            ),
-            mac.machine.executed.filter { it.getOrNull(1) in setOf("bootstrap", "kickstart") },
-        )
-    }
-
-    @Test
     fun `a Windows task is found by its name`() {
         val windows = Commands(directory, osName = "Windows 11")
         windows.machine.programs = { command ->

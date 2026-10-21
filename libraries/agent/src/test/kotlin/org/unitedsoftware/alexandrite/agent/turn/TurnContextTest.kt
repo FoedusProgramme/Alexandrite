@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.agent.turn
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.execute
-import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
 import org.unitedsoftware.alexandrite.sdk.model.Trust
@@ -92,13 +91,9 @@ class TurnContextTest {
             val hook = Interceptor(TurnPoints.CONTEXT_INJECT) { context ->
                 HookDecision.Replace((case.items ?: all).fold(context, TurnContext::plus))
             }
-            lateinit var admission: Admission.Accepted
 
-            val lines = logged {
-                agentHarness(config, store) { channel().model(model).hook(hook) }.execute {
-                    admission = channel().receive("Hi") as Admission.Accepted
-                    admission.ticket.outcome()
-                }
+            agentHarness(config, store) { channel(operators = setOf("operator")).model(model).hook(hook) }.execute {
+                (channel().receive("Hi", sender = channel().user("operator")) as Admission.Accepted).ticket.outcome()
             }
 
             val name = "trusted ${case.trusted}, untrusted ${case.untrusted}"
@@ -110,8 +105,6 @@ class TurnContextTest {
             val baked = case.baked.map { ContextPart(it.source, it.text) }
             assertEquals(baked + TextPart("Hi"), opening.parts.drop(1), name)
             assertEquals(opening.parts, (stored.first() as UserEntry).parts, name)
-            val taint = "DEBUG Turn ${admission.ticket.turn} of $key is tainted: untrusted turn context"
-            assertEquals(case.tainted, taint in lines, name)
             val mark = blocking { store.conversations.taint(store.conversations.current(key).id) }
             assertEquals("untrusted turn context".takeIf { case.tainted }, mark?.reason, name)
         }

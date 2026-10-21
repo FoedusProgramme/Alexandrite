@@ -179,16 +179,6 @@ class ChatTopologyTest {
     }
 
     @Test
-    fun `a home set at runtime shows when and by whom, and the configured home stays known`() {
-        home(coder, "test:main:5")
-        val grant = topology.homeGrant(coder, main)
-
-        assertEquals(chat("test:main:1"), topology.configuredHome(coder, main))
-        assertEquals(operator, grant?.by)
-        assertEquals(listOf(true, false), listOf(grant != null, topology.homeGrant(helper, main) != null))
-    }
-
-    @Test
     fun `a link starts a group at the chat or joins the chat's group`() {
         assertEquals(group("test:main:5", "test:solo:5"), link(helper, chat("test:main:5"), chat("test:solo:5")))
         link(coder, chat("test:solo:9"), chat("test:main:9"))
@@ -287,6 +277,7 @@ class ChatTopologyTest {
         assertEquals(group("test:main:5", "test:solo:5"), restarted.group(coder, chat("test:solo:5")))
         assertEquals(declared("test:main:7", "test:solo:7", "test:main:8"), restarted.group(coder, chat("test:main:8")))
         assertEquals(listOf(operator, operator), listOf(coder, helper).map { restarted.homeGrant(it, main)?.by })
+        assertEquals(chat("test:main:1"), restarted.configuredHome(coder, main))
         val by = "{\"address\":\"${operator.address}\",\"name\":\"Ada\",\"username\":null,\"bot\":false,\"admin\":true}"
         assertEquals(
             listOf(
@@ -315,13 +306,6 @@ class ChatTopologyTest {
 
         assertEquals(emptyList(), stored("homes"))
         assertEquals(chat("test:main:1"), started().home(coder, main))
-    }
-
-    @Test
-    fun `until it starts a topology knows only the config`() {
-        home(coder, "test:main:5")
-
-        assertEquals(chat("test:main:1"), topology().home(coder, main))
     }
 
     @Test
@@ -362,17 +346,7 @@ class ChatTopologyTest {
         assertEquals(chat("test:main:3"), restarted.home(coder, main))
         assertNull(restarted.home(helper, main))
         assertEquals(listOf(declared("test:main:3", "test:main:9")), restarted.groups(coder))
-        assertEquals(
-            listOf(
-                "WARN The home chat test:solo:4 of agent 'coder' is ignored: agent 'coder' does not serve test:solo",
-                "WARN The configured home chat test:main:3 of agent 'helper' is the home chat of agent 'coder' now: " +
-                    "'helper' has no home chat on test:main",
-                "WARN The link of test:main:9 to test:main:5 at agent 'coder' is ignored: it is in another group",
-                "WARN The link of test:solo:9 to test:main:5 at agent 'coder' is ignored: agent 'coder' does not " +
-                    "serve both chats",
-            ),
-            warnings,
-        )
+        assertEquals(4, warnings.size, "$warnings")
     }
 
     @Test

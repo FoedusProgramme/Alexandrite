@@ -28,18 +28,13 @@ class TokenEstimatorTest {
     // Text.
 
     @Test
-    fun `chinese text counts more tokens than as many ascii characters`() {
-        val chinese = TokenEstimator.estimate("你好世界你好世界")
-        val ascii = TokenEstimator.estimate("abcdefgh")
-
-        assertEquals(5, chinese)
-        assertEquals(2, ascii)
-        assertTrue(ascii <= chinese)
-    }
-
-    @Test
-    fun `ascii, cjk and other characters each count at their own rate, rounded up`() {
+    fun `ascii, cjk and other characters each count at their own rate, rounded up, and blank text at none`() {
         val cases = listOf(
+            "" to 0,
+            "   \t\n  " to 0,
+            "你" to 1,
+            "abcdefgh" to 2,
+            "你好世界你好世界" to 5,
             "Hello" to 2,
             "Hello world, this is a test." to 7,
             "你好世界" to 3,
@@ -52,13 +47,6 @@ class TokenEstimatorTest {
         )
 
         assertEquals(cases.map { it.second }, cases.map { TokenEstimator.estimate(it.first) })
-    }
-
-    @Test
-    fun `empty and blank text take no tokens, and a single ideograph at least one`() {
-        assertEquals(0, TokenEstimator.estimate(""))
-        assertEquals(0, TokenEstimator.estimate("   \t\n  "))
-        assertEquals(1, TokenEstimator.estimate("你"))
     }
 
     @Test

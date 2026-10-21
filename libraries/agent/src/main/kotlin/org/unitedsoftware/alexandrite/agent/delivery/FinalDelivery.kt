@@ -27,12 +27,14 @@ internal fun replyMessage(
     capabilities: ChannelCapabilities?,
     trigger: ChannelMessageRef?,
     conversation: ConversationId,
+    vouched: Boolean,
 ): OutboundMessage {
     val markdown = capabilities?.markups.orEmpty().contains(Markup.MARKDOWN)
     return OutboundMessage.builder(text, MessageKind.REPLY)
         .markup(if (markdown) Markup.MARKDOWN else Markup.PLAIN)
         .replyTo(trigger)
         .conversation(conversation)
+        .vouched(vouched)
         .build()
 }
 

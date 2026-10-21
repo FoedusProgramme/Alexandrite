@@ -133,7 +133,7 @@ seal() {
     cp "$release/SHA256SUMS" "$RELEASES/latest/download/SHA256SUMS"
 }
 
-# Publishes a fake release $1 whose commands behave as $2 says: ok, badcheck, nocheck, notready, old.
+# Publishes a fake release $1 whose commands behave as $2 says: ok, badcheck, notready.
 publish() {
     version=$1
     distribution=$case_dir/stage/alexandrite-$version
@@ -145,19 +145,10 @@ echo "app $version \$*" >>"\$CALLS"
 case "\$1" in
     --version) echo "alexandrite $version" ;;
     config)
-        case \$kind in
-            nocheck | old) echo "alexandrite: Unknown command config." >&2 && exit 64 ;;
-        esac
         if [ "\$2" = path ]; then echo "\$HOME/.config/alexandrite/alexandrite.json" && exit 0; fi
         if [ "\$kind" = badcheck ]; then echo "config: the endpoint is unknown" >&2 && exit 78; fi
         ;;
-    status)
-        case \$kind in
-            notready) exit 69 ;;
-            old) echo "alexandrite: Unknown command status." >&2 && exit 64 ;;
-        esac
-        ;;
-    pairings) [ "\$kind" != notready ] || exit 69 ;;
+    status) [ "\$kind" != notready ] || exit 69 ;;
 esac
 EOF
     chmod 755 "$distribution/bin/alexandrite"
@@ -326,26 +317,9 @@ case_upgrades_keeps_two_and_rolls_back() {
     expect_eq "$(versions)" "1.1.0 1.2.0 " "versions after a rollback"
     expect_eq "$(restarts)" 4 "service restarts after a rollback"
 
-    publish 1.6.0 nocheck
-    refuses --update
-    expect_contains "$(cat "$LOG")" "has no 'config check'" "a release without config check"
-    expect_eq "$(current)" "versions/1.2.0" "current after a release without config check"
-
     installs --update --version 1.1.0
     expect_eq "$(current)" "versions/1.1.0" "a pinned older version"
     expect_eq "$(previous)" "versions/1.2.0" "previous after a pinned older version"
-}
-
-case_updates_versions_before_config_check() {
-    fresh old
-    publish 0.0.1 old
-    installs --no-init
-    service_on
-    publish 0.0.2 old
-    installs --update
-    expect_eq "$(current)" "versions/0.0.2" "update"
-    expect_contains "$(cat "$LOG")" "has no 'config check'; the config is checked when it starts" "the note"
-    expect_contains "$(calls)" "app 0.0.2 pairings" "the readiness probe"
 }
 
 case_goes_on_when_both_versions_fail_the_config_check() {
@@ -509,7 +483,6 @@ for test_case in \
     case_runs_on_a_downloaded_runtime \
     case_refuses_a_runtime_with_a_wrong_checksum \
     case_upgrades_keeps_two_and_rolls_back \
-    case_updates_versions_before_config_check \
     case_goes_on_when_both_versions_fail_the_config_check \
     case_update_needs_an_installation \
     case_speaks_chinese \

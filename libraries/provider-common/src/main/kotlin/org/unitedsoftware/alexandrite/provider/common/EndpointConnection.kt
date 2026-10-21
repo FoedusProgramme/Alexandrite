@@ -8,23 +8,12 @@ import java.net.URI
  * The HTTP side of one endpoint, which sends the API key of [settings] in its [EndpointSettings.authHeader], else in
  * [authHeader], and the headers [own] with every request.
  */
-internal class EndpointConnection(
-    settings: EndpointSettings,
-    own: Map<String, String>,
-    authHeader: String,
-    /** Headers that the endpoint sets on some requests itself. */
-    providerHeaders: Set<String>,
-) : AutoCloseable {
+internal class EndpointConnection(settings: EndpointSettings, own: Map<String, String>, authHeader: String) :
+    AutoCloseable {
     val base: String = settings.baseUrl.trimEnd('/')
     private val own = auth(settings, settings.authHeader ?: authHeader) + own
     private val headers = settings.headers.entries.associate { it.key.lowercase() to it.value.reveal() }
     private val secrets = listOfNotNull(settings.apiKey?.reveal()) + headers.values
-
-    init {
-        val set = (this.own.keys + providerHeaders).map { it.lowercase() }
-        headers.keys.firstOrNull { it in set }
-            ?.let { throw IllegalArgumentException("headers may not set $it, which the provider sets itself") }
-    }
 
     val transport: HttpTransport = HttpTransport(settings.timeouts.timeouts())
 

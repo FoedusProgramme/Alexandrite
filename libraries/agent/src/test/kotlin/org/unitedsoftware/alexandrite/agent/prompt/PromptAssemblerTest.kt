@@ -32,13 +32,11 @@ class PromptAssemblerTest {
             "coder": {
               "name": "Coder",
               "description": "Codes.",
-              "instructions": ["Be brief."],
-              "tools": {"deny": ["persona.edit"]}
+              "instructions": ["Be brief."]
             },
             "helper": {
               "description": "Helps.",
-              "instructionFiles": [{"file": "private.md", "when": ["direct"]}],
-              "tools": {"deny": ["persona.edit"]}
+              "instructionFiles": [{"file": "private.md", "when": ["direct"]}]
             }
           }
         }
@@ -51,7 +49,7 @@ class PromptAssemblerTest {
         Files.setLastModifiedTime(file, FileTime.from(Instant.parse(modified)))
     }
 
-    private fun PromptSection.line(): String = "$id: ${if (id == BASE_SECTION) text.lineSequence().first() else text}"
+    private fun PromptSection.line(): String = "$id: ${if (id == BASE_SECTION) text.substringBefore('.') else text}"
 
     @Test
     fun `a turn gets the base section, the agent's instructions and the chat's language, in that order`() {
@@ -66,8 +64,7 @@ class PromptAssemblerTest {
             val sections = assembler.sections(coder, ChatKind.GROUP)
             assertEquals(
                 listOf(
-                    "alexandrite.base: You are Coder. You talk with people in chats through Alexandrite, which " +
-                        "passes their messages to you and your replies back to them.",
+                    "alexandrite.base: You are Coder",
                     "agent.instructions.1: Be brief.",
                     "agent.instructions.2: Read the code first.",
                     "chat.language: Answer in zh-CN unless the user writes in another language.",
@@ -77,8 +74,7 @@ class PromptAssemblerTest {
             assertEquals(true, sections.all { it.stable })
             assertEquals(
                 listOf(
-                    "alexandrite.base: You are helper. You talk with people in chats through Alexandrite, which " +
-                        "passes their messages to you and your replies back to them.",
+                    "alexandrite.base: You are helper",
                     "agent.instructions.1: The operator likes tea.",
                 ),
                 assembler.sections(helper, ChatKind.DIRECT).map { it.line() },
@@ -121,22 +117,6 @@ class PromptAssemblerTest {
             assertEquals(workspaceSection(Path.of("/srv/coder")), sections[1])
             assertEquals(conversationDirectorySection(conversationDirectory), sections[2])
             assertEquals(listOf(BASE_SECTION), assembler.sections(helper, ChatKind.DIRECT).map { it.id })
-        }
-    }
-
-    @Test
-    fun `a turn gets an instruction file as it is when the turn starts`() {
-        write("agents/coder/PERSONA.md", "Read the code first.", "2026-01-01T00:00:00Z")
-        write("private.md", "The operator likes tea.", "2026-01-01T00:00:00Z")
-
-        agentHarness(config) { configFile(directory.resolve("alexandrite.json")) }.execute {
-            val assembler = get<PromptAssembler>()
-            val turn = testTurn { agent(AgentId("coder")) }
-            suspend fun instructions() = assembler.sections(turn, ChatKind.DIRECT).drop(1).map { it.text }
-
-            assertEquals(listOf("Be brief.", "Read the code first."), instructions())
-            write("agents/coder/PERSONA.md", "Run the tests first.", "2026-01-02T00:00:00Z")
-            assertEquals(listOf("Be brief.", "Run the tests first."), instructions())
         }
     }
 }

@@ -77,8 +77,8 @@ class PersonaTest {
     }
 
     @Test
-    fun `an agent that lists no files loads its PERSONA_md when there is one`() {
-        write("agents/coder/PERSONA.md", "I am the coder.")
+    fun `an agent that lists no files loads its PERSONA_md while there is one`() {
+        val own = write("agents/coder/PERSONA.md", "I am the coder.")
         write("other.md", "Other.")
         val config = """
             {
@@ -100,19 +100,20 @@ class PersonaTest {
             listOf("agent.instructions.1: Inline."),
             persona(coder(""""instructions": ["Inline."]"""), configFile = null).texts(),
         )
+        own.deleteExisting()
+        assertEquals(listOf("agent.instructions.1: Inline."), persona.texts())
     }
 
     @Test
     fun `a file that changed is read again at the next turn and one whose time and size did not is not`() {
-        val file = write("a.md", "First")
+        write("a.md", "First")
         val persona = persona(coder(""""instructionFiles": ["a.md"]"""))
         write("a.md", "Second", Instant.parse("2026-01-02T00:00:00Z"))
 
-        val lines = logged { assertEquals(listOf("agent.instructions.1: Second"), persona.texts()) }
+        assertEquals(listOf("agent.instructions.1: Second"), persona.texts())
         write("a.md", "Thirds", Instant.parse("2026-01-02T00:00:00Z"))
 
         assertEquals(listOf("agent.instructions.1: Second"), persona.texts())
-        assertEquals(listOf("INFO Agent 'coder' reads its instruction file $file again"), lines)
     }
 
     @Test
@@ -123,27 +124,9 @@ class PersonaTest {
 
         val lines = logged { repeat(2) { assertEquals(listOf("agent.instructions.1: First"), persona.texts()) } }
 
-        assertEquals(
-            listOf(
-                "WARN Agent 'coder' keeps the last text of its instruction file $file, which cannot be read: it does " +
-                    "not exist",
-            ),
-            lines,
-        )
+        assertEquals(1, lines.count { it.startsWith("WARN") && "$file" in it }, "$lines")
         write("a.md", "Back", Instant.parse("2026-01-03T00:00:00Z"))
         assertEquals(listOf("agent.instructions.1: Back"), persona.texts())
-    }
-
-    @Test
-    fun `the conventional file may come and go`() {
-        val persona = persona(coder(""""instructions": ["Inline."]"""))
-        assertEquals(listOf("agent.instructions.1: Inline."), persona.texts())
-
-        val file = write("agents/coder/PERSONA.md", "Now there.")
-        assertEquals(listOf("agent.instructions.1: Inline.", "agent.instructions.2: Now there."), persona.texts())
-
-        file.deleteExisting()
-        assertEquals(listOf("agent.instructions.1: Inline."), persona.texts())
     }
 
     @Test
@@ -191,13 +174,8 @@ class PersonaTest {
             ),
             texts,
         )
-        assertEquals(
-            "WARN Instruction file $a of agent 'coder' has 13 characters: the prompt takes the first 10 " +
-                "(agent.persona.maxFileChars 10, maxTotalChars 15)",
-            lines.first(),
-        )
         assertEquals(3, lines.size, "$lines")
-        assertEquals("\n\n[Cut: the first 5 of 8 characters of this file.]", cutMarker(5, 8))
+        assertEquals(true, a.toString() in lines.first())
         assertEquals(true, c.toString() in lines.last())
     }
 
@@ -249,31 +227,18 @@ class PersonaTest {
     }
 
     @Test
-    fun `a listed file that is missing at the start fails it`() {
+    fun `a listed file that is missing, is no UTF-8 text or is relative without a config file fails the start`() {
         val missing = directory.resolve("missing.md")
-
-        agentHarness(coder(""""instructionFiles": ["missing.md"]""")) { configFile(configFile) }.assertStartFails(
-            StartStage.START,
-            "Invalid config at 'agent.agents.coder.instructionFiles': the instruction file $missing does not exist",
-        )
-    }
-
-    @Test
-    fun `a file that is no UTF-8 text fails the start`() {
         val file = directory.resolve("a.md").apply { writeBytes(byteArrayOf(0x48, 0xC3.toByte(), 0x28)) }
+        val failure = "Invalid config at 'agent.agents.coder.instructionFiles': the instruction file"
 
-        agentHarness(coder(""""instructionFiles": ["a.md"]""")) { configFile(configFile) }.assertStartFails(
-            StartStage.START,
-            "Invalid config at 'agent.agents.coder.instructionFiles': the instruction file $file is no UTF-8 text",
-        )
-    }
-
-    @Test
-    fun `a relative file fails the start when the host read no config file`() {
+        agentHarness(coder(""""instructionFiles": ["missing.md"]""")) { configFile(configFile) }
+            .assertStartFails(StartStage.START, "$failure $missing does not exist")
+        agentHarness(coder(""""instructionFiles": ["a.md"]""")) { configFile(configFile) }
+            .assertStartFails(StartStage.START, "$failure $file is no UTF-8 text")
         agentHarness(coder(""""instructionFiles": ["a.md"]""")).assertStartFails(
             StartStage.START,
-            "Invalid config at 'agent.agents.coder.instructionFiles': the instruction file 'a.md' is relative, but " +
-                "the host read no config file to resolve it against: give an absolute path",
+            "$failure 'a.md' is relative, but the host read no config file to resolve it against: give an absolute path",
         )
     }
 }

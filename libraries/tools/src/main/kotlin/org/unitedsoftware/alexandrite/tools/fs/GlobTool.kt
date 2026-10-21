@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -43,7 +44,7 @@ internal class GlobTool(private val floor: HardFloor) : ReviewedTool {
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
         floor.readReview(arguments.string("path"), context)
-    } catch (e: Refusal) {
+    } catch (e: ToolRefusal) {
         CallReview.builder().build()
     }
 
@@ -57,7 +58,7 @@ internal class GlobTool(private val floor: HardFloor) : ReviewedTool {
     private fun glob(glob: Glob, pattern: String, path: Path, context: ToolContext): ToolResult {
         val start = floor.readRoot(path, context)
         val root = start.canonical
-        if (!attributes(root).isDirectory) throw Refusal("$path is no directory: give a directory as 'path'.")
+        if (!attributes(root).isDirectory) throw ToolRefusal("$path is no directory: give a directory as 'path'.")
         context.touched(root)
         val walk = TreeWalk(floor, context.turn.agent, context.turn.rootConversation, asked = start.asked)
         val matches = mutableListOf<String>()

@@ -65,14 +65,18 @@ class HostPatternTest {
     }
 
     @Test
-    fun `loopback, private, link-local, shared and unspecified addresses are local`() {
+    fun `loopback, private, link-local, shared and unspecified addresses are local, reserved ones only not public`() {
         val local = listOf(
             "127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.0.1", "169.254.169.254", "100.64.0.1",
             "0.0.0.0", "::1", "fe80::1", "fd00::1",
         )
-        val public = listOf("93.184.216.34", "100.128.0.1", "2001:db8::1")
+        val reserved = listOf("2001:db8::1", "2002::1", "192.0.2.1")
+        val public = listOf("93.184.216.34", "100.128.0.1", "198.18.6.28", "2606:4700::1111")
+        val address = { name: String -> InetAddress.getByName(name) }
 
-        assertEquals(local.map { true }, local.map { isLocalAddress(InetAddress.getByName(it)) })
-        assertEquals(public.map { false }, public.map { isLocalAddress(InetAddress.getByName(it)) })
+        assertEquals(local.map { true }, local.map { isLocalAddress(address(it)) })
+        assertEquals((reserved + public).map { false }, (reserved + public).map { isLocalAddress(address(it)) })
+        assertEquals((local + reserved).map { true }, (local + reserved).map { isNonPublicAddress(address(it)) })
+        assertEquals(public.map { false }, public.map { isNonPublicAddress(address(it)) })
     }
 }

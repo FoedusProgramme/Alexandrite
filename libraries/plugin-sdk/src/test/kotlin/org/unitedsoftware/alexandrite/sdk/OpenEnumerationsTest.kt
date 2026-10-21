@@ -2,8 +2,6 @@ package org.unitedsoftware.alexandrite.sdk
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializerOrNull
-import org.unitedsoftware.alexandrite.sdk.store.ConversationKind
-import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import java.lang.reflect.Modifier
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -18,14 +16,8 @@ class OpenEnumerationsTest {
     }
 
     @Test
-    fun `the SDK has open enumerations`() {
-        assertTrue(enumerations.size >= 20, "$enumerations")
-        assertTrue(MediaKind::class.java in enumerations)
-        assertTrue(ConversationKind::class.java in enumerations)
-    }
-
-    @Test
     fun `every open enumeration lists its constants in entries`() {
+        assertTrue(enumerations.size >= 20, "$enumerations")
         for (type in enumerations) {
             val companion = companion(type)
             val constants = companion.javaClass.declaredMethods

@@ -140,7 +140,7 @@ internal class McpServer(
 
     /** Calls the server's tool [tool] with [arguments] for [context]. */
     suspend fun call(tool: String, arguments: JsonObject, context: ToolContext): ToolResult {
-        val active = session ?: return unavailable()
+        val active = session ?: return unavailable(context)
         val outcome = try {
             active.client.callTool(tool, arguments, spec.timeout)
         } catch (e: CancellationException) {
@@ -177,9 +177,11 @@ internal class McpServer(
             answered(active)
             return error("MCP server ${spec.name} refused the call: $message (${e.code}).")
         } catch (e: McpConnectionException) {
+            taint(context)
             active.broken.complete(e)
             return error("MCP server ${spec.name} went down during the call: ${e.message}")
         } catch (e: McpException) {
+            taint(context)
             val status = serverError(e)
             if (status != null) {
                 return serverFailed(active, status, "MCP server ${spec.name} failed the call with HTTP $status.")
@@ -418,11 +420,13 @@ internal class McpServer(
     private fun loginHint(): String =
         "An operator must send /mcp login ${spec.name} in a direct chat with the bot, then try again."
 
-    private fun unavailable(): ToolResult {
+    /** Why the call for [context] did not run, which the server's last error taints. */
+    private fun unavailable(context: ToolContext): ToolResult {
         val status = current.value
         if (status.state == ServerState.NEEDS_LOGIN) {
             return error("MCP server ${spec.name} needs a login, so the call did not run. ${loginHint()}")
         }
+        if (status.lastError != null) taint(context)
         val error = status.lastError?.let { " (last error: $it)" } ?: ""
         return error("MCP server ${spec.name} is ${words(status.state)}$error, so the call did not run.")
     }

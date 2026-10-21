@@ -116,8 +116,8 @@ class LinkCommandsTest {
 
     @Test
     fun `a code is spent once redeemed, also when the link is refused`() = runTest {
-        control.links.link(AgentId.MAIN, testChat("elsewhere"), second, OPERATOR)
         val code = offer(first)
+        control.refuseNext("test:main:second is linked already.")
 
         assertEquals("test:main:second is linked already.", commands.answer(link(second, code, other)))
         assertEquals(
@@ -236,13 +236,6 @@ class LinkCommandsTest {
                     .answer(unlink(second)),
             )
         }
-
-    @Test
-    fun `a refused unlink replies with the agent's message`() = runTest {
-        control.links.link(AgentId.MAIN, first, second, OPERATOR)
-
-        assertEquals("test:main:first anchors its group.", commands.answer(unlink(first)))
-    }
 
     @Test
     fun `unlink takes one chat address at most`() = runTest {

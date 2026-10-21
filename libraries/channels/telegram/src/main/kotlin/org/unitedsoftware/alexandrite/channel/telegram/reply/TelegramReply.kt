@@ -213,7 +213,7 @@ internal class TelegramReply(
                 close()
                 showFrozen(all = false)
                 showFrozenActivities()
-                deliver(message).also { shownIn(bodyMessages(it)) }
+                deliver(message).also { if (message.vouched) shownIn(bodyMessages(it)) }
             } finally {
                 releaseReply()
             }
@@ -514,15 +514,15 @@ internal class TelegramReply(
 
     private suspend fun deliver(message: OutboundMessage): Delivery {
         if (natural) return deliverNatural(message)
-        val parts = partsOf(formatted(message.text, message.markup))
-            ?: return Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
+        val reply = replyParts(formatted(message.text, message.markup), message.text)
+        val parts = reply.parts
         val (index, existing) = synchronized(lock) { current to segments[current]?.message }
         val first = try {
             existing?.let { replace(index, it, parts.first()) } ?: outbox.paced(target) { send(index, parts.first()) }
         } catch (e: BotApiException) {
             return outbox.failed(chat, e)
         }
-        return outbox.sendParts(chat, target, parts.drop(1), trigger, listOf(first))
+        return outbox.sendParts(chat, target, parts.drop(1), trigger, listOf(first), reply.whole)
     }
 
     /**
@@ -629,15 +629,20 @@ internal class TelegramReply(
         val continues = sent.isNotBlank() && message.text.startsWith(sent)
         val rest = if (continues) message.text.substring(sent.length) else message.text
         val ids = if (continues) earlier.toMutableList() else mutableListOf()
-        val parts = paragraphs(rest).flatMap {
-            partsOf(formatted(it, message.markup)) ?: return@deliverNatural TOO_LONG
-        }
-        for (part in parts) {
+        val replies = paragraphs(rest).map { replyParts(formatted(it, message.markup), message.text) }
+        for (part in replies.flatMap { it.parts }) {
             try {
                 ids +=
                     outbox.paced(target) {
                         outbox.sendText(target, part, synchronized(lock) { quote.also { quote = null } })
                     }
+            } catch (e: BotApiException) {
+                return outbox.failed(chat, e)
+            }
+        }
+        replies.firstNotNullOfOrNull { it.whole }?.let { whole ->
+            try {
+                ids += outbox.sendWhole(chat, target, whole)
             } catch (e: BotApiException) {
                 return outbox.failed(chat, e)
             }
@@ -681,8 +686,6 @@ internal class TelegramReply(
 
     private enum class State { OPEN, ENDED, STOPPED }
 }
-
-private val TOO_LONG = Delivery.NotDelivered(DeliveryFailure.TOO_LONG)
 
 /** The refusals of a final edit after which the final goes out as a new message. */
 private val SENT_AGAIN = setOf(BotApiFailure.EDIT_TARGET_GONE, BotApiFailure.BAD_REQUEST)

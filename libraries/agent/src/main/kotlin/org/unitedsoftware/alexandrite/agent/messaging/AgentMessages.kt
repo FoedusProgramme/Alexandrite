@@ -1,12 +1,13 @@
 package org.unitedsoftware.alexandrite.agent.messaging
 
 import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.cancel.TurnCancelled
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
+import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.delivery.visibleText
 import org.unitedsoftware.alexandrite.agent.job.JobCarried
+import org.unitedsoftware.alexandrite.agent.permission.Principal
+import org.unitedsoftware.alexandrite.agent.permission.actorBelow
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
@@ -21,12 +22,14 @@ import org.unitedsoftware.alexandrite.agent.worker.newTurnId
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
@@ -39,16 +42,20 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.CoroutineContext
 
-/** The agent-message round trips that a root turn and everything it starts may still make. */
-internal class MessageBudget(val rootTurn: TurnId? = null) :
+/** The agent messages that a root turn and everything it starts may still send. */
+internal class MessageBudget(val rootTurn: TurnId) :
     AbstractCoroutineContextElement(Key),
     JobCarried {
     private val used = AtomicInteger()
     private val pending = HashSet<TurnTicket>()
+
+    /** The turns that took the root's messages and their replies. */
+    private val turns = HashSet<TurnId>()
     private var cancelled = false
 
     @Synchronized
     fun track(ticket: TurnTicket) {
+        turns.add(ticket.turn)
         if (cancelled) ticket.cancel() else pending.add(ticket)
     }
 
@@ -67,15 +74,19 @@ internal class MessageBudget(val rootTurn: TurnId? = null) :
     @Synchronized
     fun active(): Boolean = !cancelled
 
-    fun take(): Boolean {
+    /** The root turn when [turn] took one of its messages or their replies, else [turn]. */
+    @Synchronized
+    fun root(turn: TurnId): TurnId = if (turn in turns) rootTurn else turn
+
+    fun take(limit: Int): Boolean {
         while (true) {
             val previous = used.get()
-            if (previous >= MAX_ROUND_TRIPS) return false
+            if (previous >= limit) return false
             if (used.compareAndSet(previous, previous + 1)) return true
         }
     }
 
-    /** Gives back a round trip that [take] counted but that never started. */
+    /** Gives back a message that [take] counted but that never started. */
     fun refund() {
         used.decrementAndGet()
     }
@@ -90,10 +101,30 @@ internal class AgentMessage(
     /** Why the message taints the turn that takes it, null when it came from a clean conversation. */
     val taint: String?,
     val budget: MessageBudget,
-)
+    /** Whom the turn that takes the message acts for, the root turn's actor. */
+    val actor: ChatUser?,
+    /** Whether [actor] acts under a plugin's mandate. */
+    val mandated: Boolean,
+    val trust: Trust,
+    /** The chat that the message this one answers was sent from, null when it answers none. */
+    val answering: ChatAddress? = null,
+) {
+    /** The lines that tell the turn taking the message where it comes from. */
+    val framing: List<String>
+        get() = if (answering != null) {
+            listOf(
+                "Reply from agent: ${sender.agent}",
+                "To your message from chat: $answering",
+                "Your answer: reaches no one; tell people with chat.send",
+            )
+        } else {
+            listOf("From agent: ${sender.agent}", "From chat: $senderChat")
+        }
+}
 
 @Singleton
 internal class AgentMessages(
+    private val settings: AgentSettings,
     private val directory: AgentDirectory,
     private val topology: ChatTopology,
     private val workers: Lazy<TurnWorkers>,
@@ -115,17 +146,21 @@ internal class AgentMessages(
         val budget =
             currentCoroutineContext()[MessageBudget]
                 ?: return InTurnResult("agent.send runs only in an agent turn.", ToolOutcome.Failed)
-        if (!budget.take()) {
+        val limit = settings.messaging.maxMessagesPerRoot
+        if (!budget.take(limit)) {
             return InTurnResult(
-                "The root turn has reached its limit of $MAX_ROUND_TRIPS agent-message round trips.",
+                "The root turn has sent its limit of $limit agent messages (agent.messaging.maxMessagesPerRoot); " +
+                    "no more can be sent until a new message starts a new root turn.",
                 ToolOutcome.Failed,
             )
         }
-        val taint = context.taint.takeIf { it.tainted }?.let {
-            "a message from agent '${turn.agent}', whose conversation took in untrusted content " +
-                "(${it.known?.reason ?: "its mark could not be read"})"
+        val taint = context.taint.known?.let {
+            "a message from agent '${turn.agent}', whose conversation took in untrusted content (${it.reason})"
         }
-        val message = AgentMessage(turn.key, turn.chat, text, taint, budget)
+        val actor = actorBelow(turn)
+        val mandated = actor != null && context.delegating?.mandated == true
+        val trusted = taint == null && Principal.of(turn) == Principal.OPERATOR
+        val message = AgentMessage(turn.key, turn.chat, text, taint, budget, actor, mandated, trust(trusted))
         val destination = topology.key(agent, chat)
         if (!budget.active()) {
             budget.refund()
@@ -153,53 +188,71 @@ internal class AgentMessages(
             ),
         )
         lock.locked {
-            lock.launch {
-                val outcome = admission.ticket.outcome()
-                budget.finished(admission.ticket)
-                // A shutdown keeps the record, so that the restart tells the sender no reply will come.
-                if (outcome is TurnOutcome.ShutDown) return@launch
-                if (!budget.active()) return@launch records.remove(exchange)
-                val response = when (outcome) {
-                    is TurnOutcome.Completed -> outcome.reply?.let(::visibleText)?.takeIf(String::isNotBlank)
-                        ?: "The agent ended without a reply."
-
-                    is TurnOutcome.Failed -> "The agent failed: ${outcome.message}"
-
-                    else -> "The agent message ended: $outcome."
-                }
-                val reply = enqueue(
-                    turn.key,
-                    turn.chat,
-                    AgentMessage(destination, chat, response, replyTaint(agent, admission.ticket.turn), budget),
-                    Capacity.EXEMPT,
-                )
-                if (reply is Admission.Accepted) {
-                    budget.track(reply.ticket)
-                    val replied = reply.ticket.outcome()
-                    budget.finished(reply.ticket)
-                    if (replied is TurnOutcome.ShutDown) return@launch
-                } else if (reply is Admission.Refused && reply.reason == RefusalReason.SHUTTING_DOWN) {
-                    return@launch
-                }
-                records.remove(exchange)
-            }
+            lock.launch { answer(exchange, admission.ticket, message, destination, chat) }
         }
         return InTurnResult(
-            "Message queued for agent '$agent'; its reply will return internally as an agent message.",
+            "Message queued for agent '$agent'. Its reply comes later as a separate turn of yours, whose answer " +
+                "reaches no one: do not report the outcome before it comes, and use chat.send there to tell people.",
             ToolOutcome.Succeeded,
         )
     }
 
+    /** Waits for [ticket], the turn that took [message] at [destination] in [chat], and passes its reply back. */
+    private suspend fun answer(
+        exchange: RunId,
+        ticket: TurnTicket,
+        message: AgentMessage,
+        destination: AgentChatKey,
+        chat: ChatAddress,
+    ) {
+        val budget = message.budget
+        val outcome = ticket.outcome()
+        budget.finished(ticket)
+        // A shutdown keeps the record, so that the restart tells the sender no reply will come.
+        if (outcome is TurnOutcome.ShutDown) return
+        if (!budget.active()) return records.remove(exchange)
+        val response = when (outcome) {
+            is TurnOutcome.Completed -> outcome.reply?.let(::visibleText)?.takeIf(String::isNotBlank)
+                ?: "The agent ended without a reply."
+
+            is TurnOutcome.Failed -> "The agent failed: ${outcome.message}"
+
+            TurnOutcome.Cancelled -> "The agent was stopped before it replied."
+
+            else -> "The agent message ended: $outcome."
+        }
+        val taint = replyTaint(destination.agent, ticket.turn)
+        val reply = enqueue(
+            message.sender,
+            message.senderChat,
+            AgentMessage(
+                destination,
+                chat,
+                response,
+                taint,
+                budget,
+                message.actor,
+                message.mandated,
+                trust(taint == null && message.actor?.isOperator == true),
+                answering = message.senderChat,
+            ),
+            Capacity.EXEMPT,
+        )
+        if (reply is Admission.Accepted) {
+            budget.track(reply.ticket)
+            val replied = reply.ticket.outcome()
+            budget.finished(reply.ticket)
+            if (replied is TurnOutcome.ShutDown) return
+        } else if (reply is Admission.Refused && reply.reason == RefusalReason.SHUTTING_DOWN) {
+            return
+        }
+        records.remove(exchange)
+    }
+
     /** Why the reply of [agent], whose turn [target] took the message, taints the sender, null when it does not. */
     private suspend fun replyTaint(agent: AgentId, target: TurnId): String? {
-        val why = try {
-            val conversation = conversations.turn(target)?.conversation ?: return null
-            conversations.taint(conversation)?.reason ?: return null
-        } catch (e: Exception) {
-            currentCoroutineContext().ensureActive()
-            logger.warn("The taint of agent {}'s turn {} could not be read: {}", agent, target, e.toString())
-            "its mark could not be read"
-        }
+        val conversation = conversations.turn(target)?.conversation ?: return null
+        val why = conversations.taint(conversation)?.reason ?: return null
         return "a reply from agent '$agent', whose conversation took in untrusted content ($why)"
     }
 
@@ -217,7 +270,7 @@ internal class AgentMessages(
             origin = chat,
             kind = TurnKind.AGENT_MESSAGE,
             input = TurnSource.FromAgentMessage(message),
-            actor = null,
+            actor = message.actor,
             replyTarget = ReplyTarget.CALLER,
             trigger = null,
             queuedAt = now,
@@ -227,7 +280,4 @@ internal class AgentMessages(
     }
 }
 
-/** The agent messages that one root turn may send. */
-internal const val MAX_ROUND_TRIPS = 3
-
-private val logger = LoggerFactory.getLogger(AgentMessages::class.java)
+private fun trust(trusted: Boolean): Trust = if (trusted) Trust.TRUSTED else Trust.UNTRUSTED

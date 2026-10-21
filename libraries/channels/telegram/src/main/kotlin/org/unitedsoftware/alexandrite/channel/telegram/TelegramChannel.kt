@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.channel.telegram.intake.CommandRules
 import org.unitedsoftware.alexandrite.channel.telegram.reply.Deliveries
 import org.unitedsoftware.alexandrite.channel.telegram.reply.MAX_PARTS_PER_REPLY
 import org.unitedsoftware.alexandrite.channel.telegram.reply.MAX_UPLOAD_BYTES
+import org.unitedsoftware.alexandrite.channel.telegram.tools.TurnMessages
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.Channel
@@ -19,6 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.Markup
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ReplyRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ReplySink
+import org.unitedsoftware.alexandrite.sdk.channel.TrustOffer
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEventKind
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -38,6 +40,7 @@ internal class TelegramChannel(
     private val approvals: ApprovalDesk,
     private val rules: CommandRules,
     private val titles: ChatTitles,
+    private val turns: TurnMessages,
 ) : Channel,
     Lifecycle {
     override suspend fun capabilities(chat: ChatAddress): ChannelCapabilities = ChannelCapabilities.builder()
@@ -54,7 +57,10 @@ internal class TelegramChannel(
     override suspend fun partsNeeded(chat: ChatAddress, text: String, markup: Markup): Int =
         formatted(text, markup).parts().size
 
-    override suspend fun openReply(request: ReplyRequest): ReplySink = deliveries.openReply(request)
+    override suspend fun openReply(request: ReplyRequest): ReplySink {
+        if (request.run == null) request.trigger?.let { turns.opened(request.turn.id, it) }
+        return deliveries.openReply(request)
+    }
 
     override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery = deliveries.send(chat, message)
 
@@ -67,6 +73,15 @@ internal class TelegramChannel(
             ApprovalAnswer.Unavailable("the chat ${request.turn.chat} belongs to another channel instance")
 
         else -> approvals.ask(request)
+    }
+
+    override suspend fun offerTrust(offer: TrustOffer): ApprovalAnswer = when {
+        deliveries.stopped -> ApprovalAnswer.Unavailable("the bot is stopping")
+
+        offer.turn.chat.instance != instance.id && offer.turn.chat.instance != ChatAddress.AGENTS ->
+            ApprovalAnswer.Unavailable("the chat ${offer.turn.chat} belongs to another channel instance")
+
+        else -> approvals.offer(offer)
     }
 
     override fun mayRun(chat: ChatAddress, issuer: ChatUser, command: String, withArguments: Boolean): Boolean =

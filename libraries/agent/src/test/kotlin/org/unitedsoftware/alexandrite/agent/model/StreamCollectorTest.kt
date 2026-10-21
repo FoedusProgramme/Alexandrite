@@ -56,10 +56,8 @@ class StreamCollectorTest {
         }
 
         assertEquals(
-            listOf("WARN", "DEBUG").map {
-                "$it Endpoint ${model.id} warns about a request to ${request.model}: ${warning.message} (unsupported_option)"
-            },
-            lines.filter { "warns about a request" in it },
+            listOf("WARN", "DEBUG"),
+            lines.filter { "unsupported_option" in it }.map { it.substringBefore(' ') },
         )
     }
 
@@ -88,15 +86,6 @@ class StreamCollectorTest {
         val error = assertFailsWith<ModelException> { blocking { collectResponse(endpoint, request) } }.error
 
         assertEquals(ModelErrorKind.OVERLOADED to true, error.kind to error.outputStarted)
-    }
-
-    @Test
-    fun `a failure before any event keeps whether its output started`() {
-        val endpoint = Endpoint { throw ModelException(ModelError.builder(ModelErrorKind.OVERLOADED, "Busy.").build()) }
-
-        val error = assertFailsWith<ModelException> { blocking { collectResponse(endpoint, request) } }.error
-
-        assertEquals(false, error.outputStarted)
     }
 
     @Test

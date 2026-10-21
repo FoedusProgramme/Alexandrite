@@ -74,23 +74,14 @@ class CloseTest {
     }
 
     @Test
-    fun `onDrain with nothing queued returns at once`() = runTest {
+    fun `onDrain returns at once with nothing queued, and onDrain and onDestroy are idempotent`() = runTest {
         val dispatcher =
             dispatcher(listener, TestObserver(seen, delivery = ObserverDelivery.ASYNC) { delay(1.seconds) })
-
-        dispatcher.onDrain()
-
-        assertEquals(0, currentTime)
-        dispatcher.onDestroy()
-    }
-
-    @Test
-    fun `onDrain and onDestroy are idempotent`() = runTest {
-        val dispatcher = dispatcher(listener, TestObserver(seen, delivery = ObserverDelivery.ASYNC) {})
 
         repeat(2) { dispatcher.onDrain() }
         repeat(2) { dispatcher.onDestroy() }
 
+        assertEquals(0, currentTime)
         assertEquals(emptyList(), listener.all())
     }
 

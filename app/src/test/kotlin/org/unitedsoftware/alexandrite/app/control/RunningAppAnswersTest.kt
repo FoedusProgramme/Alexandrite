@@ -7,7 +7,6 @@ import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesks
 import org.unitedsoftware.alexandrite.mcp.McpControl
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEdit
-import org.unitedsoftware.alexandrite.sdk.config.ConfigLiteral
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import java.nio.file.Path
 import java.time.Instant
@@ -30,13 +29,9 @@ class RunningAppAnswersTest {
             val edit = object : ConfigEdit {
                 override fun get(path: String): JsonElement? = null
 
-                override fun getLiteral(path: String): ConfigLiteral? = null
-
                 override fun set(path: String, value: JsonElement) {
                     changes += "set $path $value"
                 }
-
-                override fun setLiteral(path: String, value: ConfigLiteral) = Unit
 
                 override fun remove(path: String) {
                     changes += "remove $path"

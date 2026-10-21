@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -25,7 +26,6 @@ import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
@@ -34,6 +34,7 @@ import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.recordingTool
+import org.unitedsoftware.alexandrite.testkit.testRecords
 import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testTurn
 import org.unitedsoftware.alexandrite.testkit.testUser
@@ -45,7 +46,7 @@ import kotlin.time.Duration.Companion.seconds
 
 class PermissionStatusToolTest {
     private val clock = TestClock()
-    private val states = SettingsStates(TestChatStates().of("alexandrite-agent"))
+    private val states = SettingsStates(TestChatStates().of("alexandrite-agent"), testRecords())
     private val store = MemoryStore(clock)
     private val operatorUser = testUser("operator", isOperator = true)
     private val operator: TurnInfo = testTurn { actor(operatorUser) }
@@ -90,12 +91,6 @@ class PermissionStatusToolTest {
         null,
         taint,
     )
-
-    @Test
-    fun `the call is of activity other, titled by nothing`() {
-        val definition = tool().definition
-        assertEquals(ToolActivity.OTHER to emptyList(), definition.activity to definition.titleArguments)
-    }
 
     private suspend fun status(
         tool: PermissionStatusTool = tool(),
@@ -181,26 +176,22 @@ class PermissionStatusToolTest {
         val heartbeat = testTurn(TurnKind.HEARTBEAT)
         fun recorded(turn: TurnInfo) =
             TurnTaint(turn.id, turn.key, clock, turn.conversation, store.conversations, forwarded)
-        val unstored = TurnTaint(operator.id, operator.key, clock).apply { note("a web page") }
-        val unread =
-            TurnTaint(operator.id, operator.key, clock, operator.conversation, store.conversations, unread = true)
+        val noted = TurnTaint(operator.id, operator.key, clock).apply { note("a web page") }
 
         val lines = listOf(
             status(context = context(operator, recorded(operator))).last(),
             status(turn = heartbeat, context = context(heartbeat, recorded(heartbeat))).last(),
-            status(context = context(operator, unstored)).last(),
-            status(context = context(operator, unread)).last(),
+            status(context = context(operator, noted)).last(),
         )
 
-        val holds = "Until /new starts a new conversation, calls that change your lasting state, such as " +
-            "persona.edit, need an approval."
+        val holds = "Until /new starts a new conversation, calls that change your lasting state, such as an edit " +
+            "of your persona, need an approval. $CLEARING"
         assertEquals(
             listOf(
                 "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). $holds",
                 "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). Heartbeat turns share this " +
-                    "conversation, which /new does not replace.",
-                "Conversation: tainted since 2026-01-01 00:00 Z (a web page). The mark could not be stored yet. $holds",
-                "Conversation: counted as tainted, as its mark could not be read.",
+                    "conversation, which /new does not replace. $CLEARING",
+                "Conversation: tainted since 2026-01-01 00:00 Z (a web page). $holds",
             ),
             lines,
         )
@@ -216,12 +207,16 @@ class PermissionStatusToolTest {
 
         assertEquals(
             "Conversation: tainted since 2026-01-01 00:00 Z (a forwarded message). Until /new starts a new " +
-                "conversation, calls that change your lasting state, such as persona.edit, need an approval.",
+                "conversation, calls that change your lasting state, such as an edit of your persona, need an " +
+                "approval. $CLEARING",
             line,
         )
     }
 
     private companion object {
+        const val CLEARING = "An operator clears the mark with /untaint once sure of what came in, or trusts its " +
+            "source with /trust so that it no longer taints."
+
         val NO_BUILT_INS = object : PluginOrigins {
             override fun isBuiltIn(instance: Any): Boolean = false
         }

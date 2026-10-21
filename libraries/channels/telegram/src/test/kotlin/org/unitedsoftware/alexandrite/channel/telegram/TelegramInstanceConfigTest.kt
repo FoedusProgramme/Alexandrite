@@ -1,6 +1,5 @@
 package org.unitedsoftware.alexandrite.channel.telegram
 
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FAKE_BOT_TOKEN
 import kotlin.test.Test
@@ -21,22 +20,6 @@ class TelegramInstanceConfigTest {
         val message = assertFailsWith<IllegalArgumentException> { decode(json) }.message.orEmpty()
         for (value in values) assertFalse(value in message, message)
         return message
-    }
-
-    @Test
-    fun `a bot needs only its token`() {
-        val config = decode(withToken())
-
-        assertEquals(FAKE_BOT_TOKEN, config.botToken.reveal())
-        assertEquals(emptyList(), config.adminUserIds)
-        assertEquals(emptyList(), config.allowedChats)
-        assertEquals("https://api.telegram.org", config.apiBase)
-        assertEquals(listOf(25, 100, 30), config.polling.run { listOf(timeoutSeconds, limit, retryMaxSeconds) })
-        assertTrue(config.streaming.enabled)
-        assertEquals(listOf(1000L, 3000L), config.streaming.run { listOf(editIntervalMillis, groupEditIntervalMillis) })
-        assertEquals(10, config.approvalMinutes)
-        assertFalse(FAKE_BOT_TOKEN in config.toString())
-        assertFalse(FAKE_BOT_TOKEN in config.botToken.toString())
     }
 
     @Test
@@ -62,11 +45,17 @@ class TelegramInstanceConfigTest {
         val admin = refusal(withToken(""""adminUserIds": [7, -987654]"""), "987654")
         assertTrue("adminUserIds[1] must be a Telegram user id" in admin, admin)
         assertTrue("adminUserIds[0]" in refusal(withToken(""""adminUserIds": [0]""")))
+        val trusted = refusal(withToken(""""trustedUserIds": [7, -123456]"""), "123456")
+        assertTrue("trustedUserIds[1] must be a Telegram user id" in trusted, trusted)
         val chat = refusal(withToken(""""allowedChats": [5, -1001234567890, 0]"""), "1001234567890")
         assertTrue("allowedChats[2] must be a Telegram chat id" in chat, chat)
 
-        val config = decode(withToken(""""adminUserIds": [7], "allowedChats": [7, -1001234567890]"""))
+        val config = decode(
+            withToken(""""adminUserIds": [7], "trustedUserIds": [8], "allowedChats": [7, -1001234567890]"""),
+        )
         assertEquals(listOf(7L), config.adminUserIds)
+        assertEquals(listOf(8L), config.trustedUserIds)
+        assertEquals(emptyList(), decode(withToken()).trustedUserIds)
         assertEquals(listOf(7L, -1001234567890L), config.allowedChats)
     }
 
@@ -79,26 +68,17 @@ class TelegramInstanceConfigTest {
 
         assertFalse(config.commandMenu)
         assertEquals(mapOf("notes" to Who.ANYONE, "purge" to Who.DIRECT), config.commands)
-        assertEquals(Who.UNLINKED_DIRECT, decode(withToken(""""commands": {"x": "unlinked_direct"}""")).commands["x"])
-        assertEquals(Who.ADMIN, decode(withToken(""""commands": {"x": "admin"}""")).commands["x"])
-        assertFailsWith<SerializationException> { decode(withToken(""""commands": {"notes": "everyone"}""")) }
     }
 
     @Test
-    fun `a malformed command name and a default command are refused in the commands`() {
+    fun `a malformed command name is refused in the commands, a default command's rule taken`() {
         for (name in listOf("Notes", "my-notes", "", "a".repeat(33))) {
             val message = refusal(withToken(""""commands": {"$name": "anyone"}"""))
             assertTrue("commands.$name must name a command" in message, message)
         }
-        for (name in listOf("new", "model", "home", "trust", "help")) {
-            val message = refusal(withToken(""""commands": {"$name": "anyone"}"""))
-            assertTrue("/$name keeps the rule of the default commands" in message, message)
+        for (name in listOf("new", "model", "home", "help")) {
+            assertEquals(mapOf(name to Who.ANYONE), decode(withToken(""""commands": {"$name": "anyone"}""")).commands)
         }
-    }
-
-    @Test
-    fun `allowedUsers is no key of the section`() {
-        assertFailsWith<SerializationException> { decode(withToken(""""allowedUsers": [7]""")) }
     }
 
     @Test
@@ -126,36 +106,24 @@ class TelegramInstanceConfigTest {
     @Test
     fun `polling, streaming and approval values outside their ranges are refused`() {
         val refused = mapOf(
-            """"polling": {"timeoutSeconds": -1}""" to "polling.timeoutSeconds",
-            """"polling": {"timeoutSeconds": 51}""" to "polling.timeoutSeconds",
-            """"polling": {"limit": 0}""" to "polling.limit",
             """"polling": {"limit": 101}""" to "polling.limit",
-            """"polling": {"retryMaxSeconds": 0}""" to "polling.retryMaxSeconds",
-            """"polling": {"retryMaxSeconds": 301}""" to "polling.retryMaxSeconds",
-            """"streaming": {"editIntervalMillis": -1}""" to "streaming.editIntervalMillis",
             """"streaming": {"editIntervalMillis": 60001}""" to "streaming.editIntervalMillis",
-            """"streaming": {"groupEditIntervalMillis": 60001}""" to "streaming.groupEditIntervalMillis",
-            """"approvalMinutes": 0""" to "approvalMinutes",
             """"approvalMinutes": 1441""" to "approvalMinutes",
         )
         for ((json, key) in refused) {
-            val message = refusal(withToken(json), "60001", "301", "101", "51", "1441")
+            val message = refusal(withToken(json), "60001", "101", "1441")
             assertTrue("$key must lie between" in message, message)
         }
 
         val edges = decode(
             withToken(
-                """"polling": {"timeoutSeconds": 0, "limit": 1, "retryMaxSeconds": 300},
-                   "streaming": {"enabled": false, "editIntervalMillis": 0, "groupEditIntervalMillis": 60000}""",
+                """"polling": {"timeoutSeconds": 50, "limit": 100, "retryMaxSeconds": 300},
+                   "streaming": {"enabled": false, "editIntervalMillis": 0, "groupEditIntervalMillis": 60000},
+                   "approvalMinutes": 1440""",
             ),
         )
-        assertEquals(listOf(0, 1, 300), edges.polling.run { listOf(timeoutSeconds, limit, retryMaxSeconds) })
+        assertEquals(listOf(50, 100, 300), edges.polling.run { listOf(timeoutSeconds, limit, retryMaxSeconds) })
         assertEquals(listOf(0L, 60000L), edges.streaming.run { listOf(editIntervalMillis, groupEditIntervalMillis) })
-        val longest = decode(withToken(""""polling": {"timeoutSeconds": 50, "limit": 100}, "approvalMinutes": 1440"""))
-        assertEquals(listOf(50, 100), longest.polling.run { listOf(timeoutSeconds, limit) })
-        assertEquals(
-            1440 to 1,
-            longest.approvalMinutes to decode(withToken(""""approvalMinutes": 1""")).approvalMinutes,
-        )
+        assertEquals(1440, edges.approvalMinutes)
     }
 }

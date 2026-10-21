@@ -80,6 +80,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -486,7 +487,7 @@ class DelegationTurnsTest {
     }
 
     @Test
-    fun `a background run that takes in untrusted content taints its parent's conversation when its report arrives`() {
+    fun `a background run that takes in untrusted content taints its parent's conversation before its report`() {
         readGate = CompletableDeferred()
         model.reply(ROOT) {
             toolCall(DELEGATE_TOOL, """{"profile":"reader","task":"Read the page.","background":true}""")
@@ -502,15 +503,14 @@ class DelegationTurnsTest {
             assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
             val conversation = store.conversations.current(key).id
             withTimeout(5_000) { while (runs(READER).size < 2) delay(5) }
-            assertEquals(null, store.conversations.taint(conversation))
-            readGate?.complete(Unit)
             withTimeout(5_000) { while (store.conversations.taint(conversation) == null) delay(5) }
             val reader = runs(READER).first()
-            assertEquals(
-                "sub-agent run ${lineage(reader).run} (reader) took in untrusted content: a call of web.fetch, " +
-                    "which reads the network",
-                store.conversations.taint(conversation)?.reason,
-            )
+            val reason = "sub-agent run ${lineage(reader).run} (reader) took in untrusted content: a call of " +
+                "web.fetch, which reads the network"
+            assertEquals(reason, store.conversations.taint(conversation)?.reason)
+            readGate?.complete(Unit)
+            withTimeout(5_000) { while (jobResultCount() < 1) delay(5) }
+            assertEquals(reason, store.conversations.taint(conversation)?.reason)
         }
     }
 
@@ -570,6 +570,36 @@ class DelegationTurnsTest {
             assertEquals(listOf("Review notes.md.", "Notes look fine.", "Now check the tests too."), said)
             val sealed = store.conversations.conversation(runs(REVIEWER).first().ids.conversation)
             assertEquals(ConversationState.SEALED, sealed?.state)
+        }
+    }
+
+    @Test
+    fun `a run resumed in the background without its profile named names the profile and is titled by it`() {
+        model.reply(ROOT) { toolCall(DELEGATE_TOOL, delegate("reviewer", "Review notes.md.")) }
+            .reply(profile(REVIEWER)) { text("Notes look fine.") }
+            .reply(ROOT) { text("Reviewed.") }
+
+        harness().execute {
+            ask().ticket.outcome()
+            val earlier = rootResults().single { it.toolName == DELEGATE_TOOL }.run()
+            readGate = CompletableDeferred()
+            model.reply(ROOT) {
+                toolCall(DELEGATE_TOOL, """{"resume":"$earlier","task":"Check the tests.","background":true}""")
+            }.reply(ROOT) { text("Started.") }
+                .reply(profile(REVIEWER)) { toolCall("test.read", "{}") }
+                .reply(profile(REVIEWER)) { text("Tests look fine.") }
+                .reply(ROOT) { text("Report received.") }
+            ask().ticket.outcome()
+
+            val started = rootResults().filter { it.toolName == DELEGATE_TOOL }.last()
+            val run = (started.outcome as ToolOutcome.Detached).job
+            assertEquals(
+                "[alexandrite:background] Run $run of profile reviewer started; its report will arrive later.",
+                started.text(),
+            )
+            assertEquals(listOf("reviewer"), get<TurnControl>().jobs(channel().chat()).map { it.title })
+            readGate?.complete(Unit)
+            withTimeout(5_000) { while (jobResultCount() < 1) delay(5) }
         }
     }
 
@@ -919,7 +949,7 @@ class DelegationTurnsTest {
     }
 
     @Test
-    fun `cancel after the parent completes stops its four background reviews without delivering reports`() {
+    fun `stopping the jobs after the parent completes ends its four background reviews without delivering reports`() {
         readGate = CompletableDeferred()
         model.reply(ROOT) {
             repeat(4) {
@@ -931,7 +961,10 @@ class DelegationTurnsTest {
             ask().ticket.outcome()
             while (read.calls.size < 4) delay(5)
             val control = get<TurnControl>()
-            assertTrue(control.cancel(channel().chat(), channel().user("operator")))
+            val operator = channel().user("operator")
+            assertFalse(control.cancel(channel().chat(), operator))
+            assertEquals(4, control.jobs(channel().chat()).size)
+            control.jobs(channel().chat()).forEach { assertTrue(control.stopJob(channel().chat(), it.id, operator)) }
             while (control.jobs(channel().chat()).isNotEmpty()) delay(5)
             while (lifecycleEvents.count { it.startsWith("job.ended:") } < 4) delay(5)
             for (child in runs(REVIEWER).map { it.ids.conversation }.toSet()) {
@@ -959,13 +992,20 @@ class DelegationTurnsTest {
 
     @Test
     fun `a run waits for the background run it started and answers with its report, which never reaches the root`() {
+        // The review ends once the run has asked again, so that the run waits for its report.
+        val waiting = CompletableDeferred<Unit>()
         model.reply(ROOT) { toolCall(DELEGATE_TOOL, delegate("nester", "Parent")) }
             .reply(ROOT) { text("Done.") }
         model.reply(task("Parent")) {
             toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Grandchild","background":true}""")
-        }.reply(task("Parent")) { text("Waiting for the review.") }
-            .reply(task("Parent")) { text("The review says it is done.") }
-        model.reply(profile(REVIEWER)) { text("Review done.") }
+        }.reply(task("Parent")) {
+            pause { waiting.complete(Unit) }
+            text("Waiting for the review.")
+        }.reply(task("Parent")) { text("The review says it is done.") }
+        model.reply(profile(REVIEWER)) {
+            pause { waiting.await() }
+            text("Review done.")
+        }
 
         harness().execute {
             assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
@@ -1015,7 +1055,10 @@ class DelegationTurnsTest {
             .reply(ROOT) { text("Done.") }
         model.reply(task("Hurry")) {
             toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Grandchild","background":true}""")
-        }.reply(task("Hurry")) { text("Out of rounds.") }
+        }.reply(task("Hurry")) {
+            pause { read.awaitCalls(1) }
+            text("Out of rounds.")
+        }
         model.reply(profile(REVIEWER)) { toolCall("test.read", "{}") }
 
         harness().execute {

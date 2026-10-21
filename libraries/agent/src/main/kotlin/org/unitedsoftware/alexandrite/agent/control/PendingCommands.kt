@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.control
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.agent.prompt.COMMANDS_HEADER
@@ -40,16 +42,19 @@ internal class PendingCommands(records: Records, private val conversations: Conv
     }
 
     /**
-     * Records that [issuer] ran [commandLine] in [conversation], telling it [replies]; keeps the newest 20. A
-     * conversation the command itself sealed (e.g. `/new`) is left alone: it is no longer current for anyone.
+     * Records that [issuer], whom the agent [trusted] or not, ran [commandLine] in [conversation], telling it
+     * [replies]; keeps the newest 20. A conversation the command itself sealed (e.g. `/new`) is left alone: it is no
+     * longer current for anyone.
      */
     suspend fun record(
         conversation: ConversationId,
         issuer: ChatUser,
         commandLine: String,
         replies: List<ReplyRecord>,
+        trusted: Boolean = issuer.isOperator,
     ) {
-        val entry = PendingCommandRecord(issuer.displayName, issuer.isOperator, commandLine, replies.map(::stored))
+        val entry =
+            PendingCommandRecord(issuer.displayName, issuer.isOperator, commandLine, replies.map(::stored), trusted)
         pending.change(conversation) { current ->
             if (conversations.conversation(conversation)?.state != ConversationState.ACTIVE) return@change current
             PendingCommandsRecord((current?.commands.orEmpty() + entry).takeLast(MAX_COMMANDS))
@@ -142,6 +147,10 @@ internal data class PendingCommandRecord(
     @SerialName("admin") val operator: Boolean,
     val commandLine: String,
     val replies: List<String> = emptyList(),
+    /** Whether the agent trusts what the issuer writes. */
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val trusted: Boolean = operator,
 )
 
 /** What a reply hidden from the model is recorded as. */

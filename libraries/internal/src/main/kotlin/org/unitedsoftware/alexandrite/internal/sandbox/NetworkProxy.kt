@@ -11,6 +11,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.URI
 import java.net.URISyntaxException
+import java.time.Duration
 import java.util.Collections
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -48,23 +49,24 @@ public class ProxyLease internal constructor(
     /** The hosts it refused, each once, in order. */
     public val refused: List<String> get() = refusals.distinct()
 
-    init {
-        Thread.ofVirtual().name("sandbox proxy $port").start {
-            while (!closed) {
-                val client = try {
-                    server.accept()
-                } catch (e: IOException) {
-                    break
-                }
-                Thread.ofVirtual().name("sandbox proxy $port connection").start { serve(client) }
+    private val acceptor = Thread.ofVirtual().name("sandbox proxy $port").start {
+        while (!closed) {
+            val client = try {
+                server.accept()
+            } catch (e: IOException) {
+                break
             }
+            Thread.ofVirtual().name("sandbox proxy $port connection").start { serve(client) }
         }
     }
 
+    /** Stops listening, which holds once it returns. */
     override fun close() {
         closed = true
         server.close()
         synchronized(sockets) { sockets.toList() }.forEach { it.closeQuietly() }
+        // The port keeps accepting until the thread blocked in accept has left it.
+        acceptor.join(CLOSE_WAIT)
     }
 
     private fun serve(client: Socket) {
@@ -188,6 +190,7 @@ public class ProxyLease internal constructor(
 
     private companion object {
         const val BACKLOG = 50
+        val CLOSE_WAIT: Duration = Duration.ofSeconds(5)
         const val HEAD_TIMEOUT_MILLIS = 30_000
         const val CONNECT_TIMEOUT_MILLIS = 10_000
         const val MAX_HEAD_BYTES = 64 * 1024

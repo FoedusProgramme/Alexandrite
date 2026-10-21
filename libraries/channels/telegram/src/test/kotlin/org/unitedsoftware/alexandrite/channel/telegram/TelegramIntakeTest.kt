@@ -158,7 +158,7 @@ class TelegramIntakeTest {
     }
 
     @Test
-    fun `a claimed command the matrix does not list is for admins alone, and one no handler claims passes`() {
+    fun `a claimed command no rule names is for admins alone, and one no handler claims passes`() {
         telegram.run(telegram.builder().commandHandler(ClaimedCommands("mode"))) {
             fake.send(telegram.bob, telegram.bobChat, "/mode bypass")
             fake.send(telegram.bob, telegram.group, "/start@alexandrite_test_bot")

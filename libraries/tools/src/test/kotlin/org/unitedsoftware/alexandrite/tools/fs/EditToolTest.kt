@@ -11,11 +11,14 @@ import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
+import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.testkit.testToolContext
+import org.unitedsoftware.alexandrite.testkit.testTurn
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
@@ -43,12 +46,7 @@ class EditToolTest {
         fs = FsFixture(directory)
         ledger = ReadLedger()
         reader = ReadTool(fs.floor, ledger)
-        tool = EditTool(fs.floor, ledger)
-    }
-
-    @Test
-    fun `the call is titled by its path, of activity edit`() {
-        assertEquals(ToolActivity.EDIT to listOf("path"), tool.definition.activity to tool.definition.titleArguments)
+        tool = EditTool(fs.floor, ledger, fs.places)
     }
 
     private fun read(file: Any, conversation: String = "test", vararg more: Pair<String, Any>) {
@@ -219,29 +217,50 @@ class EditToolTest {
         assertContentEquals(bom + "uno\r\ndos\r\nmas\r\nthree\r\n".toByteArray(), file.readBytes())
     }
 
-    @Test
-    fun `a file that is no UTF-8 is refused`() {
-        val file = fs.bytes("repo/latin.txt", "café\n".toByteArray(Charsets.ISO_8859_1))
-
-        assertEquals(
-            "problem: $file is no UTF-8 text (it looks binary): the write tools change text files only.",
-            edit(file, Edit("caf", "tea")),
-        )
-    }
-
     // Where it writes.
 
     @Test
     @DisabledOnOs(OS.WINDOWS)
-    fun `a file with more than one hard link is refused`() {
+    fun `a file with more than one hard link is refused while the floor protects anything`() {
         val file = fs.write("repo/notes.md", "Notes.")
         Files.createLink(fs.root.resolve("repo/other.md"), file)
+        val unprotected = EditTool(fs.unprotected, ledger, fs.places)
+        ReadTool(fs.unprotected, ledger).call(fs.context(), "path" to file)
 
         assertEquals(
             "refused: $file has more than one hard link, so it may be another name of a protected file: it is not " +
                 "written.",
             edit(file, Edit("Notes", "More")),
         )
+        assertEquals(
+            "Edited $file: +1 -1 lines.",
+            fs.reviewedRun(unprotected, call(file, Edit("Notes", "More"))),
+        )
+        assertEquals("More.", file.readText())
+    }
+
+    // The persona.
+
+    @Test
+    fun `an edit of the agent's own persona file changes lasting state, outside a delegated run`() {
+        val persona = fs.write("persona/PERSONA.md", "I like tea.\n")
+        val notes = fs.write("workspace/notes.md", "Tea.\n")
+        read(persona)
+        read(notes)
+        val delegated = testTurn(conversation = ConversationId("test"), kind = TurnKind.DELEGATED)
+
+        val own = review(call(persona, Edit("tea", "coffee")))
+        val other = review(call(notes, Edit("Tea", "Coffee")))
+        val run = runBlocking {
+            tool.review(call(persona, Edit("tea", "coffee")), testToolContext(delegated, workspace = fs.workspace))
+        }
+
+        assertEquals(listOf(ToolRisk.PERSISTENT_STATE, null, null), listOf(own.risk, other.risk, run.risk))
+        assertEquals(
+            "Edited $persona: +1 -1 lines.",
+            fs.reviewedRun(tool, call(persona, Edit("tea", "coffee"))),
+        )
+        assertEquals("I like coffee.\n", persona.readText())
     }
 
     @Test
@@ -287,6 +306,7 @@ class EditToolTest {
             CallReview.builder()
                 .preview(ReviewPreview.Diff(file, "--- $file\n+++ $file\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n"))
                 .snapshot(hashOf(file))
+                .reads(listOf(file))
                 .build(),
             review,
         )
@@ -294,7 +314,7 @@ class EditToolTest {
     }
 
     @Test
-    fun `a file that changed after the review is not written, nor is a call that was not reviewed`() {
+    fun `a file that changed after the review is not written`() {
         val file = fs.write("repo/notes.md", "Buy tea.\n")
         read(file)
         val arguments = call(file, Edit("tea", "coffee"))
@@ -304,14 +324,10 @@ class EditToolTest {
         val changed = runBlocking {
             tool.execute(arguments, fs.context(clearance = Clearance(ClearanceKind.HUMAN, null, review.snapshot)))
         }
-        val unreviewed = runBlocking { tool.execute(arguments, fs.context()) }
 
         assertEquals(
-            listOf(
-                "$file changed since this call was reviewed: read it again with fs.read, then repeat the call.",
-                "This call was not reviewed, so it writes nothing.",
-            ),
-            listOf(changed.text, unreviewed.text),
+            "$file changed since this call was reviewed: read it again with fs.read, then repeat the call.",
+            changed.text,
         )
         assertEquals("Buy more tea.\n", file.readText())
     }

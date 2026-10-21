@@ -12,7 +12,6 @@ import org.unitedsoftware.alexandrite.sdk.web.WebSearchBackend
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.testHardFloor
 import org.unitedsoftware.alexandrite.testkit.testToolContext
-import org.unitedsoftware.alexandrite.tools.web.WebConfig
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
@@ -31,6 +30,7 @@ class ToolsPluginTest {
         Files.writeString(secret, "SECRET")
         lateinit var risks: Map<String, ToolRisk>
         lateinit var refused: String
+        lateinit var exec: ToolDefinition
 
         runBlocking {
             PluginHarness.builder(AlexandriteToolsIndex()).hardFloor(testHardFloor(listOf(secret.parent))).build().run {
@@ -39,6 +39,7 @@ class ToolsPluginTest {
                 val read = tools.single { it.definition.name == "fs.read" }
                 val result = read.execute(JsonObject(mapOf("path" to JsonPrimitive("$secret"))), testToolContext())
                 refused = (result.content.single() as TextPart).text
+                exec = tools.single { it.definition.name == "command.exec" }.definition
             }
         }
 
@@ -56,6 +57,8 @@ class ToolsPluginTest {
             risks,
         )
         assertEquals("$secret is protected (a place the test protects): no file tool may read it.", refused)
+        assertEquals(1800.seconds, exec.timeout)
+        assertContains(exec.parameters.toString(), "at most 1800, which is the default.")
     }
 
     @Test
@@ -76,30 +79,10 @@ class ToolsPluginTest {
     }
 
     @Test
-    fun `command exec lets a program run half an hour unless the exec section says otherwise`() {
-        lateinit var definition: ToolDefinition
-
-        runBlocking {
-            PluginHarness.builder(AlexandriteToolsIndex()).hardFloor(testHardFloor()).build().run {
-                definition = getAll<Tool>().single { it.definition.name == "command.exec" }.definition
-            }
+    fun `web search has the brave and tavily backends`() = runBlocking {
+        PluginHarness.builder(AlexandriteToolsIndex()).hardFloor(testHardFloor()).build().run {
+            assertEquals(setOf("brave", "tavily"), getAll<WebSearchBackend>().map { it.id }.toSet())
         }
-
-        assertEquals(1800.seconds, definition.timeout)
-        assertContains(definition.parameters.toString(), "at most 1800, which is the default.")
-    }
-
-    @Test
-    fun `web search keys resolve from the environment as Secrets`() = runBlocking {
-        PluginHarness.builder(AlexandriteToolsIndex())
-            .config($$"""{"web":{"braveApiKey":"${env:SEARCH_KEY}"}}""")
-            .environment(mapOf("SEARCH_KEY" to "fixture-key"))
-            .hardFloor(testHardFloor())
-            .build().run {
-                assertEquals("fixture-key", get<WebConfig>().braveApiKey?.reveal())
-                assertEquals("Secret(***)", get<WebConfig>().braveApiKey.toString())
-                assertEquals(setOf("brave", "tavily"), getAll<WebSearchBackend>().map { it.id }.toSet())
-            }
         Unit
     }
 }

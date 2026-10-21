@@ -2,9 +2,6 @@ package org.unitedsoftware.alexandrite.provider.anthropiccompatible
 
 import kotlinx.serialization.json.Json
 import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
-import org.unitedsoftware.alexandrite.provider.common.everyKey
-import org.unitedsoftware.alexandrite.provider.common.everyKeyJson
-import org.unitedsoftware.alexandrite.provider.common.keys
 import org.unitedsoftware.alexandrite.provider.common.messages.MessagesEndpoint
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,15 +11,13 @@ class AnthropicCompatibleConfigTest {
         Json.decodeFromString(AnthropicCompatibleConfig.serializer(), json).endpoints.values.single()
 
     @Test
-    fun `an endpoint that sets every key reads each as before`() {
-        val shared = everyKeyJson("https://proxy.example.com/v1", TurnContextSetting.BAKE)
+    fun `an endpoint reads the provider's own options`() {
         val own = """
             "promptCaching": false, "betas": ["some-beta-2026-01-01"], "turnScopedSystem": true, "nativeSearch": true
         """.trimIndent()
 
-        val endpoint = read("""{"endpoints": {"x": {$shared, $own}}}""")
+        val endpoint = read("""{"endpoints": {"x": {$own}}}""")
 
-        assertEquals(everyKey("https://proxy.example.com/v1", TurnContextSetting.BAKE), endpoint.settings.keys())
         val options = endpoint.options
         assertEquals(listOf("some-beta-2026-01-01"), options.betas)
         assertEquals(

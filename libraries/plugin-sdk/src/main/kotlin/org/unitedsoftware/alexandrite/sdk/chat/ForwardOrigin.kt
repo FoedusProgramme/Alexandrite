@@ -31,8 +31,11 @@ public value class ForwardKind internal constructor(public val id: String) {
         /** An origin the channel cannot classify. */
         public val UNKNOWN: ForwardKind = ForwardKind("unknown")
 
+        /** A bot that wrote the message for its sender, as an inline bot does. */
+        public val BOT: ForwardKind = ForwardKind("bot")
+
         /** The values this version knows. */
-        public val entries: List<ForwardKind> = listOf(USER, CHAT, UNKNOWN)
+        public val entries: List<ForwardKind> = listOf(USER, CHAT, UNKNOWN, BOT)
 
         /** The value of [id], which keeps an id this version does not know. */
         public fun of(id: String): ForwardKind = ForwardKind(id)

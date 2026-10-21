@@ -41,7 +41,10 @@ class TelegramRestartTest {
         assertEquals(setOf("What does greet do?", "And Main.kt?"), asked.take(2).toSet())
         assertEquals(asked.take(2).toSet(), asked.drop(2).toSet())
         assertEquals(4, asked.size)
-        assertEquals(listOf("Answered."), app.fake.botMessages(ADA).body().map { it.text })
+        assertEquals(
+            listOf("Answered."),
+            app.fake.botMessages(ADA).body().map { it.text }.filterNot { it.startsWith(TelegramApp.OFFERED) },
+        )
         assertEquals(listOf("Answered."), app.fake.botMessages(BOB).body().map { it.text })
         app.model.assertFinished()
     }

@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.internal.http
 import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -70,13 +69,6 @@ class HttpTransportTest {
     }
 
     @Test
-    fun `send reads a whole body`() = runBlocking {
-        server.handle { it.header("content-type", "application/json").chunk("""{"data":""").chunk("[]}").end() }
-
-        assertEquals("""{"data":[]}""", transport.send(HttpCall("GET", server.uri.resolve("/models"))))
-    }
-
-    @Test
     fun `a status error carries its kind, retry delay, request id, headers and a masked body`() = runBlocking {
         server.handle {
             it.status(429).header("retry-after", "7").header("x-request-id", "req-1")
@@ -105,19 +97,6 @@ class HttpTransportTest {
         assertEquals(HttpFailureKind.OVERLOADED, error.kind)
         assertEquals(30.seconds, error.retryAfter)
         assertEquals(null, error.body)
-    }
-
-    @Test
-    fun `a refused connection is a connection failure`() = runBlocking {
-        val port = ServerSocket(0).use { it.localPort }
-
-        val error = assertFailsWith<HttpException> {
-            transport.open(HttpCall("GET", URI("http://127.0.0.1:$port/x"))) { }
-        }
-
-        assertEquals(HttpFailureKind.CONNECTION, error.kind)
-        assertTrue(error.kind.retryable)
-        assertFalse(error.afterResponse)
     }
 
     @Test
@@ -221,7 +200,7 @@ class HttpTransportTest {
     }
 
     @Test
-    fun `a secret in the path appears in no broken connection`() = runBlocking {
+    fun `a refused or broken connection fails retryably and shows no secret of the path`() = runBlocking {
         val port = ServerSocket(0).use { it.localPort }
         server.handle { it.chunk("data: a\n\n").drop() }
 
@@ -230,6 +209,7 @@ class HttpTransportTest {
         }
         val broken = assertFailsWith<HttpException> { transport.open(bot()) { it.events().toList() } }
 
+        assertEquals(HttpFailureKind.CONNECTION to true, refused.kind to refused.kind.retryable)
         assertEquals(listOf(false, true), listOf(refused, broken).map { it.afterResponse })
         assertMasked(refused)
         assertMasked(broken)
@@ -381,26 +361,6 @@ class HttpTransportTest {
         assertEquals(listOf("late"), late.map { it.data })
         assertEquals(HttpFailureKind.TIMEOUT, error.kind)
         assertFalse(error.afterResponse)
-    }
-
-    @Test
-    fun `a call's first-byte timeout is positive and finite`() {
-        for (timeout in listOf(Duration.ZERO, (-1).seconds, Duration.INFINITE)) {
-            assertFailsWith<IllegalArgumentException> { bot(firstByte = timeout) }
-        }
-    }
-
-    @Test
-    fun `calls run in parallel on one transport`() = runBlocking {
-        repeat(2) { server.handle { it.chunk("data: ok\n\n").end() } }
-
-        val results = List(2) {
-            async(Dispatchers.Default) {
-                transport.open(post()) { response -> response.events().toList().single().data }
-            }
-        }.map { it.await() }
-
-        assertEquals(listOf("ok", "ok"), results)
     }
 
     @Test

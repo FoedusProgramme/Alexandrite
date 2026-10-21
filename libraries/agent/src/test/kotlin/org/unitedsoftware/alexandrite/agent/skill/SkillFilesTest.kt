@@ -2,8 +2,8 @@ package org.unitedsoftware.alexandrite.agent.skill
 
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.hostPaths
-import org.unitedsoftware.alexandrite.agent.project.FolderTrust
 import org.unitedsoftware.alexandrite.agent.settings
+import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.skill.SkillSource
@@ -66,7 +66,7 @@ class SkillFilesTest {
             override fun skills(): List<SkillSpec> = listOf(SkillSpec("review", "A plugin's review.", "Look."))
         }
         val trust = FolderTrust(settings("{}"), hostPaths(null), testHardFloor(), testRecords())
-        val registry = Skills(places, listOf(plugin), ProjectSkills(), trust)
+        val registry = Skills(places, listOf(plugin), ProjectSkills(), trust, testHardFloor())
 
         val found = registry.global(AgentId("coder"))
 

@@ -2,9 +2,6 @@ package org.unitedsoftware.alexandrite.provider.openairesponses
 
 import kotlinx.serialization.json.Json
 import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
-import org.unitedsoftware.alexandrite.provider.common.everyKey
-import org.unitedsoftware.alexandrite.provider.common.everyKeyJson
-import org.unitedsoftware.alexandrite.provider.common.keys
 import org.unitedsoftware.alexandrite.provider.common.responses.ReasoningSummary
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -14,13 +11,11 @@ class OpenAiResponsesConfigTest {
         Json.decodeFromString(OpenAiResponsesConfig.serializer(), json).endpoints.values.single()
 
     @Test
-    fun `an endpoint that sets every key reads each as before`() {
-        val shared = everyKeyJson("https://proxy.example.com/v1", TurnContextSetting.BAKE)
+    fun `an endpoint reads the provider's own options`() {
         val own = """"promptCacheKey": false, "reasoningSummary": null, "nativeSearch": true"""
 
-        val endpoint = read("""{"endpoints": {"x": {$shared, $own}}}""")
+        val endpoint = read("""{"endpoints": {"x": {$own}}}""")
 
-        assertEquals(everyKey("https://proxy.example.com/v1", TurnContextSetting.BAKE), endpoint.settings.keys())
         val options = endpoint.options
         assertEquals(
             listOf(false, null, true),

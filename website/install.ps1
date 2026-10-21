@@ -22,9 +22,6 @@ $Root = if ($env:ALEXANDRITE_INSTALL_DIR) { $env:ALEXANDRITE_INSTALL_DIR } else 
 $ReadyTimeout = if ($env:ALEXANDRITE_READY_TIMEOUT) { [int]$env:ALEXANDRITE_READY_TIMEOUT } else { 90 }
 $TaskName = 'Alexandrite'
 $JavaMajor = 21
-# The first release whose `alexandrite config check` exists.
-$ConfigCheckSince = '0.1.0'
-$ExUsage = 64
 $Stages = 4
 $Chinese = [Globalization.CultureInfo]::CurrentUICulture.Name -like 'zh*'
 
@@ -97,8 +94,6 @@ ALEXANDRITE_INSTALL_BASE and ALEXANDRITE_ADOPTIUM_BASE replace the download site
     names_itself = "Alexandrite {0} names itself '{1}'."
     starts = 'Alexandrite {0} starts.'
     check_passes = 'The config passes the check of Alexandrite {0}.'
-    old_check = "Alexandrite {0} has no 'config check'; the config is checked when it starts."
-    no_check = "Alexandrite {0} has no 'config check'."
     both_fail = 'The config fails the check of {0} and of the installed {1} alike; going on:'
     check_fails = 'The config fails the check of Alexandrite {0}:'
     path_added = "Added {0} to your PATH; open a new terminal to use 'alexandrite'."
@@ -193,8 +188,6 @@ ALEXANDRITE_INSTALL_BASE 和 ALEXANDRITE_ADOPTIUM_BASE 可替换下载地址（f
     names_itself = "Alexandrite {0} 报告的版本是 '{1}'。"
     starts = 'Alexandrite {0} 可以启动。'
     check_passes = '配置通过了 Alexandrite {0} 的检查。'
-    old_check = "Alexandrite {0} 没有 'config check'；配置将在启动时检查。"
-    no_check = "Alexandrite {0} 没有 'config check'。"
     both_fail = '配置在 {0} 和已安装的 {1} 上都未通过检查；继续：'
     check_fails = '配置未通过 Alexandrite {0} 的检查：'
     path_added = "已把 {0} 加入 PATH；请打开新的终端以使用 'alexandrite'。"
@@ -417,10 +410,6 @@ function Invoke-App([string]$Binary, [string[]]$Arguments, [switch]$Locations) {
     [pscustomobject]@{ Code = $code; Output = ($output -join [Environment]::NewLine) }
 }
 
-function Test-MissingCommand($Result) {
-    $Result.Code -eq $ExUsage -and $Result.Output -match 'Unknown command'
-}
-
 function Get-JavaMajor([string]$Java) {
     if (-not (Test-Path -LiteralPath $Java -PathType Leaf)) { return 0 }
     $result = Invoke-App $Java @('-version')
@@ -606,16 +595,8 @@ function Test-Release {
         Tick 'check_passes' $Version
         return $true
     }
-    if (Test-MissingCommand $check) {
-        if (Test-VersionBefore $Version $ConfigCheckSince) {
-            Info 'old_check' $Version
-            return $true
-        }
-        Warn 'no_check' $Version
-        return $false
-    }
     $old = Invoke-App (Join-Path $Root "versions\$Prev\bin\alexandrite.bat") @('config', 'check') -Locations
-    if ($old.Code -ne 0 -and -not (Test-MissingCommand $old)) {
+    if ($old.Code -ne 0) {
         Warn 'both_fail' $Version $Prev
         [Console]::Error.WriteLine($check.Output)
         return $true
@@ -685,17 +666,12 @@ function Restart-Task {
     Start-ScheduledTask -TaskName $TaskName
 }
 
-# Polls `alexandrite status` (`pairings` for a version without it) until the instance answers.
+# Polls `alexandrite status` until the instance answers.
 function Wait-Ready {
-    $probe = 'status'
     $launcher = Join-Path $Root 'bin\alexandrite.cmd'
     for ($waited = 0; $waited -lt $ReadyTimeout; ) {
-        $result = Invoke-App $launcher @($probe) -Locations
+        $result = Invoke-App $launcher @('status') -Locations
         if ($result.Code -eq 0) { return $true }
-        if ($probe -eq 'status' -and (Test-MissingCommand $result)) {
-            $probe = 'pairings'
-            continue
-        }
         Start-Sleep -Seconds 1
         $waited++
     }

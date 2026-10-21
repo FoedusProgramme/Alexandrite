@@ -76,7 +76,7 @@ class TimeZoneTest {
             ask()
 
             assertEquals(listOf(berlin, shanghai, berlin), zones)
-            assertEquals("2026-01-01T01:00+01:00" to "2026-01-01T08:00+08:00", first to second)
+            assertEquals("2026-01-01T01:00+01:00 (Thursday)" to "2026-01-01T08:00+08:00 (Thursday)", first to second)
             assertEquals(Triple(shanghai, berlin, shanghai), Triple(set.zone, set.defaultZone, set.effectiveZone))
             assertEquals(Triple(null, berlin, berlin), Triple(reset.zone, reset.defaultZone, reset.effectiveZone))
             assertEquals(berlin, get<ChatSettings>().snapshot(chat).effectiveZone)
@@ -89,7 +89,7 @@ class TimeZoneTest {
             ask()
 
             assertEquals(listOf<ZoneId?>(ZoneOffset.UTC), zones)
-            assertEquals("2026-01-01T00:00Z", received())
+            assertEquals("2026-01-01T00:00Z (Thursday)", received())
             assertNull(get<ChatSettings>().snapshot(channel().chat()).effectiveZone)
         }
     }

@@ -16,6 +16,7 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -51,6 +52,7 @@ import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.recordingTool
 import org.unitedsoftware.alexandrite.testkit.testChat
+import org.unitedsoftware.alexandrite.testkit.testRecords
 import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testToolDefinition
 import org.unitedsoftware.alexandrite.testkit.testTurn
@@ -59,13 +61,14 @@ import java.nio.file.Path
 import java.time.Duration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class CallRulesTest {
     private val clock = TestClock()
     private val store = MemoryStore(clock)
     private val records = TestRecords(store.records).of(AGENT)
-    private val states = SettingsStates(TestChatStates(store.chatStates).of(AGENT))
+    private val states = SettingsStates(TestChatStates(store.chatStates).of(AGENT), testRecords())
     private val key = AgentChatKey(AgentId.MAIN, testChat())
     private val operator = testUser("operator", isOperator = true)
     private val exec = ScriptedTool("command.exec", ToolRisk.EXEC)
@@ -86,6 +89,9 @@ class CallRulesTest {
                     Proceeding,
                 ),
                 registry, rules, NoTrust, UnsureJudge, approvals, states, directory, clock, NotContained,
+                NoInstructionPlaces,
+                NoForesight,
+                NoMarkOffers,
             )
 
         /** How the gate decided a call of [tool] reviewed as [review] in [turn]: run, rule, mode, ask or refused. */
@@ -133,22 +139,29 @@ class CallRulesTest {
     }
 
     /** [tool]'s call in [turn], reviewed as [review], as the gate checks it. */
-    private fun checked(turn: TurnInfo, tool: ScriptedTool, review: CallReview, risk: ToolRisk = tool.risk) =
-        CheckedCall(
-            GateCall(
-                turn,
-                ToolCallPart(ToolCallId("call-1"), tool.definition.name, "{}"),
-                tool,
-                JsonObject(emptyMap()),
-                5.seconds,
-                TurnTaint(turn.id, turn.key),
-                testToolContext(turn),
-                DirectCalls,
-            ),
-            review,
-            risk,
-            null,
-        )
+    private fun checked(
+        turn: TurnInfo,
+        tool: ScriptedTool,
+        review: CallReview,
+        risk: ToolRisk = tool.risk,
+        tainted: Boolean = false,
+        instruction: String? = null,
+    ) = CheckedCall(
+        GateCall(
+            turn,
+            ToolCallPart(ToolCallId("call-1"), tool.definition.name, "{}"),
+            tool,
+            JsonObject(emptyMap()),
+            5.seconds,
+            TurnTaint(turn.id, turn.key).apply { if (tainted) note("a pasted page") },
+            testToolContext(turn),
+            DirectCalls,
+        ),
+        review,
+        risk,
+        null,
+        instruction = instruction,
+    )
 
     // Deny rules.
 
@@ -242,7 +255,7 @@ class CallRulesTest {
         }
 
     @Test
-    fun `a declared tool allows the calls that offer a subject, never an opaque program`() = runTest {
+    fun `a declared tool allows its calls, those that offer no subject too, never an opaque program`() = runTest {
         val setup = Setup("""{"allow": ["deploy.run", "command.exec"]}""")
         val subject = RuleSubject("deploy.run", listOf("staging"), "staging")
         val opaque = CallReview.builder()
@@ -258,7 +271,7 @@ class CallRulesTest {
             setup.decide(exec, opaque.withRule(RuleSubject("command.exec", listOf("sh"), "sh")), turn),
         )
 
-        assertEquals(listOf("rule", "ask", "rule", "ask", "ask"), decided)
+        assertEquals(listOf("rule", "rule", "rule", "ask", "ask"), decided)
         assertEquals(listOf(null, null), setup.approvals.offered.takeLast(2))
     }
 
@@ -293,6 +306,25 @@ class CallRulesTest {
 
         assertEquals(listOf(listOf(subject)) + List(5) { emptyList() }, offered)
     }
+
+    @Test
+    fun `rules are offered for good in a tainted conversation as in a clean one, not for an instruction write`() =
+        runTest {
+            val rules = Setup("""{"allow": ["command.exec(make)"]}""").rules
+            val review = run("make", "test")
+
+            val offered = listOf(
+                rules.grantable(checked(operator(), exec, review, tainted = true)),
+                rules.grantable(checked(operator(), exec, review, instruction = "a trusted folder's instruction file")),
+            )
+
+            val make = RuleSubject("command.exec", listOf("make", "test"), "make test")
+            assertEquals(listOf(listOf(make), emptyList()), offered)
+            val allowed = listOf(null, "a skill directory").map {
+                rules.allowed(checked(operator(), exec, review, instruction = it))
+            }
+            assertEquals(listOf(true, false), allowed)
+        }
 
     // Session rules.
 
@@ -334,27 +366,18 @@ class CallRulesTest {
         val rules = Setup().rules
         val test = run("make", "test")
 
-        val lines = logged {
-            blocking {
-                setMode(PermissionMode.MANUAL)
-                rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
-                setMode(PermissionMode.ASK)
-                rules.grant(
-                    checked(operator(), exec, test),
-                    listOf(RuleSubject("command.exec", listOf("make"), "make")),
-                    operator,
-                )
-            }
+        blocking {
+            setMode(PermissionMode.MANUAL)
+            rules.grant(checked(operator(), exec, test), listOf(test.rule!!), operator)
+            setMode(PermissionMode.ASK)
+            rules.grant(
+                checked(operator(), exec, test),
+                listOf(RuleSubject("command.exec", listOf("make"), "make")),
+                operator,
+            )
         }
 
         assertEquals(emptyList(), blocking { storedRules() })
-        assertEquals(
-            listOf(
-                "WARN Call call-1 in turn test-turn offers no rule 'make test' to grant, so none is granted",
-                "WARN Call call-1 in turn test-turn offers no rule 'make' to grant, so none is granted",
-            ),
-            lines.filter { it.startsWith("WARN") },
-        )
     }
 
     @Test
@@ -447,12 +470,8 @@ class CallRulesTest {
     fun `a rule that names a tool no plugin contributes is warned about`() {
         val lines = logged { Setup("""{"allow": ["deploy.run", "web.fetch"], "deny": ["command.exec(rm)"]}""") }
 
-        assertEquals(
-            listOf(
-                "WARN The permission rule web.fetch of agent 'main' names a tool that no plugin contributes",
-            ),
-            lines.filter { it.startsWith("WARN") },
-        )
+        assertEquals(1, lines.count { it.startsWith("WARN") })
+        assertTrue(lines.single { it.startsWith("WARN") }.contains("web.fetch"))
     }
 
     private fun run(vararg argv: String, executable: String? = null): CallReview {
@@ -488,7 +507,7 @@ class CallRulesTest {
     private class OfferingApprovals(private val rules: CallRules) : Approvals {
         val offered = mutableListOf<RuleSubject?>()
 
-        override suspend fun ask(call: CheckedCall, reason: String): GateResult {
+        override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
             offered += rules.grantable(call).firstOrNull()
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
         }

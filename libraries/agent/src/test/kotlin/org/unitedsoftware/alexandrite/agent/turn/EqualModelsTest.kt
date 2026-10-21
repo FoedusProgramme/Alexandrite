@@ -13,9 +13,14 @@ import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.agentState
+import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
 import org.unitedsoftware.alexandrite.sdk.model.FinishKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelError
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
+import org.unitedsoftware.alexandrite.sdk.model.Trust
+import org.unitedsoftware.alexandrite.sdk.model.TurnContextFallback
+import org.unitedsoftware.alexandrite.sdk.model.TurnContextItem
+import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
@@ -34,6 +39,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
+import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
@@ -56,17 +62,20 @@ class EqualModelsTest {
         val other: ScriptedModel = ScriptedModel(EndpointId("other"), listOf(ScriptedModel.modelInfo("big"))),
     )
 
-    private fun Run.harness(models: String = "[\"$first\", \"$second\"]", retries: Int = 0): PluginHarness =
-        agentHarness(
-            """
+    private fun Run.harness(
+        models: String = "[\"$first\", \"$second\"]",
+        retries: Int = 0,
+        configure: PluginHarness.Builder.() -> Unit = {},
+    ): PluginHarness = agentHarness(
+        """
             {
               "previewIntervalMillis": 0,
               "models": {"retries": $retries},
               "agents": {"coder": {"models": $models, "channels": {"test:main": {}}}}
             }
-            """.trimIndent(),
-            store,
-        ) { channel(operators = setOf("operator")).model(main).model(other).tool(read) }
+        """.trimIndent(),
+        store,
+    ) { channel(operators = setOf("operator")).model(main).model(other).tool(read).apply(configure) }
 
     private fun PluginHarness.Running.ask(): Admission.Accepted =
         channel().receive("Hi", sender = channel().user("operator")) as Admission.Accepted
@@ -97,6 +106,27 @@ class EqualModelsTest {
             assertEquals(second, (stored[1] as AssistantEntry).producedBy)
             assertEquals(NoticeEntry(null, switched("server_error"), NoticeKind.MODEL_SWITCHED), stored.last())
             assertEquals(run.main.requests.single().history, run.other.requests.single().history)
+        }
+    }
+
+    @Test
+    fun `an untrusted turn-context item that only the next model reads taints the turn as it moves on`() {
+        val dropped = TurnContextItem("web.ad", "An ad.", Trust.UNTRUSTED, TurnContextFallback.DROP)
+        val run = Run(
+            main = ScriptedModel(untrustedTurnContextMode = TurnContextMode.NOT_SUPPORTED),
+            other = ScriptedModel(EndpointId("other"), listOf(ScriptedModel.modelInfo("big"))),
+        )
+        run.main.fail(error(ModelErrorKind.SERVER_ERROR, 503))
+        run.other.reply { text("Hello") }
+        val inject = Interceptor(TurnPoints.CONTEXT_INJECT) { HookDecision.Replace(it.plus(dropped)) }
+
+        run.harness { hook(inject) }.execute {
+            assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
+
+            assertEquals(emptyList(), run.main.requests.single().turnContext)
+            assertEquals(listOf(dropped), run.other.requests.single().turnContext)
+            val conversation = run.store.conversations.current(key).id
+            assertEquals("untrusted turn context", run.store.conversations.taint(conversation)?.reason)
         }
     }
 

@@ -4,13 +4,15 @@ import dev.drewhamilton.poko.Poko
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
 import kotlin.time.toJavaDuration
 
@@ -92,32 +94,49 @@ public interface BeatEvents<K : Any> {
 /** Beats each plan of [plans] through [beater], each beat in its own coroutine. */
 @InternalAutomationApi
 public class Beats<K : Any>(
-    private val plans: List<BeatPlan<K>>,
+    plans: List<BeatPlan<K>>,
     private val beater: Beater<K>,
     private val events: BeatEvents<K> = object : BeatEvents<K> {},
     private val time: TimeSource = TimeSource.system,
 ) {
-    init {
-        require(plans.map { it.id }.toSet().size == plans.size) { "Beat ids must be distinct." }
+    private val plans = MutableStateFlow(distinct(plans))
+
+    /** Beats [plans] in place of the plans so far, each on its grid from the start, letting running beats end. */
+    public fun update(plans: List<BeatPlan<K>>) {
+        this.plans.value = distinct(plans)
     }
 
     /** Beats from [start] until cancelled, which cancels the beats still running. */
     public suspend fun run(start: Instant = time.now()): Nothing = coroutineScope {
-        for (plan in plans) launch { beat(this@coroutineScope, plan, start) }
-        awaitCancellation()
+        val loops = HashMap<K, Pair<BeatPlan<K>, Job>>()
+        val running = ConcurrentHashMap<K, Job>()
+        plans.collect { plans ->
+            val ids = plans.map { it.id }.toSet()
+            for (id in loops.keys.filter { it !in ids }) loops.remove(id)?.second?.cancelAndJoin()
+            for (plan in plans) {
+                val loop = loops[plan.id]
+                if (loop?.first == plan) continue
+                loop?.second?.cancelAndJoin()
+                loops[plan.id] = plan to launch { beat(this@coroutineScope, plan, start, running) }
+            }
+        }
     }
 
-    private suspend fun beat(scope: CoroutineScope, plan: BeatPlan<K>, start: Instant): Nothing {
-        var due = plan.dueAfter(start, start)
-        var running: Job? = null
+    private suspend fun beat(
+        scope: CoroutineScope,
+        plan: BeatPlan<K>,
+        start: Instant,
+        running: MutableMap<K, Job>,
+    ): Nothing {
+        var due = plan.dueAfter(start, time.now())
         while (true) {
             time.sleepUntil(due)
             when {
                 !plan.isActive(due) -> events.skipped(plan.id, due, BeatSkip.INACTIVE)
 
-                running?.isActive == true -> events.skipped(plan.id, due, BeatSkip.BUSY)
+                running[plan.id]?.isActive == true -> events.skipped(plan.id, due, BeatSkip.BUSY)
 
-                else -> running = scope.launch {
+                else -> running[plan.id] = scope.launch {
                     try {
                         beater.beat(plan.id)
                     } catch (e: CancellationException) {
@@ -130,4 +149,8 @@ public class Beats<K : Any>(
             due = plan.dueAfter(start, time.now())
         }
     }
+}
+
+private fun <K : Any> distinct(plans: List<BeatPlan<K>>): List<BeatPlan<K>> = plans.also {
+    require(plans.map { it.id }.toSet().size == plans.size) { "Beat ids must be distinct." }
 }

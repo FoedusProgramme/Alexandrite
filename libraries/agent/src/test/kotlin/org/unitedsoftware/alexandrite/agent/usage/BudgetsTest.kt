@@ -1,18 +1,20 @@
 package org.unitedsoftware.alexandrite.agent.usage
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import org.unitedsoftware.alexandrite.agent.agentHarness
-import org.unitedsoftware.alexandrite.agent.assertStartFails
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.delegation.BUDGET_SPENT_RESULT
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.job.JobRecords
+import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.agent.startingInBackground
-import org.unitedsoftware.alexandrite.runtime.StartStage
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.model.Usage
@@ -49,6 +51,8 @@ import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BudgetsTest {
@@ -132,13 +136,14 @@ class BudgetsTest {
     }
 
     @Test
-    fun `usage sums by period in the agent's zone, by chat and in all, with its cost where every call had a price`() {
+    fun `usage sums by period in the agent's zone, by chat and in all, priced only where every call had a price`() {
         val priced = ScriptedModel(models = listOf(ScriptedModel.modelInfo().rebuild { price(PRICE) }))
         val other = ChatAddress.parse("test:main:other")
         seed(usage(1000, 100), today.minusDays(3), cost = BigDecimal("0.0045"))
         seed(usage(4000, 400), today.minusDays(20), cost = BigDecimal("0.018"))
         seed(usage(7, 3), today.minusDays(40))
         seed(usage(50, 5), today, other, BigDecimal("0.000225"))
+        seed(usage(9, 1), today.minusDays(1), other)
         priced.reply { text("Done.").usage(usage(100, 10)) }
 
         harness(model = priced).execute {
@@ -152,24 +157,15 @@ class BudgetsTest {
             assertEquals(110L, tokens(UsagePeriod.TODAY, chat = true))
             assertEquals(165L, tokens(UsagePeriod.TODAY, chat = false))
             assertEquals(1210L, tokens(UsagePeriod.LAST_7_DAYS, chat = true))
-            assertEquals(1265L, tokens(UsagePeriod.LAST_7_DAYS, chat = false))
-            val month = 165L + (if (weekInMonth) 1100 else 0) + (if (inMonth) 4400 else 0)
+            assertEquals(1275L, tokens(UsagePeriod.LAST_7_DAYS, chat = false))
+            val yesterday = if (today.minusDays(1).month == today.month) 10 else 0
+            val month = 165L + yesterday + (if (weekInMonth) 1100 else 0) + (if (inMonth) 4400 else 0)
             assertEquals(month, tokens(UsagePeriod.THIS_MONTH, chat = false))
-            fun cost(periods: List<PeriodUsage>) =
-                periods.single { it.period == UsagePeriod.TODAY }.models.single().cost
+            fun cost(periods: List<PeriodUsage>, period: UsagePeriod = UsagePeriod.TODAY) =
+                periods.single { it.period == period }.models.single().cost
             assertEquals(BigDecimal("0.00045") to BigDecimal("0.000675"), cost(usage.chat) to cost(usage.total))
-        }
-    }
-
-    @Test
-    fun `a call of a model without a price leaves the period's money unknown`() {
-        seed(usage(1000, 100), cost = BigDecimal("0.01"))
-        seed(usage(10, 1))
-
-        harness().execute {
-            val today = get<UsageReports>().report(chat).agents.single().chat.first().models.single()
-
-            assertEquals(1111L to null, today.tokens to today.cost)
+            assertNotNull(cost(usage.chat, UsagePeriod.LAST_7_DAYS))
+            assertNull(cost(usage.total, UsagePeriod.LAST_7_DAYS))
         }
     }
 
@@ -250,7 +246,7 @@ class BudgetsTest {
     }
 
     @Test
-    fun `a job's result refused past the budget waits for the next operator message, which takes it in`() {
+    fun `a job's result refused past the budget is dropped, and the next turn is told it came, after a restart too`() {
         val finish = CompletableDeferred<Unit>()
         val slow = recordingTool("test.slow") { _, _ ->
             finish.await()
@@ -258,39 +254,54 @@ class BudgetsTest {
         }
         model.reply { toolCall("test.slow", "{}").usage(usage(1500, 100)) }
             .reply { text("It runs in the background.") }
-            .reply { text("The slow job is done.") }
+            .reply { text("It ended without a result I can see.") }
+        var job: RunId? = null
 
         harness { tool(startingInBackground(slow)) }.execute {
             ask("Start it.")
             val jobs = JobRecords(TestRecords(store).of("alexandrite-agent"))
-            val job = jobs.all().keys.single()
+            val started = jobs.all().keys.single().also { job = it }
             finish.complete(Unit)
-            val waiting = "Coder has used up its budget, so the result of job $job (test.slow) waits for the next " +
-                "message of an operator, which takes it in."
-            channel().awaitEvent { (it as? Event.Sent)?.message?.text == waiting }
+            val dropped =
+                "Coder has used up its budget, so the result of job $started (test.slow) is not taken in. Its " +
+                    "next turn here is told that the job ended."
+            channel().awaitEvent { (it as? Event.Sent)?.message?.text == dropped }
 
+            withTimeout(5_000) { while (jobs.all().isNotEmpty()) delay(5) }
             assertEquals(2, model.requests.size)
-            assertEquals(setOf(job), jobs.all().keys)
-            val answered = assertIs<TurnOutcome.Completed>(ask("What came of it?"))
+        }
+        harness { tool(startingInBackground(slow)) }.execute {
+            assertIs<TurnOutcome.Completed>(ask("What came of it?"))
 
-            assertEquals("The slow job is done.", answered.reply?.parts?.filterIsInstance<TextPart>()?.single()?.text)
             val history = model.requests.last().history.filterIsInstance<UserEntry>().takeLast(2)
             val framing = (history[0].parts.first() as ContextPart).text
-            assertTrue(framing.startsWith("[alexandrite:job]\nA background job ended: job $job, test.slow"), framing)
+            assertEquals(
+                "[alexandrite:job]\nA background job ended: job $job, test.slow. Its result came after your budget " +
+                    "was used up, so it is not shown: run the call again if you still need it.\n[/alexandrite:job]",
+                framing,
+            )
+            assertTrue("Slow done." !in model.requests.last().history.toString())
             assertEquals(UserOrigin.FromChat::class, history[1].origin::class)
-            assertEquals(emptySet(), jobs.all().keys)
         }
     }
 
     // Money.
 
     @Test
-    fun `a budget in money fails the start when a model of the agent has no price`() {
-        harness(config("""{"monthly": {"money": 5}}""")).assertStartFails(
-            StartStage.START,
-            "Invalid config at 'agent.agents.coder.budget': a budget in money needs a price for every model, and " +
-                "scripted/test-model has none: set models.\"test-model\".price in the config of endpoint 'scripted', " +
-                "or budget tokens",
+    fun `a budget in money with a model that has no price starts with a warning`() {
+        val lines = logged { logs ->
+            harness(config("""{"monthly": {"money": 5}}""")).execute {
+                withTimeout(5_000) { while (logs.none { "no price" in it }) delay(5) }
+            }
+        }
+
+        assertEquals(
+            listOf(
+                "WARN Agent 'coder' has a budget in money, but its model scripted/test-model has no price, so its " +
+                    "calls count as nothing: set models.\"test-model\".price in the config of endpoint 'scripted', " +
+                    "or budget tokens",
+            ),
+            lines.filter { "no price" in it },
         )
     }
 

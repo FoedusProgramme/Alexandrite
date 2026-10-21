@@ -1,11 +1,15 @@
 package org.unitedsoftware.alexandrite.app
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.ADA
+import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.WAIT
+import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.TranscriptStore
@@ -13,7 +17,6 @@ import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.NoticeEntry
-import org.unitedsoftware.alexandrite.sdk.transcript.NoticeKind
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
@@ -21,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDate
@@ -32,6 +36,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class TelegramRepositoryTest {
     @TempDir
@@ -48,6 +53,22 @@ class TelegramRepositoryTest {
     fun close() {
         app.close()
     }
+
+    /** The agent's config with [folder] trusted. */
+    private fun trusting(folder: Path): String = """
+        {
+          "previewIntervalMillis": 0,
+          "trustedFolders": [${JsonPrimitive("$folder")}],
+          "agents": {
+            "coder": {
+              "name": "Coder",
+              "model": "scripted/test-model",
+              "reasoning": "low",
+              "channels": {"telegram:work": {}}
+            }
+          }
+        }
+    """.trimIndent()
 
     private fun write(file: Path, text: String) {
         file.parent.createDirectories()
@@ -95,7 +116,7 @@ class TelegramRepositoryTest {
                 pause { previewed.await() }
                 text("It returns the greeting.")
             }
-        val builder = app.builder(directory, sqlite = true)
+        val builder = app.builder(directory, sqlite = true).config(trusting(repository))
 
         app.run(builder) {
             app.send(app.ada, app.adaChat, "What does greet do?")
@@ -130,40 +151,14 @@ class TelegramRepositoryTest {
         assertEquals("What does greet do?", requests.first().asked)
         assertEquals(
             listOf(
-                "agent.delegate",
-                "agent.jobs",
-                "agent.send",
-                "agent.stop",
-                "chat.list",
-                "chat.send",
-                "chat.send_file",
-                "command.exec",
-                "config.get",
-                "config.set",
-                "config.unset",
-                "fs.edit",
-                "fs.glob",
-                "fs.grep",
-                "fs.read",
-                "fs.write",
-                "history.search",
-                "permission.status",
-                "persona.edit",
-                "profile.create",
-                "profile.edit",
-                "profile.list",
-                "profile.remove",
-                "skill.load",
                 "telegram.member",
                 "telegram.pin",
                 "telegram.poll",
                 "telegram.react",
                 "telegram.set_title",
                 "telegram.sticker",
-                "web.fetch",
-                "web.search",
             ),
-            requests.first().tools.map { it.name },
+            requests.first().tools.map { it.name }.filter { it.startsWith("telegram.") },
         )
         assertEquals(requests.first().ids.conversation, conversation)
         assertEquals(TurnEndKind.COMPLETED, end)
@@ -185,7 +180,7 @@ class TelegramRepositoryTest {
     }
 
     @Test
-    fun `an answer too long for ten messages leaves its preview and the agent's notice in the chat`() {
+    fun `an answer too long for ten messages fills ten and goes out whole as a file`() {
         val listing = (1..2_000).joinToString("\n") { "Line $it of the listing." }
         val previewed = CompletableDeferred<Unit>()
         app.model.reply {
@@ -197,25 +192,26 @@ class TelegramRepositoryTest {
             app.send(app.ada, app.adaChat, "Print the whole listing.")
             app.messages(app.adaChat, 1)
             previewed.complete(Unit)
-            app.messages(app.adaChat, 2)
+            app.fake.await(30.seconds) { botMessages(ADA).takeIf { messages -> messages.any { it.file != null } } }
             idle()
         }
 
-        val (preview, notice) = app.fake.botMessages(ADA)
-        assertEquals(listing.take(4095) + "…" to 0, preview.text to preview.edits)
-        assertEquals("The answer is too long to send here. It is kept in the conversation.", notice.text)
-        assertEquals(emptyList(), app.fake.calls("editMessageText"))
+        val messages = app.fake.botMessages(ADA)
+        assertEquals(11, messages.size)
+        assertEquals(listOf("Line 1 of the listing."), messages.first().text.lines().take(1))
+        val file = checkNotNull(messages.last().file)
+        assertEquals("answer.md" to listing, file.name to file.bytes.decodeToString())
+        assertEquals("The answer goes on beyond these messages: this file holds all of it.", messages.last().text)
         val conversation = app.model.requests.single().ids.conversation
         val entries = runBlocking { app.store.transcripts.entries(conversation) }
         assertEquals(
             listOf("user: Print the whole listing.", "assistant: $listing"),
-            entries.dropLast(1).map(::described),
+            entries.map(::described),
         )
-        assertEquals(NoticeKind.TOO_LONG, (entries.last() as NoticeEntry).kind)
     }
 
     @Test
-    fun `an admin trusts the folder the agent warned of, and its next file read there loads the project's AGENTS md`() {
+    fun `an admin trusts the folder from the offer of its instructions, and the next read there loads its AGENTS md`() {
         write(readme, "# Greeter\n")
         write(repository.resolve("AGENTS.md"), "Answer in one sentence.\n")
         repository.resolve(".git").createDirectories()
@@ -225,40 +221,54 @@ class TelegramRepositoryTest {
             .reply { toolCall("fs.read", arguments("path" to readme)) }
             .reply { text("Greeter greets.") }
         lateinit var config: String
+        lateinit var offered: FakeBotMessage
+        lateinit var answered: String
         var listed = ""
 
         app.run(app.builder(directory, sqlite = true)) {
             config = Files.readString(configFile)
             app.send(app.ada, app.adaChat, "What is this project?")
+            val asked = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.buttons.isNotEmpty() } }
+            app.fake.press(app.ada, asked, "Allow, mark tainted")
             app.message(app.adaChat, "The project is called Greeter.")
-            app.send(app.ada, app.adaChat, "/trust $repository")
-            app.message(app.adaChat, "$repository is trusted, and so are the folders below it.")
+            offered = app.fake.await(WAIT) { botMessages(ADA).firstOrNull { it.text.startsWith(OFFERED) } }
+            app.fake.press(app.ada, offered, offered.buttons.flatten().first().text)
+            answered = app.fake.await(WAIT) {
+                botMessage(offered.chat, offered.id)?.takeIf { it.buttons.isEmpty() }
+            }.text.substringAfterLast("\n")
+            val chat = app.address(app.adaChat)
+            withTimeout(WAIT) { while (get<TrustControl>().folders(chat).isEmpty()) delay(10) }
             app.send(app.ada, app.adaChat, "What does it do?")
             app.message(app.adaChat, "Greeter greets.")
             idle()
         }
         app.run(app.builder(directory, sqlite = true)) {
             app.send(app.ada, app.adaChat, "/trust")
-            listed = app.bodyMessages(app.adaChat, 5).last().text
+            listed = app.fake.await(WAIT) {
+                botMessages(ADA).lastOrNull { it.text.startsWith("Trusted folders for coder") }
+            }.text
         }
 
+        val buttons = offered.buttons.single().map { it.text }
+        assertTrue(buttons.first().startsWith("Trust folder ") && buttons.first().endsWith(" (for coder)"), "$buttons")
+        assertEquals("Not now", buttons.last())
+        assertContains(offered.text, "Not loaded: $repository (AGENTS.md)")
+        assertContains(offered.text, "Agent: coder")
+        assertTrue(answered.startsWith("Trusted for coder by Ada Lovelace (@ada_test): "), answered)
+        assertTrue(answered.endsWith("/repo. Their project instructions load the next time the agent touches them."))
         assertEquals(
-            listOf(
-                "Coder is working in $repository, which has project instructions (AGENTS.md) that were not loaded. " +
-                    "An operator can trust the folder with /trust $repository; they load the next time the agent " +
-                    "touches it.",
-                "The project is called Greeter.",
-                "$repository is trusted, and so are the folders below it.",
-                "Greeter greets.",
-            ),
-            app.fake.botMessages(ADA).body().map { it.text }.take(4),
+            listOf("The project is called Greeter.", "Greeter greets."),
+            app.fake.botMessages(ADA).body().map { it.text }
+                .filterNot { it.startsWith("Approval needed") || it.startsWith(OFFERED) }
+                .take(2),
         )
         val today = LocalDate.now(ZoneOffset.UTC)
         assertContains(
             setOf(today, today.minusDays(1)).map {
-                "Trusted folders, each with the folders below it:\n- $repository (trusted by Ada Lovelace on $it)"
+                "Trusted folders for coder, each with the folders below it:\n" +
+                    "- $repository (trusted by Ada Lovelace on $it)"
             },
-            listed,
+            listed.substringBefore("\n\n"),
         )
         assertEquals(config, Files.readString(configFile))
         val requests = app.model.requests
@@ -277,6 +287,7 @@ class TelegramRepositoryTest {
         this is UserEntry && (origin as? UserOrigin.SystemWritten)?.source == "alexandrite.project"
 
     private companion object {
+        const val OFFERED = "Project instructions not loaded"
         const val GREETER = "package demo\n\nfun greet(name: String) = \"Hello, \$name!\"\n"
         const val ANSWER = "greet(name) in Greeter.kt says hello.\n\nIt returns the greeting."
     }

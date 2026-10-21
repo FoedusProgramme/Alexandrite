@@ -43,21 +43,17 @@ class CommandRegistryTest {
     }
 
     @Test
-    fun `two handlers that claim one command fail the start`() {
+    fun `two handlers that claim one command, or one that claims it twice, fail the start`() {
+        val handler = Handler::class.java.name
         agentHarness { commandHandler(Handler("new", "cancel")).commandHandler(Other("model", "new")) }
             .assertStartFails(
                 StartStage.GRAPH,
-                "Command 'new' is claimed by both ${Handler::class.java.name} and ${Other::class.java.name}: switch " +
-                    "off the plugin of one of them.",
+                "Command 'new' is claimed by both $handler and ${Other::class.java.name}: switch off the plugin of " +
+                    "one of them.",
             )
-    }
-
-    @Test
-    fun `one handler that claims a command twice fails the start`() {
         agentHarness { commandHandler(Handler("new", "new")) }.assertStartFails(
             StartStage.GRAPH,
-            "Command 'new' is claimed by both ${Handler::class.java.name} and ${Handler::class.java.name}: switch " +
-                "off the plugin of one of them.",
+            "Command 'new' is claimed by both $handler and $handler: switch off the plugin of one of them.",
         )
     }
 }

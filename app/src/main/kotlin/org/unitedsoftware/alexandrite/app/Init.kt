@@ -282,18 +282,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
      * after printing why there are none.
      */
     private fun chooseModels(listed: List<String>?): List<String>? {
-        if (options.models.isNotEmpty()) {
-            val unknown = options.models.filter { !listed.isNullOrEmpty() && it !in listed }
-            if (unknown.isEmpty()) return options.models.distinct()
-            cli.fail(
-                cli.t(
-                    "init.model.not_listed",
-                    "models" to unknown.joinToString(),
-                    "listed" to sample(listed.orEmpty()),
-                ),
-            )
-            return null
-        }
+        if (options.models.isNotEmpty()) return options.models.distinct().also { warnUnlisted(it, listed) }
         if (!interactive) {
             cli.fail(cli.t("init.model.name_model", "listed" to sample(listed.orEmpty())))
             return null
@@ -306,8 +295,18 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
                 ?.split(',')?.map(String::trim)?.filter(String::isNotEmpty)?.distinct()
         } else {
             ui.pick(prompt("init.model.pick", "init.model.pick_title"), listed, cli.t("init.model.pick_hint"))
+                ?.also { warnUnlisted(it, listed) }
         }
         return picked ?: null.also { cli.fail(cli.t("init.no_answer")) }
+    }
+
+    /** Warns of the [models] that a non-empty [listed] lacks. */
+    private fun warnUnlisted(models: List<String>, listed: List<String>?) {
+        val unknown = models.filter { !listed.isNullOrEmpty() && it !in listed }
+        if (unknown.isEmpty()) return
+        ui.warn(
+            cli.t("init.model.not_listed", "models" to unknown.joinToString(), "listed" to sample(listed.orEmpty())),
+        )
     }
 
     private fun sample(listed: List<String>): String = if (listed.isEmpty()) {
@@ -386,7 +385,6 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
         summary.putIfAbsent("init.summary.admin", admins.joinToString())
         val root = "$TELEGRAM_INSTANCES.$INSTANCE"
         changes += ConfigChangeView("$root.adminUserIds", ids((instance?.get("adminUserIds") as? JsonArray), admins))
-        changes += ConfigChangeView("$root.allowedChats", ids((instance?.get("allowedChats") as? JsonArray), admins))
         val serves = agentConfig?.objectAt("channels")?.get("telegram:$INSTANCE") != null ||
             changes.any { it.path == "$AGENTS.$agent.channels.telegram:$INSTANCE" }
         if (serves) {
@@ -527,9 +525,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
             ui.good(cli.t("init.secrets", "names" to secrets.keys.joinToString(), "file" to cli.secrets))
             summary["init.summary.secrets"] = "${cli.secrets}"
         }
-        val checked = configCheck(cli, false)
-        if (checked != ExitCode.OK) cli.fail(cli.t("init.check_failed"))
-        return checked
+        return ExitCode.OK
     }
 
     private fun restore(secrets: Map<String, String>, existed: Boolean) {

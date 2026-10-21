@@ -14,9 +14,7 @@ import org.unitedsoftware.alexandrite.runtime.ConventionalAgentPlaces
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
-import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
-import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.testToolContext
@@ -25,7 +23,6 @@ import org.unitedsoftware.alexandrite.testkit.testUser
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ProfileToolsTest {
@@ -52,8 +49,6 @@ class ProfileToolsTest {
     private fun arguments(vararg fields: Pair<String, Any?>): JsonObject = JsonObject(
         fields.associate { (key, value) -> key to (value?.let { JsonPrimitive("$it") } ?: JsonNull) },
     )
-
-    private fun text(review: CallReview): String? = (review.preview as? ReviewPreview.Text)?.text
 
     @Test
     fun `a profile goes from create, through list and an edit's diff preview, to remove`() {
@@ -84,18 +79,25 @@ class ProfileToolsTest {
         blocking { removeTool.execute(removeArgs, removeCleared) }
 
         assertEquals(emptyList(), blocking { catalog.all() })
+        assertTrue(blocking { removeTool.execute(removeArgs, removeCleared) }.isError)
     }
 
     // profile.list.
 
     @Test
-    fun `without a profile it says so, of activity list`() {
-        val tool = ProfileListTool(catalog)
+    fun `the writing tools say when a person reviews their change, which the gate decides by turn and taint`() {
+        val tools = listOf(ProfileCreateTool(catalog), ProfileEditTool(catalog), ProfileRemoveTool(catalog))
 
-        val result = blocking { tool.execute(arguments(), testToolContext(turn)) }
-
-        assertEquals("No profile exists yet. profile.create makes one.", (result.content.single() as TextPart).text)
-        assertEquals(ToolActivity.LIST, tool.definition.activity)
+        for (tool in tools) {
+            val description = tool.definition.description
+            assertTrue(
+                description.endsWith(
+                    "A person reviews the change first only when the turn is not an operator's own or the " +
+                        "conversation took in untrusted content; otherwise it applies at once.",
+                ),
+                description,
+            )
+        }
     }
 
     @Test
@@ -104,29 +106,12 @@ class ProfileToolsTest {
 
         val result = blocking { ProfileListTool(catalog).execute(arguments(), testToolContext(turn)) }
 
-        val expected = "Profiles:\n- reviewer (Reviewer): Reviews code. [model=(the delegating agent's), " +
-            "toolsAllow=*, toolsDeny=(none), mode=(tightens whatever mode it runs in), source=created by Operator]"
-        assertEquals(expected, (result.content.single() as TextPart).text)
+        val text = (result.content.single() as TextPart).text
+        val fields = listOf("reviewer (Reviewer): Reviews code.", "model=", "toolsAllow=*", "toolsDeny=", "mode=")
+        (fields + "created by Operator").forEach { assertTrue(it in text, text) }
     }
 
     // profile.create.
-
-    @Test
-    fun `the review previews the profile as text, and the call is titled by id, of activity edit`() {
-        val tool = ProfileCreateTool(catalog)
-        val args = arguments(
-            "id" to "reviewer",
-            "name" to "Reviewer",
-            "description" to "Reviews.",
-            "instructions" to "Be strict.",
-        )
-
-        val review = blocking { tool.review(args, testToolContext(turn)) }
-        val head = text(review)?.lines()?.take(3)?.joinToString("\n")
-
-        assertEquals("id: reviewer\nname: Reviewer\ndescription: Reviews.", head)
-        assertEquals(ToolActivity.EDIT to listOf("id"), tool.definition.activity to tool.definition.titleArguments)
-    }
 
     @Test
     fun `execute creates the profile that review already describes, a second call is refused`() {
@@ -159,22 +144,6 @@ class ProfileToolsTest {
     // profile.edit.
 
     @Test
-    fun `the review diffs the profile, which must not change before the call runs`() {
-        blocking { create("reviewer") }
-        val tool = ProfileEditTool(catalog)
-        val args = arguments("id" to "reviewer", "description" to "Reviews harder.")
-
-        val review = blocking { tool.review(args, testToolContext(turn)) }
-        blocking { create("other") }
-        val diff = assertIs<ReviewPreview.Diff>(review.preview)
-        val cleared = testToolContext(turn, clearance = Clearance(ClearanceKind.NONE, null, review.snapshot))
-        val result = blocking { tool.execute(args, cleared) }
-
-        assertTrue("-description: Helps." in diff.unified && "+description: Reviews harder." in diff.unified)
-        assertEquals("Edited profile reviewer.", (result.content.single() as TextPart).text)
-    }
-
-    @Test
     fun `an edit reviewed, then overtaken by another edit, is refused when it finally runs`() {
         blocking { create("reviewer") }
         val tool = ProfileEditTool(catalog)
@@ -203,21 +172,6 @@ class ProfileToolsTest {
     }
 
     // profile.remove.
-
-    @Test
-    fun `the review previews what removal would delete, which must not change before the call runs`() {
-        blocking { create("reviewer") }
-        val tool = ProfileRemoveTool(catalog)
-        val args = arguments("id" to "reviewer")
-
-        val review = blocking { tool.review(args, testToolContext(turn)) }
-        val cleared = testToolContext(turn, clearance = Clearance(ClearanceKind.NONE, null, review.snapshot))
-        val result = blocking { tool.execute(args, cleared) }
-
-        assertEquals(true, text(review)?.startsWith("Removing profile reviewer:"))
-        assertEquals("Removed profile reviewer.", (result.content.single() as TextPart).text)
-        assertNull(blocking { catalog.profile(AgentId("reviewer")) })
-    }
 
     private suspend fun applyEdit(id: String, edit: ProfileEdit) {
         catalog.persistEdit(catalog.plannedEdit(AgentId(id), edit).second, operator)

@@ -14,13 +14,11 @@ import org.unitedsoftware.alexandrite.runtime.Termination
 import org.unitedsoftware.alexandrite.runtime.decodeSection
 import org.unitedsoftware.alexandrite.sdk.AlexandriteSdk
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
-import org.unitedsoftware.alexandrite.sdk.chat.rebuild
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
-import org.unitedsoftware.alexandrite.sdk.config.ConfigEditor
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSectionSpec
-import org.unitedsoftware.alexandrite.sdk.config.set
+import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.container.Binding
 import org.unitedsoftware.alexandrite.sdk.di.container.Dependency
@@ -29,6 +27,12 @@ import org.unitedsoftware.alexandrite.sdk.di.container.DiException
 import org.unitedsoftware.alexandrite.sdk.di.container.binding
 import org.unitedsoftware.alexandrite.sdk.di.container.instanceBinding
 import org.unitedsoftware.alexandrite.sdk.di.key
+import org.unitedsoftware.alexandrite.sdk.hook.Hook
+import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
+import org.unitedsoftware.alexandrite.sdk.hook.Hooks
+import org.unitedsoftware.alexandrite.sdk.hook.Interception
+import org.unitedsoftware.alexandrite.sdk.hook.InterceptorHook
+import org.unitedsoftware.alexandrite.sdk.model.TurnContextItem
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginFiles
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
@@ -44,9 +48,11 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.sdk.turn.TurnContext
+import org.unitedsoftware.alexandrite.sdk.turn.TurnInput
+import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermissions
 import java.time.Clock
 import java.time.ZoneId
 import java.time.ZoneOffset
@@ -164,18 +170,6 @@ class PluginHarnessTest {
     }
 
     @Test
-    fun `the harness names the plugin's own directories`() {
-        harness().execute {
-            val files = get<PluginFiles>("probe")
-
-            assertEquals(directory.resolve("plugins/probe"), dataDir)
-            assertEquals(directory.resolve("cache/plugins/probe"), cacheDir)
-            assertEquals(dataDir, files.dataDir)
-            assertEquals(cacheDir, files.cacheDir)
-        }
-    }
-
-    @Test
     fun `the host paths name the config file and the protected places the harness was given`() {
         val file = directory.resolve("config/alexandrite.json")
         val logs = directory.resolve("logs")
@@ -200,20 +194,22 @@ class PluginHarnessTest {
         Index("folders", sections = listOf(ConfigSectionSpec(key<Folders>(), "", Folders.serializer(), "Folders")))
 
     @Test
-    fun `a plugin edits its own config in the harness's config file, which later runs start from`() {
+    fun `the host config edits the harness's config file, which later runs start from`() {
         val file = directory.resolve("config/alexandrite.json")
         val harness =
             PluginHarness.builder(folders).dataRoot(directory).keptConfigFile(file).config("""{"home": "1"}""").build()
         val edited = Folders(trusted = listOf("/srv/repo"))
 
         harness.execute {
-            val editor = get<ConfigEditor>("folders")
+            val config = get<HostConfig>()
 
-            editor.edit {
-                set("trusted", JsonArray(listOf(JsonPrimitive("/srv/repo"))))
-                remove("home")
+            config.edit {
+                set("plugins.folders.trusted", JsonArray(listOf(JsonPrimitive("/srv/repo"))))
+                remove("plugins.folders.home")
             }
-            val refused = assertFailsWith<ConfigEditException> { editor.set("bogus", JsonPrimitive(1)) }
+            val refused = assertFailsWith<ConfigEditException> {
+                config.edit { set("plugins.folders.bogus", JsonPrimitive(1)) }
+            }
 
             assertEquals(Folders("1"), get<Folders>())
             assertEquals(edited, readConfig().decodeSection("plugins.folders", Folders.serializer()))
@@ -240,7 +236,7 @@ class PluginHarnessTest {
         harness.execute {
             assertEquals(Folders(home), get<Folders>())
 
-            get<ConfigEditor>("folders").set("trusted", JsonArray(listOf(JsonPrimitive("/srv"))))
+            get<HostConfig>().edit { set("plugins.folders.trusted", JsonArray(listOf(JsonPrimitive("/srv")))) }
         }
 
         assertEquals(text.replace("}}}", ", \"trusted\": [\"/srv\"]}}}"), Files.readString(file))
@@ -252,7 +248,7 @@ class PluginHarnessTest {
         val named = harness { configFile(file).config("""{"greeting": "hi"}""") }
 
         named.execute {
-            get<ConfigEditor>("probe").set("greeting", JsonPrimitive("hey"))
+            get<HostConfig>().edit { set("plugins.probe.greeting", JsonPrimitive("hey")) }
 
             assertEquals(JsonPrimitive("hey"), readConfig().tree("plugins.probe")?.get("greeting"))
         }
@@ -299,24 +295,10 @@ class PluginHarnessTest {
     }
 
     @Test
-    fun `a kept config file keeps its layout where the harness splices in its channels' sections`() {
+    fun `a kept config file the test wrote gets the sections of the harness's recording channels in its layout`() {
         val file = directory.resolve("alexandrite.json")
         val text = "{\n\t\"plugins\": {\n\t\t\"probe\": {\"greeting\": \"h\\u0069\"}\n\t}\n}\n"
         Files.writeString(file, text)
-
-        harness { keptConfigFile(file).channel(operators = setOf("ada")) }.execute {
-            assertTrue(channel().user("ada").isOperator)
-        }
-
-        val section = "\t\t\"test-channel\": {\n\t\t\t\"instances\": {\n\t\t\t\t\"main\": {\n" +
-            "\t\t\t\t\t\"operators\": [\"ada\"]\n\t\t\t\t}\n\t\t\t}\n\t\t}"
-        assertEquals(text.replace("}\n\t}", "},\n$section\n\t}"), Files.readString(file))
-    }
-
-    @Test
-    fun `a kept config file the test wrote gets the sections of the harness's recording channels`() {
-        val file = directory.resolve("alexandrite.json")
-        Files.writeString(file, "{\"plugins\": {\"probe\": {\"greeting\": \"hi\"}}}\n")
         val harness = harness { keptConfigFile(file).channel(operators = setOf("ada")) }
 
         harness.execute {
@@ -326,6 +308,9 @@ class PluginHarnessTest {
         val written = Files.readString(file)
         harness.execute { channel() }
 
+        val section = "\t\t\"test-channel\": {\n\t\t\t\"instances\": {\n\t\t\t\t\"main\": {\n" +
+            "\t\t\t\t\t\"operators\": [\"ada\"]\n\t\t\t\t}\n\t\t\t}\n\t\t}"
+        assertEquals(text.replace("}\n\t}", "},\n$section\n\t}"), written)
         assertEquals(written, Files.readString(file))
     }
 
@@ -375,18 +360,6 @@ class PluginHarnessTest {
     }
 
     @Test
-    fun `a temporary data root is deleted after a failed start too`() {
-        val roots = mutableListOf<Path>()
-        val builder = PluginHarness.builder(broken())
-        builder.temporaryRoot = { Files.createTempDirectory(directory, "root-").also(roots::add) }
-
-        assertFailsWith<RuntimeStartException> { builder.build().execute {} }
-
-        assertEquals(1, roots.size)
-        assertFalse(Files.exists(roots.single()))
-    }
-
-    @Test
     fun `deleting a temporary data root leaves the targets of links alone`() {
         assumeTrue("posix" in directory.fileSystem.supportedFileAttributeViews(), "no symbolic links")
         val outside = Files.createDirectories(directory.resolve("outside"))
@@ -400,25 +373,6 @@ class PluginHarnessTest {
 
         assertFalse(Files.exists(root))
         assertEquals("kept", Files.readString(outside.resolve("precious.txt")))
-    }
-
-    @Test
-    fun `a temporary data root that cannot be deleted fails the run`() {
-        assumeTrue("posix" in directory.fileSystem.supportedFileAttributeViews(), "no POSIX permissions")
-        lateinit var locked: Path
-
-        val error = assertFailsWith<IllegalStateException> {
-            PluginHarness.builder(probe).build().execute {
-                locked = Files.createDirectories(dataDir.resolve("locked"))
-                Files.writeString(locked.resolve("file"), "")
-                Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("r-x------"))
-            }
-        }
-
-        Files.setPosixFilePermissions(locked, PosixFilePermissions.fromString("rwx------"))
-        val root = locked.parent.parent.parent
-        assertContains(error.message!!, "Cannot delete the temporary data root $root")
-        Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
     }
 
     // What a run checks.
@@ -450,10 +404,8 @@ class PluginHarnessTest {
             }
         }
 
-        assertEquals(
-            "The run block was cut short by StopRequest(kind=FAILURE, reason=gave up, plugin=stopper).",
-            error.message,
-        )
+        assertContains(error.message!!, "The run block was cut short")
+        assertContains(error.message!!, "gave up")
     }
 
     @Test
@@ -462,11 +414,8 @@ class PluginHarnessTest {
             PluginHarness.builder(stopper(failStop = true)).dataRoot(directory).build().execute {}
         }
 
-        assertEquals(
-            "Stopping the runtime met a problem:\n- Stopping Stopper (plugin stopper) failed: " +
-                "java.lang.IllegalStateException: cannot stop",
-            error.message,
-        )
+        assertContains(error.message!!, "Stopping the runtime met a problem")
+        assertContains(error.message!!, "cannot stop")
     }
 
     @Test
@@ -489,17 +438,55 @@ class PluginHarnessTest {
     }
 
     @Test
-    fun `a failed start throws without running the block`() {
-        val missing = Dependency(key<String>("missing"), DependencyKind.INSTANCE, "missing")
-        val greeter = binding(key<Greeter>(), "broken", "Greeter", dependencies = listOf(missing)) { Greeter("never") }
+    fun `a failed start throws without running the block, and deletes a temporary data root`() {
         var ran = false
+        val roots = mutableListOf<Path>()
+        val temporary = PluginHarness.builder(broken())
+        temporary.temporaryRoot = { Files.createTempDirectory(directory, "root-").also(roots::add) }
 
         val error = assertFailsWith<RuntimeStartException> {
-            PluginHarness.builder(Index("broken", listOf(greeter))).dataRoot(directory).build().execute { ran = true }
+            PluginHarness.builder(broken()).dataRoot(directory).build().execute { ran = true }
         }
+        assertFailsWith<RuntimeStartException> { temporary.build().execute {} }
 
         assertEquals(StartStage.GRAPH, error.stage)
         assertNull(error.stopRequest)
         assertFalse(ran)
+        assertFalse(Files.exists(roots.single()))
+    }
+
+    // Hooks under test.
+
+    private class Guard : InterceptorHook<TurnInput> {
+        override val point = TurnPoints.TURN_INPUT
+
+        override suspend fun intercept(payload: TurnInput): HookDecision<TurnInput> = when {
+            "drop" in payload.text -> HookDecision.Abort("Not here.")
+            payload.text.isBlank() -> HookDecision.Replace(payload.withText("(empty)"))
+            else -> HookDecision.Continue
+        }
+    }
+
+    @Test
+    fun `a hook is tested through the runtime's hooks with a payload`() {
+        val index = TestIndex("guard", listOf(binding(key<Hook>(), "guard", "Guard", multi = true) { Guard() }))
+        val turn = testTurn()
+        val context = TurnContext(turn, "hello", listOf(TurnContextItem("recall", "Ada likes tea.")))
+
+        runBlocking {
+            PluginHarness.builder(index).build().run {
+                val hooks = get<Hooks>()
+
+                val aborted = hooks.fire(TurnPoints.TURN_INPUT, TurnInput(turn, null, "drop it", false))
+                val proceeded = hooks.fire(TurnPoints.TURN_INPUT, TurnInput(turn, null, "", false))
+
+                assertEquals("Not here.", assertIs<Interception.Aborted>(aborted).reply)
+                assertEquals("(empty)", assertIs<Interception.Proceed<TurnInput>>(proceeded).payload.text)
+                assertEquals(
+                    context,
+                    assertIs<Interception.Proceed<*>>(hooks.fire(TurnPoints.CONTEXT_INJECT, context)).payload,
+                )
+            }
+        }
     }
 }

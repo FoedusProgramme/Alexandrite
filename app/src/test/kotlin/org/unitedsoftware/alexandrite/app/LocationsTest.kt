@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.app
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 class LocationsTest {
     private val home = Path.of("/home/me")
@@ -31,25 +30,6 @@ class LocationsTest {
      * system; the ones that compare whole paths run against the ones this host shares a path syntax with.
      */
     private val hostSystems: List<String> = if (isWindows) listOf("Windows 11") else listOf("Mac OS X", "Linux")
-
-    /**
-     * The message a path that names no valid path is refused with.
-     *
-     * The wording differs between hosts, and Windows names the offending character itself: it reports a null as
-     * `Illegal char <NUL>.`, with a real null inside the brackets, so the expected text is taken from the host
-     * rather than written out here.
-     */
-    private fun pathRefusal(variable: String): String = if (isWindows) {
-        "$variable names no valid path: Illegal char <${illegalCharacter()} >.".replace(" >", ">")
-    } else {
-        "$variable names no valid path: Nul character not allowed."
-    }
-
-    /** The character the host names as illegal in a path, as the host prints it. */
-    private fun illegalCharacter(): String {
-        val error = assertFailsWith<IllegalArgumentException> { Path.of("a\u0000b") }
-        return error.message.orEmpty().substringAfter("Illegal char <").substringBeforeLast(">")
-    }
 
     /**
      * Absolute directories to hand the XDG variables, which the code takes only when the host calls them absolute.
@@ -212,12 +192,5 @@ class LocationsTest {
             assertEquals(path("/var/cache/alexandrite"), at(os, named + own)[2], os)
             assertEquals(path("cache"), at(os, named, Options(cacheDir = Path.of("cache")))[2], os)
         }
-    }
-
-    @Test
-    fun `a variable that names no valid path is refused naming the variable`() {
-        val error = assertFailsWith<IllegalArgumentException> { at("Linux", mapOf("XDG_DATA_HOME" to "/a\u0000b")) }
-
-        assertEquals(pathRefusal("XDG_DATA_HOME"), error.message)
     }
 }

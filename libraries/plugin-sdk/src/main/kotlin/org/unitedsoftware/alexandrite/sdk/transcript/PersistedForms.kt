@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.sdk.transcript
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -340,10 +342,20 @@ private class ChatUserForm(
     val username: String? = null,
     val isBot: Boolean,
     @SerialName("isAdmin") val isOperator: Boolean,
+    @OptIn(ExperimentalSerializationApi::class)
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val isTrusted: Boolean = false,
 ) {
-    constructor(user: ChatUser) : this(user.address, user.displayName, user.username, user.isBot, user.isOperator)
+    constructor(user: ChatUser) : this(
+        user.address,
+        user.displayName,
+        user.username,
+        user.isBot,
+        user.isOperator,
+        user.isTrusted,
+    )
 
-    fun toUser(): ChatUser = ChatUser(address, displayName, username, isBot, isOperator)
+    fun toUser(): ChatUser = ChatUser(address, displayName, username, isBot, isOperator, isTrusted)
 }
 
 @Serializable

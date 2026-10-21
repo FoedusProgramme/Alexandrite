@@ -37,7 +37,7 @@ internal val QUICK = McpTimings(
     stopGrace = 1.seconds,
 )
 
-internal val QUICK_CLIENT = McpClientOptions(probeTimeout = 2.seconds, requestTimeout = 10.seconds)
+internal val QUICK_CLIENT = McpClientOptions(requestTimeout = 10.seconds)
 
 /** Host paths under `/nonexistent`, with no config file. */
 internal object TestPaths : HostPaths {

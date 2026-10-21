@@ -4,9 +4,12 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
+import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
+import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
@@ -30,7 +33,20 @@ class FsFixture(directory: Path) {
     val secret: Path = root.resolve("secret")
     val home: Path = root.resolve("home")
     val conversation: Path = root.resolve("conversation")
+    val persona: Path = root.resolve("persona")
     val floor = testHardFloor(listOf(secret), home)
+
+    /** [floor] as one that protects nothing. */
+    val unprotected: HardFloor = object : HardFloor by floor {
+        override val protectsAnything: Boolean = false
+    }
+    val places = object : AgentPlaces {
+        override fun workspace(agent: AgentId): Path = workspace
+
+        override fun personaDirectory(agent: AgentId): Path = persona
+
+        override fun conversations(agent: AgentId): Path = conversation
+    }
 
     init {
         write("secret/key.txt", "SECRET")

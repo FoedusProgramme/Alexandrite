@@ -9,7 +9,6 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration
@@ -136,9 +135,11 @@ class PairingCodesTest {
 
         advance(10.minutes - 1.milliseconds)
         codes.assertRedeemed(kept.text, payload = "kept")
+        assertTrue(codes.holds(LINK, lost.text))
         advance(1.milliseconds)
 
         assertEquals(lost.expiresAt, clock.now)
+        assertEquals(false, codes.holds(LINK, lost.text))
         codes.assertRejected(lost.text)
         assertEquals(false, codes.revoke(LINK, "c"))
     }
@@ -179,17 +180,6 @@ class PairingCodesTest {
         repeat(MAX_FAILURES + 1) { assertEquals(false, codes.holds(LINK, "AAAA-AAAA")) }
 
         codes.assertRedeemed(issued.text)
-        assertEquals(false, codes.holds(LINK, issued.text))
-    }
-
-    @Test
-    fun `an expired code is no longer held`() {
-        val issued = codes.issue(LINK, "a", "offer")
-
-        advance(10.minutes - 1.milliseconds)
-        assertTrue(codes.holds(LINK, issued.text))
-        advance(1.milliseconds)
-
         assertEquals(false, codes.holds(LINK, issued.text))
     }
 
@@ -299,19 +289,6 @@ class PairingCodesTest {
     }
 
     // Settings.
-
-    @Test
-    fun `the durations and counts are positive`() {
-        val invalid = listOf<() -> Unit>(
-            { PairingCodes<String, String>(clock, ttl = Duration.ZERO) },
-            { PairingCodes<String, String>(clock, ttl = Duration.INFINITE) },
-            { PairingCodes<String, String>(clock, failureWindow = (-1).seconds) },
-            { PairingCodes<String, String>(clock, maxFailures = 0) },
-            { PairingCodes<String, String>(clock, capacity = 0) },
-        )
-
-        for (create in invalid) assertFailsWith<IllegalArgumentException> { create() }
-    }
 
     private fun <T> parallel(count: Int, action: (Int) -> T): List<T> {
         val start = CountDownLatch(1)

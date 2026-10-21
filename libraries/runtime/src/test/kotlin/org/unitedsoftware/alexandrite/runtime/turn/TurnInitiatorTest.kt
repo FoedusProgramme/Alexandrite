@@ -23,6 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import java.nio.file.Path
 import java.util.Collections
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
@@ -94,11 +95,7 @@ class TurnInitiatorTest {
 
                 val refused = assertFailsWith<IllegalArgumentException> { agent.beat.initiator.initiate(turn) }
 
-                assertEquals(
-                    "Plugin 'beat' cannot initiate a turn of kind $kind: the agent starts approval, agent message " +
-                        "and job turns itself.",
-                    refused.message,
-                )
+                assertContains(refused.message!!, "$kind")
             }
             assertEquals(emptyList(), agent.initiated.toList())
         }

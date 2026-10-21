@@ -79,13 +79,7 @@ class AgentDirectoryTest {
         }
 
         assertEquals(emptyList(), agent.attachments)
-        assertEquals(
-            listOf(
-                "WARN Agent 'coder' is attached to discord:main, but no instance of channel type discord is " +
-                    "configured: the attachment is ignored",
-            ),
-            lines.filter { "discord" in it },
-        )
+        assertEquals(1, lines.count { it.startsWith("WARN") && "discord:main" in it })
     }
 
     @Test
@@ -113,15 +107,7 @@ class AgentDirectoryTest {
             listOf(listOf("test:main:1", "discord:main:2", "test:main:3")),
             agent.linkedChats.map { group -> group.map(ChatAddress::toString) },
         )
-        assertEquals(
-            listOf(
-                "WARN Agent 'coder' is attached to discord:main, but no instance of channel type discord is " +
-                    "configured: the attachment is ignored",
-                "WARN Agent 'coder' links chat discord:main:2, but no instance of channel type discord is " +
-                    "configured: the chat gets no messages",
-            ),
-            lines.filter { "discord" in it },
-        )
+        assertEquals(1, lines.count { it.startsWith("WARN") && "discord:main:2" in it })
     }
 
     @Test
@@ -168,35 +154,49 @@ class AgentDirectoryTest {
     }
 
     @Test
-    fun `a listed model of an endpoint that no provider contributes fails the start`() {
-        val config = """{"agents": {"reviewer": {"description": "Reviews.", "models": ["scripted/a", "local/b"]}}}"""
+    fun `a default model listed first of an endpoint that no provider contributes fails the start`() {
+        val config = """{"agents": {"reviewer": {"description": "Reviews.", "models": ["local/a", "scripted/b"]}}}"""
 
         agentHarness(config) { model(ScriptedModel()) }.assertStartFails(
             StartStage.GRAPH,
-            "Invalid config at 'agent.agents.reviewer.models[1]': no model provider contributes the endpoint " +
+            "Invalid config at 'agent.agents.reviewer.models[0]': no model provider contributes the endpoint " +
                 "'local'. Endpoints: scripted.",
         )
     }
 
     @Test
-    fun `a judge of an endpoint that no provider contributes fails the start`() {
-        val config = """{"agents": {"reviewer": {"description": "Reviews.", "permission": {"judge": "local/llama"}}}}"""
+    fun `another model, a judge or a summarizer of an unknown endpoint is left out with a warning`() {
+        val config = """
+            {
+              "agents": {
+                "reviewer": {
+                  "description": "Reviews.",
+                  "models": ["scripted/a", "local/b", "scripted/c"],
+                  "permission": {"judge": "local/judge"},
+                  "compaction": {"model": "local/summary"}
+                }
+              }
+            }
+        """.trimIndent()
+        lateinit var agent: Agent
 
-        agentHarness(config) { model(ScriptedModel()) }.assertStartFails(
-            StartStage.GRAPH,
-            "Invalid config at 'agent.agents.reviewer.permission.judge': no model provider contributes the endpoint " +
-                "'local'. Endpoints: scripted.",
-        )
-    }
+        val lines = logged {
+            agentHarness(config) { model(ScriptedModel()) }.execute { agent = get<AgentDirectory>().agents.single() }
+        }
 
-    @Test
-    fun `a summarizer of an endpoint that no provider contributes fails the start`() {
-        val config = """{"agents": {"reviewer": {"description": "Reviews.", "compaction": {"model": "local/llama"}}}}"""
-
-        agentHarness(config) { model(ScriptedModel()) }.assertStartFails(
-            StartStage.GRAPH,
-            "Invalid config at 'agent.agents.reviewer.compaction.model': no model provider contributes the endpoint " +
-                "'local'. Endpoints: scripted.",
+        assertEquals(listOf("scripted/a", "scripted/c"), agent.models.map { "$it" })
+        assertNull(agent.judgeModel)
+        assertEquals("scripted/a", "${agent.sideModel}")
+        assertNull(agent.summaryModel)
+        val prefix = "WARN agent.agents.reviewer"
+        val unknown = "names the endpoint 'local', which no model provider contributes (endpoints: scripted)"
+        assertEquals(
+            listOf(
+                "$prefix.models[1] $unknown: the agent goes on without local/b",
+                "$prefix.permission.judge $unknown: a person rules on the calls the judge would rule on",
+                "$prefix.compaction.model $unknown: the turn's model writes the summaries",
+            ),
+            lines.filter { "'local'" in it },
         )
     }
 

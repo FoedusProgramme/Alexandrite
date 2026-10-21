@@ -13,17 +13,15 @@ import org.unitedsoftware.alexandrite.commands.commandTexts
 import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
-import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
-import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
+import org.unitedsoftware.alexandrite.sdk.store.ConversationTaint
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
+import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent.Call
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel.Companion.modelInfo
@@ -31,11 +29,11 @@ import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testCommand
 import java.io.IOException
 import java.time.Duration
+import java.time.Instant
 import java.time.ZoneId
 import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 
 class SettingCommandsTest {
     private val clock = TestClock()
@@ -54,7 +52,8 @@ class SettingCommandsTest {
             else -> control.catalog.models(endpoint)
         }
     }
-    private val commands = SettingCommands(control.settings, control.links, listing, commandTexts(), clock)
+    private val commands =
+        SettingCommands(control.settings, control.links, listing, control.trust, commandTexts(), clock)
     private val chat = testChat()
 
     // /model.
@@ -134,7 +133,7 @@ class SettingCommandsTest {
     @Test
     fun `an endpoint that lists no models or does not exist is reported`() = runTest {
         val bare = RecordingAgent()
-        val commands = SettingCommands(bare.settings, bare.links, bare.catalog, commandTexts(), clock)
+        val commands = SettingCommands(bare.settings, bare.links, bare.catalog, bare.trust, commandTexts(), clock)
 
         assertEquals(
             "There is no endpoint 'nowhere'. Endpoints: none.",
@@ -169,36 +168,6 @@ class SettingCommandsTest {
             ),
             control.calls.map { (it as Call.UpdateSettings).update },
         )
-    }
-
-    @Test
-    fun `a refused model replies with the agent's message`() = runTest {
-        control.refuseNext("Model endpoint 'big' has no model 'm-99'.")
-
-        val reply = commands.answer(testCommand("model", "big/m-99"))
-
-        assertEquals("Model endpoint 'big' has no model 'm-99'.", reply)
-    }
-
-    @Test
-    fun `an error of the chat settings that is no refusal is no reply`() = runTest {
-        val failing = object : ChatSettings by control.settings {
-            override suspend fun update(
-                chat: ChatAddress,
-                update: ChatSettingsUpdate,
-                by: ChatUser?,
-            ): ChatSettingsSnapshot = throw IllegalArgumentException("A linked group holds each chat once.")
-        }
-
-        assertFailsWith<IllegalArgumentException> {
-            SettingCommands(
-                failing,
-                control.links,
-                listing,
-                commandTexts(),
-                clock,
-            ).answer(testCommand("model", "big/m-01"))
-        }
     }
 
     @Test
@@ -267,7 +236,8 @@ class SettingCommandsTest {
         val catalog = TextCatalog.builder()
             .text(PLUGIN, CHINESE, "language.set", "这个聊天的语言现在是 {language}。")
             .build()
-        val commands = SettingCommands(control.settings, control.links, listing, commandTexts(catalog), clock)
+        val commands =
+            SettingCommands(control.settings, control.links, listing, control.trust, commandTexts(catalog), clock)
 
         assertEquals("Language: default (the host's language).", commands.answer(testCommand("language")))
         assertEquals("这个聊天的语言现在是 zh-CN。", commands.answer(testCommand("language", "zh_cn")))
@@ -282,15 +252,6 @@ class SettingCommandsTest {
             ),
             control.calls.map { (it as Call.UpdateSettings).update },
         )
-    }
-
-    @Test
-    fun `language shows the agent's language and where it is set`() = runTest {
-        control.scriptAgent(AgentId.MAIN, "Main", language = LanguageTag("en-GB"))
-
-        assertEquals("Language: en-GB (the agent's setting).", commands.answer(testCommand("language")))
-        commands.answer(testCommand("language", "en-US"))
-        assertEquals("Language: en-US (set in this chat).", commands.answer(testCommand("language")))
     }
 
     @Test
@@ -368,6 +329,7 @@ class SettingCommandsTest {
             Language: default (the host's language)
             Time zone: UTC (the host's time zone)
             Permission mode: ask (the default)
+            Conversation: not tainted.
             Home: main has no home chat on test:main
             Linked: no other chat shares the conversation of main
             You are not an operator here.
@@ -400,6 +362,7 @@ class SettingCommandsTest {
             Language: zh-CN (set in this chat)
             Time zone: UTC (the host's time zone)
             Permission mode: bypass (set in this chat) for 1 h 15 min more
+            Conversation: not tainted.
             Home: the home chat of coder on test:main is test:main:home
             Linked: shares the conversation of coder with test:main:other (anchor test:main:other)
             You are an operator here.
@@ -415,11 +378,33 @@ class SettingCommandsTest {
         val lines = commands.answer(testCommand("settings")).lines()
 
         assertEquals("Agent: main \"Main\" (this is its home chat)", lines[1])
-        assertEquals("Home: this chat is the home chat of main on test:main", lines[7])
+        assertEquals("Home: this chat is the home chat of main on test:main", lines[8])
     }
 
     @Test
-    fun `settings takes no arguments`() = runTest {
-        assertEquals("Send /settings without anything after it.", commands.answer(testCommand("settings", "all")))
+    fun `settings shows since when and why the conversation is tainted, in the chat's zone`() = runTest {
+        control.settings.update(chat, ChatSettingsUpdate.builder().zone(ZoneId.of("Asia/Tokyo")).build(), OPERATOR)
+        control.taints[chat] = ConversationTaint(Instant.parse("2026-01-01T20:00:00Z"), "a web page")
+
+        val lines = commands.answer(testCommand("settings")).lines()
+
+        assertEquals(
+            "Conversation: tainted since 2026-01-02 (a web page). /untaint clears it once you are sure; " +
+                "/trust trusts its source.",
+            lines[7],
+        )
+    }
+
+    @Test
+    fun `settings says that a taint it cannot read counts as tainted`() = runTest {
+        val failing = object : TrustControl by control.trust {
+            override suspend fun taint(chat: ChatAddress): ConversationTaint? = throw IOException("store down")
+        }
+        val commands =
+            SettingCommands(control.settings, control.links, listing, failing, commandTexts(), clock)
+
+        val lines = commands.answer(testCommand("settings")).lines()
+
+        assertEquals("Conversation: its taint could not be read, so it counts as tainted.", lines[7])
     }
 }

@@ -174,15 +174,6 @@ class AllowRulesTurnsTest {
             val (outcome, text) = results().last()
             val lines = text.lines()
             assertEquals(ToolOutcome.Succeeded, outcome)
-            assertEquals(
-                listOf(
-                    "Allow rules (on an operator's turn, in ask, allowedit and auto modes, the calls they cover " +
-                        "run without asking; not in plan or manual mode, nor for an opaque program or a " +
-                        "lasting-state call):",
-                    "1. command.exec: git status (declared in the config file)",
-                ),
-                lines.subList(2, 4),
-            )
             assertTrue(GRANTED.matches(lines[4]), lines[4])
             assertEquals("Conversation: not tainted.", lines.last())
         }

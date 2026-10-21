@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.agent.prompt
 
+import org.unitedsoftware.alexandrite.agent.config.FloorConfig
 import org.unitedsoftware.alexandrite.agent.skill.Skill
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
@@ -21,16 +22,18 @@ internal const val DELEGATION_SECTION: String = "alexandrite.delegation"
 /** The id of the section of an agent's persona source [number], counted from 1. */
 internal fun instructionsSection(number: Int): String = "agent.instructions.$number"
 
-/** What every agent is told first, under its [name]. */
-internal fun baseSection(name: String): PromptSection = PromptSection(
+/** What every agent is told first, under its [name], on Alexandrite [version]. */
+internal fun baseSection(name: String, version: String): PromptSection = PromptSection(
     BASE_SECTION,
     listOf(
-        "You are $name. You talk with people in chats through Alexandrite, which passes their messages to you and " +
-            "your replies back to them.",
+        "You are $name. You talk with people in chats through Alexandrite $version, which passes their messages " +
+            "to you and your replies back to them.",
         "# Messages",
         "Each user message starts with a header that Alexandrite writes. A message from a chat has an " +
-            "[alexandrite:message] header: who sent the message, whether the sender is an operator, when it arrived " +
-            "and in which chat. A turn that a plugin started, such as a heartbeat or a reminder, has an " +
+            "[alexandrite:message] header: who sent the message, whether the sender is an operator, when it arrived, " +
+            "its message id and in which chat. Your final answer replies to the message that started the turn; when " +
+            "several messages came in, answer one of them in particular with chat.send and its replyTo. A turn that " +
+            "a plugin started, such as a heartbeat or a reminder, has an " +
             "[alexandrite:initiated] header: the plugin, the kind of turn, whether its text is trusted, when it " +
             "started and, for a task an operator set up, the operator it runs on behalf of. A heartbeat belongs to " +
             "no chat and its reply reaches nobody: to tell someone something, send it with chat.send. When your " +
@@ -69,6 +72,8 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
         "Before a group of tool calls, write one short sentence of what you are about to do and why; afterwards, " +
             "say briefly what you found or changed. Keep both short.",
         "Tools serve the operator only: in a turn whose sender may not use a tool, a call to it is refused.",
+        "For questions about Alexandrite itself, such as its commands, settings, permissions, taint and trust, MCP " +
+            "servers, persona and skills, read its manual with manual.read before answering.",
         "Some calls need permission: the chat's permission mode decides which of them run at once, which wait " +
             "for an approval and which are refused, and protected places are refused in every mode. A call that " +
             "does not run returns a result that starts with a tag only Alexandrite writes, such as " +
@@ -90,18 +95,33 @@ internal fun baseSection(name: String): PromptSection = PromptSection(
 internal fun languageSection(language: LanguageTag): PromptSection =
     PromptSection(LANGUAGE_SECTION, "Answer in $language unless the user writes in another language.", stable = true)
 
-/** Where an agent keeps its own files, at [workspace], and what its file tools refuse. */
-internal fun workspaceSection(workspace: Path): PromptSection = PromptSection(
+/** Where an agent keeps its own files, at [workspace], and the places that the hard [floor] protects. */
+internal fun workspaceSection(workspace: Path, floor: FloorConfig = FloorConfig()): PromptSection = PromptSection(
     WORKSPACE_SECTION,
-    listOf(
+    listOfNotNull(
         "# Workspace",
         "Your workspace is the directory $workspace, where your own files belong. File tools resolve a relative " +
             "path against it; give any other place as an absolute path.",
-        "Some places are protected, such as credential stores and Alexandrite's own configuration and data. File " +
-            "tools refuse them whatever the request; when one does, say so instead of looking for another way in.",
+        floor.deny.takeIf { it.isNotEmpty() }?.let {
+            "The operator protects ${places(it)}. Tools refuse these places whatever the request; when one does, " +
+                "say so instead of looking for another way in."
+        },
+        floor.ask.takeIf { it.isNotEmpty() }?.let {
+            "A person must allow each call that reaches ${places(it)}, whatever the chat's permission mode."
+        },
     ).joinToString("\n\n"),
     stable = true,
 )
+
+/** The floor's [entries] as the model reads them. */
+private fun places(entries: List<String>): String = entries.joinToString("; ") { entry ->
+    when (entry) {
+        FloorConfig.CREDENTIALS -> "the credential stores"
+        FloorConfig.SYSTEM -> "the system's devices and process entries"
+        FloorConfig.ALEXANDRITE -> "Alexandrite's own configuration, data and installation"
+        else -> entry
+    }
+}
 
 /** Where this conversation keeps its own files, at [directory]. */
 internal fun conversationDirectorySection(directory: Path): PromptSection = PromptSection(

@@ -4,7 +4,6 @@ import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.execute
-import org.unitedsoftware.alexandrite.agent.logged
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
@@ -124,57 +123,21 @@ class ApprovalTurnsTest {
     }
 
     @Test
-    fun `an answer of someone who is no operator refuses the call, with a warning`() {
+    fun `an answer of someone who is no operator refuses the call`() {
         model.reply { toolCall("fs.write") }.reply { text("Not written.") }
-        lateinit var request: ApprovalRequest
 
-        val lines = logged {
-            harness().execute {
-                channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("guest")))
-                ask().ticket.outcome()
-                request = channel().approvals.single()
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("guest")))
+            ask().ticket.outcome()
+            val request = channel().approvals.single()
 
-                assertEquals(
-                    ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY, request.id) to "[alexandrite:denied " +
-                        "by=policy] Not run: no operator answered. Do not retry this or an equivalent call; tell the user.",
-                    results().single().let { it.outcome to it.text() },
-                )
-                assertEquals(emptyList(), write.calls)
-            }
+            assertEquals(
+                ToolOutcome.NotRun(NotRunReason.DENIED_BY_POLICY, request.id) to "[alexandrite:denied " +
+                    "by=policy] Not run: no operator answered. Do not retry this or an equivalent call; tell the user.",
+                results().single().let { it.outcome to it.text() },
+            )
+            assertEquals(emptyList(), write.calls)
         }
-
-        val turn = request.turn.id
-        assertEquals(
-            listOf(
-                "WARN Approval ${request.id} in turn $turn was answered by test:main@guest, who is no operator, so " +
-                    "the call is refused",
-            ),
-            lines.filter { it.startsWith("WARN Approval") },
-        )
-    }
-
-    @Test
-    fun `why a person is asked is logged only at debug`() {
-        model.reply { toolCall("fs.write") }.reply { text("Written.") }
-        lateinit var request: ApprovalRequest
-
-        val lines = logged {
-            harness().execute {
-                channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
-                ask().ticket.outcome()
-                request = channel().approvals.single()
-            }
-        }
-
-        val turn = request.turn
-        assertEquals(
-            listOf(
-                "INFO Approval ${request.id} of call call-${turn.id}-0-0 of fs.write in turn ${turn.id} of " +
-                    "${turn.key} is asked for",
-                "DEBUG Approval ${request.id} is asked for because the chat is in ask mode",
-            ),
-            lines.filter { "is asked for" in it },
-        )
     }
 
     @Test

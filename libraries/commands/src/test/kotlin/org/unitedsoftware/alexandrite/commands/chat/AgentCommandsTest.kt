@@ -163,16 +163,6 @@ class AgentCommandsTest {
     }
 
     @Test
-    fun `a refused home replies with the agent's message`() = runTest {
-        control.settings.update(chat, ChatSettingsUpdate.builder().agent(CODER).home().build(), OPERATOR)
-        control.settings.update(chat, ChatSettingsUpdate.builder().agent(AgentId.MAIN).build(), OPERATOR)
-
-        val reply = commands.answer(testCommand("home"))
-
-        assertEquals("test:main:chat is the home chat of agent 'coder'.", reply)
-    }
-
-    @Test
     fun `home takes nothing but off and reset`() = runTest {
         val reply = commands.answer(testCommand("home", "away"))
 

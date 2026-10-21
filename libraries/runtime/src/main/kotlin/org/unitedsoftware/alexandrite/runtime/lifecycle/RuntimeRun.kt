@@ -36,7 +36,6 @@ import org.unitedsoftware.alexandrite.runtime.StartStage
 import org.unitedsoftware.alexandrite.runtime.Termination
 import org.unitedsoftware.alexandrite.runtime.i18n.RuntimeTexts
 import org.unitedsoftware.alexandrite.runtime.startStopped
-import org.unitedsoftware.alexandrite.sdk.plugin.PluginIndex
 import org.unitedsoftware.alexandrite.sdk.problem.Problem
 import org.unitedsoftware.alexandrite.sdk.runtime.RuntimeControl
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
@@ -70,7 +69,7 @@ internal class RuntimeRun(
             },
     )
     private val texts = RuntimeTexts(
-        spec.plugins.members.associate { it.id to it.index.classLoader() },
+        spec.plugins.classLoaders,
         spec.config.language,
     ) { plugin, problem -> logger.warn("{}: plugin {} {}", name, plugin, problem) }
     private val stages =
@@ -330,6 +329,3 @@ private fun RuntimeStartException.plusTeardown(teardown: List<Problem>): Runtime
     return RuntimeStartException(message.orEmpty(), stage, problems + teardown, stopRequest, cause)
         .also { it.stackTrace = stackTrace }
 }
-
-/** The class loader of the plugin's own classes and resources. */
-private fun PluginIndex.classLoader(): ClassLoader = javaClass.classLoader ?: ClassLoader.getSystemClassLoader()

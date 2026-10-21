@@ -13,6 +13,9 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.trust.AgentTrustRules
+import org.unitedsoftware.alexandrite.agent.trust.CallTrust
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
@@ -42,6 +45,7 @@ import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.TestRecords
 import org.unitedsoftware.alexandrite.testkit.testChat
+import org.unitedsoftware.alexandrite.testkit.testRecords
 import org.unitedsoftware.alexandrite.testkit.testToolContext
 import org.unitedsoftware.alexandrite.testkit.testToolDefinition
 import org.unitedsoftware.alexandrite.testkit.testTurn
@@ -57,7 +61,7 @@ class ChainRulesTest {
     private val clock = TestClock()
     private val store = MemoryStore(clock)
     private val records = TestRecords(store.records).of(AGENT)
-    private val states = SettingsStates(TestChatStates(store.chatStates).of(AGENT))
+    private val states = SettingsStates(TestChatStates(store.chatStates).of(AGENT), testRecords())
     private val key = AgentChatKey(AgentId.MAIN, testChat())
     private val operator = testUser("operator", isOperator = true)
     private val exec = ScriptedExec()
@@ -82,6 +86,9 @@ class ChainRulesTest {
             directory,
             clock,
             NotContained,
+            NoInstructionPlaces,
+            NoForesight,
+            NoMarkOffers,
         )
 
         /** How the gate decided [review] on an operator's turn, tainted when [tainted]: run, rule, judge, ask or refused. */
@@ -181,7 +188,7 @@ class ChainRulesTest {
     // Trust.
 
     @Test
-    fun `trust rules on every step trust the whole chain, on every unvetted step only its programs`() = runTest {
+    fun `trust rules on every unvetted step trust a chain's programs, never the paths it reaches`() = runTest {
         val setup = Setup("""{"trust": ["command.exec(git)", "command.exec(./gradlew)"]}""")
 
         val trusts = listOf(
@@ -193,7 +200,7 @@ class ChainRulesTest {
         ).map { setup.trusts.trust(setup.checked(it)) }
 
         assertEquals(
-            listOf(CallTrust.WHOLE, CallTrust.PROGRAMS, CallTrust.NONE, CallTrust.WHOLE, CallTrust.NONE),
+            listOf(CallTrust.PROGRAMS, CallTrust.PROGRAMS, CallTrust.NONE, CallTrust.PROGRAMS, CallTrust.NONE),
             trusts,
         )
     }
@@ -206,7 +213,7 @@ class ChainRulesTest {
             val setup = Setup()
             setMode(PermissionMode.AUTO)
             val opaque = CallReview.builder()
-                .preview(ReviewPreview.Command(listOf("sh", "-c", "ls | wc"), CWD, null, opaque = true))
+                .preview(ReviewPreview.Command(listOf("sh", "-c", "ls > list"), CWD, null, opaque = true))
                 .build()
 
             assertEquals("ask", setup.decide(chain(cd(), step("git", "status"), step("make")), tainted = true))
@@ -278,7 +285,7 @@ class ChainRulesTest {
     private class Offering(private val rules: CallRules) : Approvals {
         val offered = CopyOnWriteArrayList<List<String>>()
 
-        override suspend fun ask(call: CheckedCall, reason: String): GateResult {
+        override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
             rules.grantable(call).takeIf { it.isNotEmpty() }?.let { subjects -> offered += subjects.map { it.display } }
             return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
         }

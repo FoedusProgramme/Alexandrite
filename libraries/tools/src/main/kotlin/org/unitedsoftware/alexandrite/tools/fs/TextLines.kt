@@ -17,7 +17,8 @@ internal class NotText : Exception()
 
 /** The UTF-8 lines of [source] within its first [maxBytes] bytes, each kept to [maxChars] characters. */
 internal class TextLines(source: InputStream, private val maxChars: Int, maxBytes: Long) : Closeable {
-    constructor(file: Path, maxChars: Int, maxBytes: Long) : this(openRegularFile(file), maxChars, maxBytes)
+    constructor(file: Path, oneLink: Boolean, maxChars: Int, maxBytes: Long) :
+        this(openRegularFile(file, oneLink), maxChars, maxBytes)
 
     private val input = BoundedInput(source, maxBytes)
     private val reader = InputStreamReader(

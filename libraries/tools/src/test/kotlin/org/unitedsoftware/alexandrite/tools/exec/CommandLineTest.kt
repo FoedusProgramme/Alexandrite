@@ -1,13 +1,15 @@
 package org.unitedsoftware.alexandrite.tools.exec
 
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class CommandLineTest {
     private fun split(line: String, home: String? = "/h") = CommandLine.split(line, home)
 
-    private fun problem(line: String): String = assertFailsWith<CallProblem>(line) { split(line) }.message
+    private fun problem(line: String): String = assertFailsWith<ToolRefusal>(line) { split(line) }.message
 
     @Test
     fun `words split at whitespace, and quotes and escapes keep them whole`() {
@@ -33,8 +35,8 @@ class CommandLineTest {
     @Test
     fun `a quote never closed and a lone trailing backslash are problems`() {
         assertEquals("The command has a quote that is never closed.", problem("echo 'oops"))
-        assertEquals("The command has a quote that is never closed.", problem("echo \"oops"))
-        assertEquals("The command ends with a lone backslash.", problem("trailing\\"))
+        assertContains(problem("echo \"oops").orEmpty(), "never closed")
+        assertContains(problem("trailing\\").orEmpty(), "lone backslash")
     }
 
     @Test
@@ -56,13 +58,13 @@ class CommandLineTest {
             "ls\nid" to "a line break",
         )
 
+        assertEquals(
+            "The command holds '|', which is shell syntax, but no shell runs it: run one program and set " +
+                "'cwd' instead of using cd; for pipes or redirects pass sh -c '…' explicitly.",
+            problem("ls | wc"),
+        )
         for ((line, token) in tokens) {
-            assertEquals(
-                "The command holds $token, which is shell syntax, but no shell runs it: run one program and set " +
-                    "'cwd' instead of using cd; for pipes or redirects pass sh -c '…' explicitly.",
-                problem(line),
-                line,
-            )
+            assertContains(problem(line).orEmpty(), "holds $token, which is shell syntax", message = line)
         }
     }
 

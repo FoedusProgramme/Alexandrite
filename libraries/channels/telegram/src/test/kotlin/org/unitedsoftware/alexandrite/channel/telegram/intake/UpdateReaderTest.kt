@@ -11,8 +11,10 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import org.unitedsoftware.alexandrite.channel.telegram.api.Chat
 import org.unitedsoftware.alexandrite.channel.telegram.api.Message
 import org.unitedsoftware.alexandrite.channel.telegram.api.Update
+import org.unitedsoftware.alexandrite.channel.telegram.api.User
 import org.unitedsoftware.alexandrite.channel.telegram.approval.ApprovalMessages
 import org.unitedsoftware.alexandrite.sdk.channel.DisplayFact
 import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
@@ -133,6 +135,22 @@ class UpdateReaderTest {
     }
 
     @Test
+    fun `a message an inline bot wrote for its sender counts as forwarded from the bot`() {
+        val bot = buildJsonObject {
+            put("id", 4242)
+            put("is_bot", true)
+            put("first_name", "Gif Search")
+            put("username", "gif_test_bot")
+        }
+
+        val message = assertIs<Inbound.Message>(reader.read(with("private_text", "via_bot" to bot))).message
+
+        val origin = ForwardOrigin(ForwardKind.BOT, "@gif_test_bot", UserAddress(work, "4242"), null)
+        assertEquals(origin, message.forwarded)
+        assertEquals(ada, message.sender)
+    }
+
+    @Test
     fun `a reply quotes the part the user picked, else the whole message, its author known and its content not`() {
         val expected = Quote.builder("reads the config")
             .senderName("Alexandrite Test Bot")
@@ -203,6 +221,48 @@ class UpdateReaderTest {
         assertEquals(VOUCHED, trustOf(replied(botUser)))
         assertEquals(AUTHOR_KNOWN, trustOf(replied(botUser, "message_id" to JsonPrimitive(10))))
         assertEquals(QuoteTrust.UNTRUSTED, trustOf(replied(adaUser, "sender_chat" to group)))
+    }
+
+    @Test
+    fun `a quote of a trusted user's own message is vouched for, a forward they brought is not`() {
+        val trusting = UpdateReader(
+            work,
+            setOf(1001L),
+            BotIdentity(1234567890, "alexandrite_test_bot"),
+            approvals,
+            trusted = setOf(1002L),
+        ) { MediaContent { _ -> ByteArray(0) } }
+        val bobUser = buildJsonObject {
+            put("id", 1002)
+            put("is_bot", false)
+            put("first_name", "Bob")
+        }
+        val forward = buildJsonObject {
+            put("type", "hidden_user")
+            put("date", 1760169000)
+            put("sender_user_name", "Someone")
+        }
+        fun trustOf(vararg fields: Pair<String, JsonElement>): QuoteTrust? {
+            val replied = buildJsonObject {
+                put("message_id", 9)
+                put("from", bobUser)
+                put(
+                    "chat",
+                    buildJsonObject {
+                        put("id", -1001234500000)
+                        put("type", "supergroup")
+                    },
+                )
+                put("date", 1760169480)
+                put("text", "Deploy at five.")
+                fields.forEach { (name, value) -> put(name, value) }
+            }
+            val reply = with("group_mention", "reply_to_message" to replied)
+            return assertIs<Inbound.Message>(trusting.read(reply)).message.quote?.trust
+        }
+
+        assertEquals(VOUCHED, trustOf())
+        assertEquals(AUTHOR_KNOWN, trustOf("forward_origin" to forward))
     }
 
     @Test
@@ -443,6 +503,105 @@ class UpdateReaderTest {
         assertEquals("/model deepseek/chat", command.message.text)
         assertEquals(ref, command.message.ref)
         assertTrue(command.invocation.issuer.isOperator)
+    }
+
+    @Test
+    fun `a command names the sender it replies to and the users it mentions, the bot and strangers left out`() {
+        val carol = User(1003, firstName = "Carol", username = "carol_test")
+        val people = UpdateReader(
+            work,
+            setOf(1001L),
+            BotIdentity(1234567890, "alexandrite_test_bot"),
+            approvals,
+            trusted = setOf(1002L, 1003L),
+            known = { chat, name -> carol.takeIf { chat == -1001234500000L && name == "carol_test" } },
+        ) { MediaContent { _ -> ByteArray(0) } }
+        val text = "/trust @carol_test @alexandrite_test_bot @nobody Dan @carol_test"
+        fun entity(type: String, offset: Int, length: Int, user: JsonElement? = null) = buildJsonObject {
+            put("type", type)
+            put("offset", offset)
+            put("length", length)
+            user?.let { put("user", it) }
+        }
+        val dan = buildJsonObject {
+            put("id", 1004)
+            put("is_bot", false)
+            put("first_name", "Dan")
+        }
+        val botUser = buildJsonObject {
+            put("id", 1234567890)
+            put("is_bot", true)
+            put("first_name", "Alexandrite")
+        }
+        val replied = buildJsonObject {
+            put("message_id", 26)
+            put(
+                "from",
+                buildJsonObject {
+                    put("id", 1002)
+                    put("is_bot", false)
+                    put("first_name", "Bob")
+                },
+            )
+            put(
+                "chat",
+                buildJsonObject {
+                    put("id", -1001234500000)
+                    put("type", "supergroup")
+                },
+            )
+            put("date", 1760169500)
+            put("text", "Here is the plan.")
+        }
+        val entities = buildJsonArray {
+            add(entity("bot_command", 0, 6))
+            add(entity("mention", 7, 11))
+            add(entity("mention", 19, 21))
+            add(entity("mention", 41, 7))
+            add(entity("text_mention", 49, 3, dan))
+            add(entity("text_mention", 49, 3, botUser))
+            add(entity("mention", 53, 11))
+        }
+        val message = with("group_command_for_bot", "text" to JsonPrimitive(text), "entities" to entities)
+        val replying = with(
+            "group_command_for_bot",
+            "text" to JsonPrimitive("/untrust"),
+            "entities" to buildJsonArray { add(entity("bot_command", 0, 8)) },
+            "reply_to_message" to replied,
+        )
+
+        val invocation = assertIs<Inbound.Command>(people.read(message)).invocation
+        val reply = assertIs<Inbound.Command>(people.read(replying)).invocation
+
+        val carolUser = ChatUser(UserAddress(work, "1003"), "Carol", "carol_test", false, false, isTrusted = true)
+        val danUser = ChatUser(UserAddress(work, "1004"), "Dan", null, isBot = false, isOperator = false)
+        assertEquals(listOf(carolUser, danUser), invocation.mentions)
+        assertNull(invocation.replyTo)
+        assertEquals(
+            ChatUser(UserAddress(work, "1002"), "Bob", null, isBot = false, isOperator = false, isTrusted = true),
+            reply.replyTo,
+        )
+        assertEquals(emptyList(), reply.mentions)
+        assertTrue(
+            assertIs<Inbound.Command>(people.read(fixture("group_command_for_bot"))).invocation.issuer.isOperator,
+        )
+    }
+
+    @Test
+    fun `a trusted user is marked trusted unless they write on behalf of a chat`() {
+        val trusting = UpdateReader(
+            work,
+            setOf(1001L),
+            BotIdentity(1234567890, "alexandrite_test_bot"),
+            approvals,
+            trusted = setOf(1002L),
+        ) { MediaContent { _ -> ByteArray(0) } }
+        val bobUser = User(1002, firstName = "Bob")
+
+        assertTrue(trusting.user(bobUser).isTrusted)
+        assertFalse(trusting.user(bobUser, Chat(-1001234500000, "supergroup")).isTrusted)
+        assertFalse(trusting.user(User(1001, firstName = "Ada")).isTrusted)
+        assertFalse(reader.user(bobUser).isTrusted)
     }
 
     @Test

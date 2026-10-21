@@ -13,9 +13,6 @@ TTY=${ALEXANDRITE_INSTALL_TTY:-/dev/tty}
 SYSTEMD_UNIT=alexandrite.service
 LAUNCHD_LABEL=org.unitedsoftware.alexandrite
 JAVA_MAJOR=21
-# The first release whose `alexandrite config check` exists.
-CONFIG_CHECK_SINCE=0.1.0
-EX_USAGE=64
 MARK_BEGIN='# >>> alexandrite >>>'
 MARK_END='# <<< alexandrite <<<'
 STAGES=4
@@ -97,8 +94,6 @@ ALEXANDRITE_INSTALL_TTY replaces the terminal device init reads from (for testin
         names_itself) T="Alexandrite %s names itself '%s'." ;;
         starts) T="Alexandrite %s starts." ;;
         check_passes) T="The config passes the check of Alexandrite %s." ;;
-        old_check) T="Alexandrite %s has no 'config check'; the config is checked when it starts." ;;
-        no_check) T="Alexandrite %s has no 'config check'." ;;
         both_fail) T="The config fails the check of %s and of the installed %s alike; going on:" ;;
         check_fails) T="The config fails the check of Alexandrite %s:" ;;
         own_file) T="%s is a file of its own and stays; the command is %s." ;;
@@ -210,8 +205,6 @@ ALEXANDRITE_INSTALL_TTY 可替换 init 读取的终端设备（用于测试）�
         names_itself) T="Alexandrite %s 报告的版本是 '%s'。" ;;
         starts) T="Alexandrite %s 可以启动。" ;;
         check_passes) T="配置通过了 Alexandrite %s 的检查。" ;;
-        old_check) T="Alexandrite %s 没有 'config check'；配置将在启动时检查。" ;;
-        no_check) T="Alexandrite %s 没有 'config check'。" ;;
         both_fail) T="配置在 %s 和已安装的 %s 上都未通过检查；继续：" ;;
         check_fails) T="配置未通过 Alexandrite %s 的检查：" ;;
         own_file) T="%s 是另一个文件，保持不变；命令位于 %s。" ;;
@@ -650,10 +643,6 @@ app() {
     "$binary" "$@"
 }
 
-missing_command() {
-    [ "$1" = "$EX_USAGE" ] && case $2 in *"Unknown command"*) true ;; *) false ;; esac
-}
-
 check_release() {
     new=$ROOT/versions/$VERSION/bin/alexandrite
     if ! out=$("$new" --version 2>&1); then
@@ -673,19 +662,8 @@ check_release() {
     if out=$(app "$new" config check 2>&1); then
         tick check_passes "$VERSION"
         return 0
-    else
-        code=$?
     fi
-    if missing_command "$code" "$out"; then
-        if version_lt "$VERSION" "$CONFIG_CHECK_SINCE"; then
-            info old_check "$VERSION"
-            return 0
-        fi
-        warn no_check "$VERSION"
-        return 1
-    fi
-    if old=$(app "$ROOT/versions/$PREV/bin/alexandrite" config check 2>&1); then old_code=0; else old_code=$?; fi
-    if [ "$old_code" != 0 ] && ! missing_command "$old_code" "$old"; then
+    if ! app "$ROOT/versions/$PREV/bin/alexandrite" config check >/dev/null 2>&1; then
         warn both_fail "$VERSION" "$PREV"
         printf '%s\n' "$out" >&2
         return 0
@@ -807,16 +785,11 @@ restart_service() {
     esac
 }
 
-# Polls `alexandrite status` (`pairings` for a version without it) until the instance answers.
+# Polls `alexandrite status` until the instance answers.
 wait_ready() {
-    probe=status
     waited=0
     while [ "$waited" -lt "$READY_TIMEOUT" ]; do
-        if out=$(app "$ROOT/bin/alexandrite" "$probe" 2>&1); then return 0; else code=$?; fi
-        if [ "$probe" = status ] && missing_command "$code" "$out"; then
-            probe=pairings
-            continue
-        fi
+        if app "$ROOT/bin/alexandrite" status >/dev/null 2>&1; then return 0; fi
         sleep 1
         waited=$((waited + 1))
     done

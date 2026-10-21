@@ -23,15 +23,17 @@ import org.unitedsoftware.alexandrite.agent.job.Detaching
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.job.backgroundResult
 import org.unitedsoftware.alexandrite.agent.permission.MandateGrants
-import org.unitedsoftware.alexandrite.agent.permission.TurnTaint
 import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.sandbox.CallSandboxes
+import org.unitedsoftware.alexandrite.agent.trust.TaintLedger
+import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.text.fittingLength
 import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEvent
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
+import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
@@ -76,6 +78,7 @@ internal class ToolExecutor(
     private val jobs: Jobs,
     private val grants: MandateGrants,
     private val sandboxes: CallSandboxes,
+    private val ledger: TaintLedger,
 ) {
     private val shutdownWait = shutdownWait(settings)
 
@@ -128,18 +131,29 @@ internal class ToolExecutor(
                     startsInBackground = admission.background && tool !is InTurnTool,
                     granting = { grants.grant(turn, tool) },
                     trust = admission.trust,
+                    written = (admission.preview as? ReviewPreview.Diff)?.path,
                     sandboxes = sandboxes,
                 )
+                admission.untrusted?.let(context::report)
                 val result = if (tool is InTurnTool) {
                     inTurn(turn, call, tool, arguments, context)
                 } else {
                     runTool(turn, call, tool, arguments, limit, context)
                 }
+                recordWrites(admission, result.outcome, taint)
                 val content = contentOf(tool.definition.activity, admission.preview, result, admission.scratch)
                 calls.ended(call.id, statusOf(result.outcome), content)
                 ToolCallEnd(result, null, context.touchedPaths, context.loads, context.taintingPaths)
             }
         }
+    }
+
+    /** Notes in the ledger the file that the call that [admission] let run wrote, when its turn [taint] is tainted. */
+    private suspend fun recordWrites(admission: GateResult.Admitted, outcome: ToolOutcome, taint: TurnTaint) {
+        val preview = admission.preview as? ReviewPreview.Diff ?: return
+        val reason = taint.known?.reason ?: return
+        if (admission.clearance.kind == ClearanceKind.NONE || outcome != ToolOutcome.Succeeded) return
+        ledger.wrote(preview.path, reason)
     }
 
     private suspend fun runTool(

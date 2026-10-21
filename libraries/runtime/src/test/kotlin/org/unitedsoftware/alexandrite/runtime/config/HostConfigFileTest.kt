@@ -1,14 +1,21 @@
 package org.unitedsoftware.alexandrite.runtime.config
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.TestIndex
 import org.unitedsoftware.alexandrite.runtime.configProblems
+import org.unitedsoftware.alexandrite.runtime.decodeSection
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEdit
@@ -21,12 +28,15 @@ import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.config.LiveConfig
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.di.key
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -35,7 +45,16 @@ class HostConfigFileTest {
     lateinit var directory: Path
 
     @Serializable
-    data class Notes(val home: String? = null, val token: Secret? = null, val limits: Limits = Limits())
+    data class Notes(
+        val home: String? = null,
+        val token: Secret? = null,
+        val limits: Limits = Limits(),
+        val folders: List<String> = emptyList(),
+        val agents: Map<String, Agent> = emptyMap(),
+    )
+
+    @Serializable
+    data class Agent(val name: String? = null, val links: List<List<String>> = emptyList())
 
     @Serializable
     data class Limits(val turns: Int = 4) {
@@ -47,6 +66,17 @@ class HostConfigFileTest {
     @Serializable
     data class Mail(val folder: String = "inbox")
 
+    @JvmInline
+    @Serializable
+    value class Token(val secret: Secret)
+
+    @Serializable
+    data class Keys(
+        val keys: List<Secret> = emptyList(),
+        val token: Token? = null,
+        val pools: Map<String, List<Token>> = emptyMap(),
+    )
+
     private val notes = TestIndex(
         "notes",
         sections = listOf(ConfigSectionSpec(key<Notes>(), "", Notes.serializer(), "Notes")),
@@ -57,7 +87,12 @@ class HostConfigFileTest {
         sections = listOf(ConfigSectionSpec(key<Mail>(), "", Mail.serializer(), "Mail")),
     )
 
-    private val plugins = PluginSet.of(emptyList(), notes, mail)
+    private val keys = TestIndex(
+        "keys",
+        sections = listOf(ConfigSectionSpec(key<Keys>(), "", Keys.serializer(), "Keys")),
+    )
+
+    private val plugins = PluginSet.of(emptyList(), notes, mail, keys)
 
     private val environment = mutableMapOf("NOTES_TOKEN" to "s3cret-token")
 
@@ -79,11 +114,17 @@ class HostConfigFileTest {
 
     private fun config(file: Path? = this.file) = HostConfigFile(file, plugins, { environment.toMap() }, "test")
 
-    private fun write(text: String = original) {
-        Files.writeString(file, text)
+    private fun write(text: String = original, to: Path = file) {
+        Files.writeString(to, text)
     }
 
-    private fun read(): String = Files.readString(file)
+    private fun read(from: Path = file): String = Files.readString(from)
+
+    private fun decoded(): Notes = ConfigFile.read(file, environment).decodeSection("plugins.notes", Notes.serializer())
+
+    private fun strings(vararg values: String) = JsonArray(values.map(::JsonPrimitive))
+
+    private fun assumePosix() = assumeTrue("posix" in FileSystems.getDefault().supportedFileAttributeViews())
 
     private fun change(block: ConfigEdit.() -> Unit): ConfigChanges = runBlocking { config().edit(block) }
 
@@ -206,15 +247,204 @@ class HostConfigFileTest {
     }
 
     @Test
-    fun `get reads a value as the file writes it`() {
+    fun `the previous bytes are kept as the backup and both files keep the file's permissions`() {
+        assumePosix()
+        write()
+        val permissions = PosixFilePermissions.fromString("rw-r-----")
+        Files.setPosixFilePermissions(file, permissions)
+        val backup = directory.resolve("alexandrite.json.bak")
+
+        change { set("plugins.notes.home", JsonPrimitive("7")) }
+
+        assertEquals(original, read(backup))
+        assertEquals(original.replace("\"42\"", "\"7\""), read())
+        assertEquals(permissions, Files.getPosixFilePermissions(file))
+        assertEquals(permissions, Files.getPosixFilePermissions(backup))
+        val names = Files.list(directory).use { files -> files.map { it.fileName.toString() }.sorted().toList() }
+        assertEquals(listOf("alexandrite.json", "alexandrite.json.bak"), names)
+    }
+
+    @Test
+    fun `an edit applies its changes in order, reading its own changes so far`() {
+        write()
+        val seen = mutableListOf<JsonElement?>()
+
+        change {
+            set("plugins.notes.agents.coder", buildJsonObject { put("name", "Coder") })
+            set("plugins.notes.agents.coder.links", JsonArray(listOf(strings("t:a:1", "t:b:2"))))
+            seen += get("plugins.notes.agents.coder.name")
+            remove("plugins.notes.agents.coder.name")
+            seen += get("plugins.notes.agents.coder.name")
+            remove("plugins.notes.home")
+            remove("plugins.notes.missing.deeper")
+        }
+
+        assertEquals(listOf<JsonElement?>(JsonPrimitive("Coder"), null), seen)
+        val coder = Agent(links = listOf(listOf("t:a:1", "t:b:2")))
+        assertEquals(Notes(null, Secret("s3cret-token"), agents = mapOf("coder" to coder)), decoded())
+    }
+
+    @Test
+    fun `a hand edit made between two edits is kept`() {
+        write()
+        change { set("plugins.notes.home", JsonPrimitive("1")) }
+        write(read().replace("\"1\"", "\"hand\""))
+
+        change { set("plugins.notes.agents.coder.name", JsonPrimitive("Coder")) }
+
+        val expected = Notes("hand", Secret("s3cret-token"), agents = mapOf("coder" to Agent("Coder")))
+        assertEquals(expected, decoded())
+    }
+
+    @Test
+    fun `a linked config file is edited through to its target and the link stays`() {
+        val target = Files.createDirectories(directory.resolve("real")).resolve("alexandrite.json")
+        write(original, target)
+        val link = try {
+            Files.createSymbolicLink(directory.resolve("link.json"), target)
+        } catch (e: UnsupportedOperationException) {
+            assumeTrue(false, "no symbolic links")
+            return
+        }
+
+        runBlocking { config(link).edit { set("plugins.notes.home", JsonPrimitive("9")) } }
+
+        assertTrue(Files.isSymbolicLink(link))
+        assertEquals(original.replace("\"42\"", "\"9\""), read(link))
+        assertEquals(original, read(target.resolveSibling("alexandrite.json.bak")))
+        assertFalse(Files.exists(directory.resolve("link.json.bak")))
+    }
+
+    @Test
+    fun `concurrent edits each read what the edit before them wrote`() {
+        write()
+        val configs = List(4) { config() }
+
+        runBlocking(Dispatchers.Default) {
+            (1..24).map { number ->
+                launch {
+                    configs[number % configs.size].edit {
+                        val folders = get("plugins.notes.folders") as? JsonArray ?: JsonArray(emptyList())
+                        set("plugins.notes.folders", JsonArray(folders + JsonPrimitive("/srv/$number")))
+                    }
+                }
+            }.joinAll()
+        }
+
+        assertEquals((1..24).map { "/srv/$it" }.sorted(), decoded().folders.sorted())
+    }
+
+    @Test
+    fun `a read-only file or directory is refused and left as it is`() {
+        assumePosix()
+        write()
+        Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("r--r--r--"))
+        assumeTrue(!Files.isWritable(file), "the tests run as a user who can write any file")
+
+        val file = refusal { set("plugins.notes.home", JsonPrimitive("1")) }
+        Files.setPosixFilePermissions(this.file, PosixFilePermissions.fromString("rw-r--r--"))
+        Files.setPosixFilePermissions(directory, PosixFilePermissions.fromString("r-x------"))
+        val directory = try {
+            refusal { set("plugins.notes.home", JsonPrimitive("1")) }
+        } finally {
+            Files.setPosixFilePermissions(this.directory, PosixFilePermissions.fromString("rwx------"))
+        }
+
+        assertEquals(ConfigEditRefusal.READ_ONLY, file.refusal)
+        assertContains(file.message!!, "is read-only")
+        assertEquals(ConfigEditRefusal.READ_ONLY, directory.refusal)
+        assertEquals(original, read())
+        assertFalse(Files.exists(this.directory.resolve("alexandrite.json.bak")))
+    }
+
+    @Test
+    fun `a file that is not UTF-8 text refuses edits`() {
+        Files.write(file, byteArrayOf('{'.code.toByte(), 0xC3.toByte(), '}'.code.toByte()))
+
+        assertEquals(ConfigEditRefusal.INVALID_FILE, refusal { set("plugins.notes.home", JsonPrimitive("1")) }.refusal)
+    }
+
+    @Test
+    fun `a path that is malformed or runs through a value that is no object is refused`() {
         write()
 
-        assertEquals(JsonPrimitive("\${env:NOTES_TOKEN}"), runBlocking { config().get("plugins.notes.token") })
-        assertNull(runBlocking { config().get("plugins.mail.folder") })
+        for (path in listOf("", ".home", "home.", "a..b")) {
+            assertEquals(ConfigEditRefusal.INVALID_PATH, refusal { set(path, JsonPrimitive(1)) }.refusal, path)
+            assertEquals(ConfigEditRefusal.INVALID_PATH, refusal { remove(path) }.refusal, path)
+            assertEquals(ConfigEditRefusal.INVALID_PATH, refusal { get(path) }.refusal, path)
+        }
+        val value = refusal { set("plugins.notes.home.x", JsonPrimitive(1)) }
+        assertEquals(
+            "Cannot change the config at 'plugins.notes.home.x': 'plugins.notes.home' holds no object.",
+            value.message,
+        )
+        assertEquals(original, read())
+    }
+
+    @Test
+    fun `a secret in a list or behind a value class goes in only as a reference`() {
+        write("""{"plugins": {"keys": {}}}""")
+        environment["OTHER"] = "x"
+        val other = "\${env:OTHER}"
+
+        val refusals = listOf(
+            refusal { set("plugins.keys.keys", strings(other, "plain-key")) },
+            refusal { set("plugins.keys.token", JsonPrimitive("plain-token")) },
+            refusal { set("plugins.keys.pools.a", strings(other, "plain-pool")) },
+        )
+        change {
+            set("plugins.keys.keys", strings(other))
+            set("plugins.keys.token", JsonPrimitive(other))
+            set("plugins.keys.pools.a", strings(other))
+        }
+
+        assertEquals(List(3) { ConfigEditRefusal.SECRET }, refusals.map { it.refusal })
+        val paths = listOf("'plugins.keys.keys[1]'", "'plugins.keys.token'", "'plugins.keys.pools.a[1]'")
+        refusals.zip(paths).forEach { (refusal, path) -> assertContains(refusal.message!!, path) }
+        assertFalse("plain" in read())
+        val decoded = ConfigFile.read(file, environment).decodeSection("plugins.keys", Keys.serializer())
+        assertEquals(Keys(listOf(Secret("x")), Token(Secret("x")), mapOf("a" to listOf(Token(Secret("x"))))), decoded)
+    }
+
+    @Test
+    fun `a secret the operator wrote into the file does not stop changes elsewhere`() {
+        write(original.replace("\${env:NOTES_TOKEN}", "literal-token"))
+
+        change { set("plugins.notes.home", JsonPrimitive("1")) }
+
+        assertEquals(Notes("1", Secret("literal-token")), decoded())
+    }
+
+    @Test
+    fun `referenced secrets swaps each new secret value for a reference and keeps the ones the file held`() {
+        val previous = """{"plugins": {"notes": {"token": "held"}, "keys": {"keys": ["held-key"]}}}"""
+        val text = """
+            {"plugins": {
+              "notes": {"token": "held", "home": "1"},
+              "keys": {"keys": ["held-key", "new-key"], "token": "new-token", "pools": {"a": ["${'$'}{env:OTHER}"]}}
+            }}
+        """.trimIndent()
+        val named = mutableListOf<Pair<String, String>>()
+
+        val referenced = referencedSecrets(plugins, previous, text) { path, value ->
+            named += path to value
+            "V${named.size}"
+        }
+
+        assertEquals(listOf("plugins.keys.keys[1]" to "new-key", "plugins.keys.token" to "new-token"), named)
+        assertEquals(
+            text.replace("\"new-key\"", "\"${'$'}{env:V1}\"").replace("\"new-token\"", "\"${'$'}{env:V2}\""),
+            referenced,
+        )
+        assertEquals("no json", referencedSecrets(plugins, previous, "no json") { _, _ -> "X" })
     }
 
     @Test
     fun `get shows a secret that the file holds as a value as hidden, and a reference as it is`() {
+        write()
+        assertEquals(JsonPrimitive("\${env:NOTES_TOKEN}"), runBlocking { config().get("plugins.notes.token") })
+        assertNull(runBlocking { config().get("plugins.mail.folder") })
+
         write(original.replace("\"\${env:NOTES_TOKEN}\"", "\"s3cret-token\""))
 
         assertEquals(JsonPrimitive(HostConfig.HIDDEN_SECRET), runBlocking { config().get("plugins.notes.token") })

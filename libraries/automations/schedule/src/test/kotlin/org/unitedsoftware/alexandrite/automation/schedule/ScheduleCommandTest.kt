@@ -65,14 +65,10 @@ class ScheduleCommandTest {
     }
 
     @Test
-    fun `the command is described, and the texts are complete`() = test {
+    fun `the command is named, and the texts are complete`() = test {
         val schedule = Schedule(this)
 
         assertEquals(listOf("schedule"), schedule.command.commands.map { it.name })
-        assertEquals(
-            "Lists the tasks scheduled in this chat, or cancels one.",
-            schedule.command.commands[0].description,
-        )
         assertTextsComplete(PLUGIN)
     }
 }

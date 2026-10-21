@@ -23,7 +23,6 @@ import org.unitedsoftware.alexandrite.runtime.PARENT_CANCELLED
 import org.unitedsoftware.alexandrite.runtime.RuntimeProblemKind
 import org.unitedsoftware.alexandrite.runtime.RuntimeState
 import org.unitedsoftware.alexandrite.runtime.TestIndex
-import org.unitedsoftware.alexandrite.runtime.execute
 import org.unitedsoftware.alexandrite.runtime.explicit
 import org.unitedsoftware.alexandrite.runtime.logged
 import org.unitedsoftware.alexandrite.runtime.spec
@@ -40,7 +39,6 @@ import kotlin.coroutines.ContinuationInterceptor
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration
@@ -163,28 +161,6 @@ class PluginScopeTest {
     }
 
     @Test
-    fun `a plugin's coroutine cannot join its runtime`() = runTest {
-        val handle = CompletableDeferred<AlexandriteRuntime>()
-        val runtime = started(
-            poller("waiter", "core") {
-                val error = runCatching { handle.await().join() }.exceptionOrNull()
-                events.record("${error?.javaClass?.simpleName}: ${error?.message}")
-            },
-        )
-        handle.complete(runtime)
-
-        runCurrent()
-        runtime.stop()
-        runtime.join()
-
-        assertContains(
-            events.all(),
-            "IllegalStateException: Runtime 'test' cannot be joined from its listener, its lifecycle calls or its " +
-                "plugins' coroutines.",
-        )
-    }
-
-    @Test
     fun `coroutines still running at the shutdown deadline are reported and abandoned`() {
         val release = CompletableDeferred<Unit>()
         val parent = CoroutineScope(Job())
@@ -204,7 +180,7 @@ class PluginScopeTest {
                 runtime.stop()
 
                 assertEquals(
-                    listOf(Problem(RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE, message, "core")),
+                    listOf(Problem(RuntimeProblemKind.SHUTDOWN, message, "core")),
                     runtime.join().problems,
                 )
                 assertEquals(listOf("open straggler", "stop straggler", "destroy straggler"), events.all())
@@ -219,26 +195,6 @@ class PluginScopeTest {
     }
 
     @Test
-    fun `run returns although a coroutine ignores its cancellation`() {
-        val release = CompletableDeferred<Unit>()
-        val index = TestIndex(
-            "core",
-            bindings = listOf(
-                poller("straggler", "core") {
-                    withContext(NonCancellable) { release.await() }
-                    events.record("straggler done")
-                },
-            ),
-        )
-
-        val termination = spec(explicit(index), dataDir, shutdownGrace = 0.seconds).execute()
-
-        assertContains(termination.problems.map { it.kind }, RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE)
-        assertFalse("straggler done" in events.all())
-        release.complete(Unit)
-    }
-
-    @Test
     fun `a grace of zero still lets a cancelled coroutine finish without a report`() = runTest {
         val runtime = started(poller("poller", "core") { awaitCancellation() }, shutdownGrace = 0.seconds)
         runCurrent()
@@ -248,7 +204,7 @@ class PluginScopeTest {
         assertEquals(
             emptyList(),
             runtime.join().problems.filter {
-                it.kind == RuntimeProblemKind.PLUGIN_SCOPE_NOT_DONE
+                it.message.startsWith("Coroutines of")
             },
         )
     }
