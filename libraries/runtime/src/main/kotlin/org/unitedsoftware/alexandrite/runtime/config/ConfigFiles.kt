@@ -49,8 +49,9 @@ internal class ConfigChange(val path: List<String>, val value: JsonElement?)
 /** The config file as an edit found it. */
 internal class OpenFile(val target: Path, val bytes: ByteArray, val text: String)
 
-/** Where the writer keeps the previous text of the config file [target]. */
-internal fun configBackup(target: Path): Path = target.resolveSibling("${target.fileName}.bak")
+/** Where the writer keeps the previous text of the config file [target], the real file a link names. */
+@InternalAlexandriteApi
+public fun configBackup(target: Path): Path = target.resolveSibling("${target.fileName}.bak")
 
 internal fun refused(refusal: ConfigEditRefusal, message: String, cause: Throwable? = null): ConfigEditException =
     ConfigEditException(refusal, message, cause)

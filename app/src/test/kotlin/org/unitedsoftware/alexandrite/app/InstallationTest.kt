@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.app
 
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -155,6 +156,23 @@ class InstallationTest {
         assertEquals("alias ll='ls -l'\nbindkey -e\n", Files.readString(zshrc))
         assertFalse(Files.exists(fish))
         assertEquals("# >>> alexandrite >>>\nunfinished\n", Files.readString(bashrc))
+    }
+
+    @Test
+    fun `uninstall removes the backup that the runtime keeps beside the file a linked config names`() {
+        val cli = Commands(directory)
+        val dotfiles = Files.createDirectories(directory.resolve("dotfiles"))
+        val target = Files.writeString(dotfiles.resolve("alexandrite.json"), "{}")
+        val backup = Files.writeString(dotfiles.resolve("alexandrite.json.bak"), "{}")
+        Files.createDirectories(cli.configFile.parent)
+        Files.createSymbolicLink(cli.configFile, target)
+
+        val printed = cli("uninstall", "--yes")
+
+        assertEquals(0, printed.code, printed.err)
+        assertFalse(Files.exists(backup))
+        assertFalse(Files.exists(cli.configFile, LinkOption.NOFOLLOW_LINKS))
+        assertTrue(Files.exists(target))
     }
 
     @Test

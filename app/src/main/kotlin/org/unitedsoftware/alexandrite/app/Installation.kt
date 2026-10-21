@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.app
 
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
+import org.unitedsoftware.alexandrite.runtime.config.configBackup
 import java.io.IOException
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
@@ -219,9 +220,15 @@ private fun removePathLines(file: Path) {
     }
 }
 
+/** The config file, the backup the runtime keeps beside the file it links to, and the secrets, each that exists. */
 private fun dataFiles(cli: Cli): List<Path> {
     val config = cli.locations.configFile.toAbsolutePath()
-    return listOf(config, config.resolveSibling("${config.fileName}.bak"), cli.secrets).filter(Files::exists)
+    val target = try {
+        config.toRealPath()
+    } catch (e: IOException) {
+        config
+    }
+    return listOf(config, configBackup(target), cli.secrets).filter(Files::exists)
 }
 
 /** The data and cache directories, each when it exists and may be removed whole. */
