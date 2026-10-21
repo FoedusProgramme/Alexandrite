@@ -159,6 +159,9 @@ internal fun availableRelease(cli: Cli): String? {
     return latest.takeIf { isNewer(it, alexandriteVersion) }
 }
 
+/** Whether [version] is a build of the sources rather than a release, which no release is meant to replace. */
+internal fun isDevelopmentBuild(version: String): Boolean = version.endsWith("-SNAPSHOT")
+
 /** Whether the config file leaves `app.updates.check` on, true when it cannot be read. */
 private fun updatesChecked(cli: Cli): Boolean {
     val text = try {

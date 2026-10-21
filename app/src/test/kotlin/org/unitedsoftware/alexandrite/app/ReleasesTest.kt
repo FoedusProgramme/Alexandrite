@@ -36,6 +36,12 @@ class ReleasesTest {
     // Precedence.
 
     @Test
+    fun `a build of the sources is no release, so the running app announces none`() {
+        assertTrue(isDevelopmentBuild("1.0.0-SNAPSHOT"))
+        assertFalse(isDevelopmentBuild("1.0.0-alpha.1"))
+    }
+
+    @Test
     fun `versions follow the precedence of semantic versioning`() {
         val ordered = listOf(
             "0.9.9",

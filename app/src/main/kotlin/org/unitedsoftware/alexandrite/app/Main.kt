@@ -274,7 +274,7 @@ private fun host(
                 val app = HostedApp(this, locations, Instant.now())
                 coroutineScope {
                     launch { texts.watch(textsInterval) }
-                    if (settings.updates.check) {
+                    if (settings.updates.check && !isDevelopmentBuild(alexandriteVersion)) {
                         services.getOrNull<UpdateDesk>()?.let { desk ->
                             val base = releasesBase(environment)
                             val watch = UpdateWatch(
