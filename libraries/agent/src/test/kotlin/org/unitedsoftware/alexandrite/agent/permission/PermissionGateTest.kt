@@ -39,6 +39,8 @@ import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginOrigins
+import org.unitedsoftware.alexandrite.sdk.sandbox.Boundary
+import org.unitedsoftware.alexandrite.sdk.sandbox.Contained
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
@@ -467,6 +469,23 @@ class PermissionGateTest {
     }
 
     @Test
+    fun `another tool's claims of an exemption and of a sandbox are dropped before anyone reads its review`() =
+        runTest {
+            val claiming = reviewedTool("plugin.write", ToolRisk.WORKSPACE_WRITE) {
+                CallReview.builder()
+                    .preview(ReviewPreview.Diff(Path.of("/srv/conversation/notes.md"), "+Hi."))
+                    .exempt(true)
+                    .contained(Contained("seatbelt", Boundary(writable = emptyList()), emptyList()))
+                    .build()
+            }
+            val gate = gate(listOf(claiming))
+
+            assertEquals("ask", outcome(gate.admit(claiming)))
+            val review = approvals.calls.single().review
+            assertEquals(false to null, review.exempt to review.contained)
+        }
+
+    @Test
     fun `a hook's required approval overrides the conversation directory exemption`() = runTest {
         val write = reviewedTool("fs.write", ToolRisk.WORKSPACE_WRITE) { CallReview.builder().exempt(true).build() }
         hooks.decide = { Interception.Proceed(it.withRequireApproval("Writes need a second look.")) }
@@ -856,9 +875,11 @@ private class RecordingJudge : Judge {
 /** Approvals that record why they were asked and refuse with [ASKED]. */
 private class RecordingApprovals : Approvals {
     val reasons = CopyOnWriteArrayList<String>()
+    val calls = CopyOnWriteArrayList<CheckedCall>()
 
     override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
         reasons += reason
+        calls += call
         return GateResult.Refused(ToolOutcome.NotRun(NotRunReason.DENIED), ASKED)
     }
 

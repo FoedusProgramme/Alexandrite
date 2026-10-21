@@ -73,9 +73,7 @@ internal class PermissionGate(
 ) : ToolGate {
     override suspend fun admit(call: GateCall): GateResult {
         val review = when (val reviewed = review(call)) {
-            is Reviewed.Done -> reviewed.review.takeUnless { it.exempt && !tools.isBuiltIn(call.tool) }
-                ?: unexempted(reviewed.review)
-
+            is Reviewed.Done -> if (tools.isBuiltIn(call.tool)) reviewed.review else claimless(reviewed.review)
             is Reviewed.Failed -> return refused(call, NotRunReason.DENIED_BY_POLICY, reviewed.text)
         }
         review.refusal?.let { return refused(call, NotRunReason.FLOOR, Refusals.blockedFloor(it)) }
@@ -162,8 +160,12 @@ internal class PermissionGate(
     private fun gatesNetwork(call: GateCall): Boolean =
         directory.agent(call.turn.agent)?.config?.permission?.taintedNetworkReads == PermissionConfig.NETWORK_READS_GATE
 
-    /** [review] without its exemption, which only a built-in tool may claim. */
-    private fun unexempted(review: CallReview): CallReview = review.rebuild { exempt(false) }
+    /** [review] without its exemption and containment, which only a built-in tool may claim. */
+    private fun claimless(review: CallReview): CallReview = review.takeIf { !it.exempt && it.contained == null }
+        ?: review.rebuild {
+            exempt(false)
+            contained(null)
+        }
 
     /** The review of [call] by its tool, an empty one when the tool reviews no call. */
     private suspend fun review(call: GateCall): Reviewed {
