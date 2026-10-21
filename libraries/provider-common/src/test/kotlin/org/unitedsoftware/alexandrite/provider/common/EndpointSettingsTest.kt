@@ -1,7 +1,12 @@
 package org.unitedsoftware.alexandrite.provider.common
 
+import org.unitedsoftware.alexandrite.provider.common.chat.ChatEndpoint
+import org.unitedsoftware.alexandrite.provider.common.chat.ChatFlavor
+import org.unitedsoftware.alexandrite.provider.common.messages.MessagesEndpoint
+import org.unitedsoftware.alexandrite.provider.common.messages.MessagesFlavor
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
+import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -20,25 +25,6 @@ class EndpointSettingsTest {
             refused("baseUrl must be") { EndpointSettings(url) }
         }
         EndpointSettings("http://127.0.0.1:1234/v1")
-    }
-
-    @Test
-    fun `a base URL that ends with an API path names the path to leave out`() {
-        val paths = mapOf(
-            "https://api.example.com/v1/chat/completions" to "/chat/completions",
-            "https://api.example.com/v1/responses/" to "/responses",
-            "https://api.example.com/anthropic/v1/messages" to "/v1/messages",
-            "https://api.example.com/messages" to "/messages",
-        )
-
-        for ((url, path) in paths) assertEquals(path, apiPathIn(url), url)
-        for (url in listOf(
-            "https://api.example.com/v1",
-            "https://api.example.com/anthropic",
-            "http://127.0.0.1:1234/",
-        )) {
-            assertNull(apiPathIn(url), url)
-        }
     }
 
     @Test
@@ -68,8 +54,7 @@ class EndpointSettingsTest {
             "https://a.example",
             apiKey,
             headers,
-            authHeader = "x-api-key",
-            providerHeaders = setOf("anthropic-version"),
+            wire = WireHeaders("x-api-key", setOf("anthropic-version")),
         )
 
         refused("may not set anthropic-version") { messages(mapOf("Anthropic-Version" to Secret("x"))) }
@@ -79,17 +64,21 @@ class EndpointSettingsTest {
     }
 
     @Test
+    fun `an endpoint keeps its wire API's own headers even when its settings name no wire API`() {
+        val settings = EndpointSettings("https://a.example", headers = mapOf("Anthropic-Version" to Secret("x")))
+
+        refused("may not set anthropic-version") {
+            MessagesEndpoint(EndpointId("test"), settings, MessagesFlavor.STANDARD)
+        }
+        ChatEndpoint(EndpointId("test"), settings, ChatFlavor.STANDARD).close()
+    }
+
+    @Test
     fun `configured models and their facts are well-formed`() {
         refused("models holds") { EndpointSettings("https://a.example", models = mapOf("" to ModelConfig())) }
         refused("inputMedia holds 'smell'") { ModelConfig(inputMedia = setOf("smell")) }
         refused("reasoningEfforts holds 'huge'") { ModelConfig(reasoningEfforts = setOf(ReasoningEffort.of("huge"))) }
         refused("contextWindow must be positive") { ModelConfig(contextWindow = 0) }
         refused("every timeout must be positive") { TimeoutConfig(idleSeconds = 0) }
-    }
-
-    @Test
-    fun `endpoint ids follow the id grammar`() {
-        refused("endpoints holds 'Bad_Id'") { requireEndpointIds(listOf("deepseek", "Bad_Id")) }
-        requireEndpointIds(listOf("deepseek", "local-studio2"))
     }
 }

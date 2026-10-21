@@ -16,7 +16,6 @@ import org.unitedsoftware.alexandrite.app.control.ConfigChangeView
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
 import org.unitedsoftware.alexandrite.internal.path.hasPosixPermissions
-import org.unitedsoftware.alexandrite.provider.common.apiPathIn
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.config.HostConfigFile
@@ -395,3 +394,11 @@ private fun editableCopy(file: Path, text: String): Path {
     Files.writeString(copy, text)
     return copy
 }
+
+/** The path of a wire API that [baseUrl] ends with, null when there is none. */
+internal fun apiPathIn(baseUrl: String): String? {
+    val base = baseUrl.trimEnd('/')
+    return API_PATHS.firstOrNull { base.endsWith(it, ignoreCase = true) }
+}
+
+private val API_PATHS = listOf("/v1/messages", "/chat/completions", "/responses", "/messages")

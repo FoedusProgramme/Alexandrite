@@ -169,4 +169,12 @@ public class Warning(public val kind: String, public val message: String) {
         require(kind.isNotBlank()) { "A warning's kind may not be blank." }
         require(message.isNotBlank()) { "A warning's message may not be blank." }
     }
+
+    public companion object {
+        /** The kind of a warning that the request leaves out an option the model or its API does not take. */
+        public const val UNSUPPORTED_OPTION: String = "unsupported_option"
+
+        /** The kind of a warning that the request leaves out media the model does not take. */
+        public const val UNSUPPORTED_MEDIA: String = "unsupported_media"
+    }
 }

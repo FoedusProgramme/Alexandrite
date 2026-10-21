@@ -97,7 +97,7 @@ internal object DeepSeekReasoning : ChatReasoning() {
         body.put("reasoning_effort", level.id)
         if (level == effort) return null
         return Warning(
-            "unsupported_option",
+            Warning.UNSUPPORTED_OPTION,
             "Model '${info.id}' does not accept the reasoning effort '$effort', so the request asks for '$level' " +
                 "instead.",
         )
@@ -123,7 +123,7 @@ internal object DeepSeekTools : ChatTools() {
         val forced = request.toolChoice == ToolChoice.Required || request.toolChoice is ToolChoice.Named
         if (!forced || !thinks(request)) return super.toolChoice(request, body)
         return Warning(
-            "unsupported_option",
+            Warning.UNSUPPORTED_OPTION,
             "Model '${request.model.model}' takes no forced tool choice while it thinks, so the model decides.",
         )
     }

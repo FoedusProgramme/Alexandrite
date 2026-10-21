@@ -107,12 +107,12 @@ internal class ChatRequest(
         val parallel = request.options.parallelToolCalls ?: return
         when {
             parallel && !info.parallelToolCalls ->
-                warnings += Warning("unsupported_option", "Model '${info.id}' calls no tools in parallel.")
+                warnings += Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' calls no tools in parallel.")
 
             flavor.tools.acceptsParallelToolCalls -> put("parallel_tool_calls", parallel)
 
             !parallel -> warnings += Warning(
-                "unsupported_option",
+                Warning.UNSUPPORTED_OPTION,
                 "The backend of model '${info.id}' cannot keep it from calling tools in parallel.",
             )
         }
@@ -153,7 +153,7 @@ internal class ChatRequest(
             val encoded = Base64.getEncoder().encodeToString(source.bytes())
             return Content.Image("data:${part.mediaType};base64,$encoded")
         }
-        warnings += Warning("unsupported_media", "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
+        warnings += Warning(Warning.UNSUPPORTED_MEDIA, "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
         return Content.Text(placeholder(part, "the model cannot take it"))
     }
 

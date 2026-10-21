@@ -21,10 +21,17 @@ internal class EndpointCore(
     listing: ModelListing,
     dialect: Dialect,
     own: Map<String, String> = emptyMap(),
-    /** The header that the wire API carries the API key in. */
-    authHeader: String = EndpointSettings.DEFAULT_AUTH_HEADER,
+    /** What the wire API sets itself, unless [settings] names otherwise. */
+    wire: WireHeaders = WireHeaders.BEARER,
 ) : AutoCloseable {
-    private val connection = EndpointConnection(settings, own, authHeader)
+    private val connection = EndpointConnection(settings, own, settings.wire ?: wire)
+
+    init {
+        val reserved = (settings.wire ?: wire).own.map { it.lowercase() }
+        settings.headers.keys.firstOrNull { it.lowercase() in reserved }?.let {
+            throw IllegalArgumentException("headers may not set ${it.lowercase()}, which the provider sets itself")
+        }
+    }
     private val catalog = ModelCatalog(id, settings, listing, dialect, connection)
 
     /** The models, which search the web natively when [nativeSearch] holds. */

@@ -209,12 +209,12 @@ public open class MessagesTools {
         val warnings = mutableListOf<Warning>()
         val parallel = request.options.parallelToolCalls
         if (parallel == true && !info.parallelToolCalls) {
-            warnings += Warning("unsupported_option", "Model '${info.id}' calls no tools in parallel.")
+            warnings += Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' calls no tools in parallel.")
         }
         var choice = request.toolChoice
         if ((choice == ToolChoice.Required || choice is ToolChoice.Named) && thinks) {
             warnings += Warning(
-                "unsupported_option",
+                Warning.UNSUPPORTED_OPTION,
                 "Model '${info.id}' takes no forced tool choice while it may think, so the model decides.",
             )
             choice = ToolChoice.Auto
@@ -229,7 +229,8 @@ public open class MessagesTools {
             is ToolChoice.Named -> "tool"
 
             else -> {
-                warnings += Warning("unsupported_option", "The tool choice $choice is unknown, so the model decides.")
+                warnings +=
+                    Warning(Warning.UNSUPPORTED_OPTION, "The tool choice $choice is unknown, so the model decides.")
                 "auto"
             }
         }

@@ -40,7 +40,6 @@ class AnthropicCompatibleConfigTest {
             listOf(true, false, false),
             listOf(options.promptCaching, options.turnScopedSystem, options.nativeSearch),
         )
-        assertEquals(MessagesEndpoint.AUTH_HEADER, endpoint.settings.authHeader)
-        assertEquals(MessagesEndpoint.PROVIDER_HEADERS, endpoint.settings.providerHeaders)
+        assertEquals(MessagesEndpoint.WIRE, endpoint.settings.wire)
     }
 }

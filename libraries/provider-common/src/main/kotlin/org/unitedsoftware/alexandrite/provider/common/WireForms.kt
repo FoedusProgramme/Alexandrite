@@ -75,7 +75,7 @@ internal fun JsonObjectBuilder.putToolChoice(
             named(choice)
         }
 
-        else -> return Warning("unsupported_option", "The tool choice $choice is unknown, so the model decides.")
+        else -> return Warning(Warning.UNSUPPORTED_OPTION, "The tool choice $choice is unknown, so the model decides.")
     }
     return null
 }
@@ -93,7 +93,7 @@ internal val IMAGE_TYPES: Set<String> = setOf("image/jpeg", "image/png", "image/
 
 /** The warning that [info]'s model does not accept [effort], so the request leaves the effort out. */
 internal fun unsupportedEffort(effort: ReasoningEffort, info: ModelInfo): Warning = Warning(
-    "unsupported_option",
+    Warning.UNSUPPORTED_OPTION,
     "Model '${info.id}' does not accept the reasoning effort '$effort', so the request leaves the effort out.",
 )
 

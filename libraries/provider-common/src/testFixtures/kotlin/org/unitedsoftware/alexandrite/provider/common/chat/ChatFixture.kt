@@ -17,6 +17,7 @@ import org.unitedsoftware.alexandrite.provider.common.EndpointSettings
 import org.unitedsoftware.alexandrite.provider.common.ModelConfig
 import org.unitedsoftware.alexandrite.provider.common.TimeoutConfig
 import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
+import org.unitedsoftware.alexandrite.provider.common.WireHeaders
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
@@ -51,7 +52,7 @@ public fun chatEndpoint(
         discover = discover,
         turnContext = turnContext,
         timeouts = FIXTURE_TIMEOUTS,
-        authHeader = authHeader,
+        wire = WireHeaders(authHeader),
     )
     return ChatEndpoint(EndpointId("test"), settings, flavor, ChatApiSettings(promptCacheKey))
 }

@@ -90,7 +90,7 @@ internal class ResponsesRequest(
         flavor.tools.toolChoice(request, this)?.let(warnings::add)
         val parallel = request.options.parallelToolCalls ?: return
         if (parallel && !info.parallelToolCalls) {
-            warnings += Warning("unsupported_option", "Model '${info.id}' calls no tools in parallel.")
+            warnings += Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' calls no tools in parallel.")
         } else {
             put("parallel_tool_calls", parallel)
         }
@@ -113,20 +113,21 @@ internal class ResponsesRequest(
         val thinks = flavor.reasoning.thinks(effort, info)
         options.temperature?.let { temperature ->
             if (thinks) {
-                warnings += Warning("unsupported_option", "Model '${info.id}' takes no temperature while it reasons.")
+                warnings +=
+                    Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' takes no temperature while it reasons.")
             } else {
                 put("temperature", temperature)
             }
         }
         options.topP?.let { topP ->
             if (thinks) {
-                warnings += Warning("unsupported_option", "Model '${info.id}' takes no top-p while it reasons.")
+                warnings += Warning(Warning.UNSUPPORTED_OPTION, "Model '${info.id}' takes no top-p while it reasons.")
             } else {
                 put("top_p", topP)
             }
         }
         if (options.stopSequences.isNotEmpty()) {
-            warnings += Warning("unsupported_option", "The Responses API takes no stop sequences.")
+            warnings += Warning(Warning.UNSUPPORTED_OPTION, "The Responses API takes no stop sequences.")
         }
     }
 
@@ -136,7 +137,7 @@ internal class ResponsesRequest(
         return when {
             limit != null && asked > limit -> {
                 warnings += Warning(
-                    "unsupported_option",
+                    Warning.UNSUPPORTED_OPTION,
                     "Model '${info.id}' writes at most $limit tokens, so the request asks for that many.",
                 )
                 limit
@@ -144,7 +145,7 @@ internal class ResponsesRequest(
 
             asked < MIN_OUTPUT_TOKENS -> {
                 warnings += Warning(
-                    "unsupported_option",
+                    Warning.UNSUPPORTED_OPTION,
                     "Model '${info.id}' writes at least $MIN_OUTPUT_TOKENS tokens, so the request asks for that many.",
                 )
                 MIN_OUTPUT_TOKENS
@@ -213,7 +214,7 @@ internal class ResponsesRequest(
                 }
             }
         }
-        warnings += Warning("unsupported_media", "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
+        warnings += Warning(Warning.UNSUPPORTED_MEDIA, "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
         return text("[${part.kind} ${part.name ?: part.mediaType} not shown: the model cannot take it]")
     }
 
