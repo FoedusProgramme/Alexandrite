@@ -7,8 +7,6 @@ import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
 import org.unitedsoftware.alexandrite.sdk.permission.ClearanceKind
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
@@ -27,6 +25,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
@@ -167,15 +167,16 @@ class ApprovalTurnsTest {
 
             val (first, second, third) = channel().approvals
             assertEquals(
-                ApprovalRequest(
+                ApprovalRequest.builder(
                     first.id,
                     first.turn,
                     "command.exec",
                     ToolRisk.EXEC,
                     "{\"a\":\"x\\u2066y\",\"z\":1}",
-                    ReviewPreview.Command(listOf("rm", "a\\u202Eb"), Path.of("/srv/a\\u200Bb"), null, true),
                     "the chat is in ask mode",
-                ),
+                )
+                    .preview(ReviewPreview.Command(listOf("rm", "a\\u202Eb"), Path.of("/srv/a\\u200Bb"), null, true))
+                    .build(),
                 first,
             )
             assertEquals(

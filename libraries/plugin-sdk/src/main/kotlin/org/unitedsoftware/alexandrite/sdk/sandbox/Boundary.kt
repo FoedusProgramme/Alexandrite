@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.sdk.sandbox
 
 import dev.drewhamilton.poko.Poko
+import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import java.nio.file.Path
 
 /**
@@ -62,12 +63,15 @@ public class Boundary private constructor(
     }
 }
 
-/** Where a program inside a [Boundary] may connect. */
-public sealed interface NetworkAccess {
+/** Where a program inside a [Boundary] may connect; a `when` over it needs an `else`, as later versions may add kinds. */
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface NetworkAccess {
     /** Nowhere. */
+    @OptIn(InternalAlexandriteApi::class)
     public data object None : NetworkAccess
 
     /** Only to the HTTP proxy that listens on the loopback [port]. */
+    @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Proxy(public val port: Int) : NetworkAccess {
         init {

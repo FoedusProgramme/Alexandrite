@@ -2,11 +2,11 @@ package org.unitedsoftware.alexandrite.commands.support
 
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinkGroup
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException

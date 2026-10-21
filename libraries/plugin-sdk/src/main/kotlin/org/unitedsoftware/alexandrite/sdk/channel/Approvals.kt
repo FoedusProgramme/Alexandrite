@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.sdk.channel
 
 import dev.drewhamilton.poko.Poko
+import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -29,8 +30,6 @@ public class ApprovalRequest private constructor(
     public val chain: List<AgentId>,
     /** Every rule that allowing such calls for good grants, empty when it may not be offered. */
     public val alwaysRules: List<RuleSubject>,
-    /** Whether the call would bring the first untrusted content into the conversation. */
-    public val taints: Boolean,
     /** When and why the call's conversation first took in untrusted content, null while it took in none. */
     public val taint: ConversationTaint?,
     /** What a model or untrusted content wrote about [reason], such as the judge's doubt, null for nothing. */
@@ -52,30 +51,57 @@ public class ApprovalRequest private constructor(
         require(ToolNames.PATTERN.matches(tool)) { "Malformed tool name '$tool'." }
     }
 
-    /** The first of [alwaysRules], null when allowing such calls for good may not be offered. */
-    public val always: RuleSubject? get() = alwaysRules.firstOrNull()
+    public fun toBuilder(): Builder = Builder(id, turn, tool, risk, arguments, reason)
+        .preview(preview)
+        .chain(chain)
+        .alwaysRules(alwaysRules)
+        .taint(taint)
+        .note(note)
+        .contained(contained)
+        .background(background)
+        .untrusted(untrusted)
+        .roots(roots)
 
-    public companion object {
-        private val ID = Regex("[A-Za-z0-9_-]{1,32}")
+    public class Builder internal constructor(
+        private val id: String,
+        private val turn: TurnInfo,
+        private val tool: String,
+        private val risk: ToolRisk,
+        private val arguments: String,
+        private val reason: String,
+    ) {
+        private var preview: ReviewPreview? = null
+        private var chain: List<AgentId> = emptyList()
+        private var alwaysRules: List<RuleSubject> = emptyList()
+        private var taint: ConversationTaint? = null
+        private var note: String? = null
+        private var contained: Contained? = null
+        private var background: Boolean = false
+        private var untrusted: String? = null
+        private var roots: List<TrustRoot> = emptyList()
 
-        public operator fun invoke(
-            id: String,
-            turn: TurnInfo,
-            tool: String,
-            risk: ToolRisk,
-            arguments: String,
-            preview: ReviewPreview?,
-            reason: String,
-            chain: List<AgentId> = emptyList(),
-            alwaysRules: List<RuleSubject> = emptyList(),
-            taints: Boolean = false,
-            taint: ConversationTaint? = null,
-            note: String? = null,
-            contained: Contained? = null,
-            background: Boolean = false,
-            untrusted: String? = null,
-            roots: List<TrustRoot> = emptyList(),
-        ): ApprovalRequest = ApprovalRequest(
+        public fun preview(preview: ReviewPreview?): Builder = apply { this.preview = preview }
+
+        public fun chain(chain: List<AgentId>): Builder = apply { this.chain = chain.toList() }
+
+        public fun alwaysRules(alwaysRules: List<RuleSubject>): Builder = apply {
+            this.alwaysRules =
+                alwaysRules.toList()
+        }
+
+        public fun taint(taint: ConversationTaint?): Builder = apply { this.taint = taint }
+
+        public fun note(note: String?): Builder = apply { this.note = note }
+
+        public fun contained(contained: Contained?): Builder = apply { this.contained = contained }
+
+        public fun background(background: Boolean): Builder = apply { this.background = background }
+
+        public fun untrusted(untrusted: String?): Builder = apply { this.untrusted = untrusted }
+
+        public fun roots(roots: List<TrustRoot>): Builder = apply { this.roots = roots.toList() }
+
+        public fun build(): ApprovalRequest = ApprovalRequest(
             id,
             turn,
             tool,
@@ -83,18 +109,33 @@ public class ApprovalRequest private constructor(
             arguments,
             preview,
             reason,
-            chain.toList(),
-            alwaysRules.toList(),
-            taints,
+            chain,
+            alwaysRules,
             taint,
             note,
             contained,
             background,
             untrusted,
-            roots.toList(),
+            roots,
         )
     }
+
+    public companion object {
+        private val ID = Regex("[A-Za-z0-9_-]{1,32}")
+
+        public fun builder(
+            id: String,
+            turn: TurnInfo,
+            tool: String,
+            risk: ToolRisk,
+            arguments: String,
+            reason: String,
+        ): Builder = Builder(id, turn, tool, risk, arguments, reason)
+    }
 }
+
+public inline fun ApprovalRequest.rebuild(block: ApprovalRequest.Builder.() -> Unit): ApprovalRequest =
+    toBuilder().apply(block).build()
 
 /** What a person may trust for good so that content from it no longer taints a conversation. */
 @Poko
@@ -149,21 +190,33 @@ private fun breaks(char: Char): Boolean = char.isISOControl() || Character.getTy
 private val BREAKING = setOf(Character.FORMAT, Character.LINE_SEPARATOR, Character.PARAGRAPH_SEPARATOR)
 
 /** What a [TrustRoot] trusts. */
-public enum class TrustRootKind {
-    /** A folder and everything later written in it, outside the repositories nested in it. */
-    FOLDER,
+@JvmInline
+@Serializable
+public value class TrustRootKind internal constructor(public val id: String) {
+    override fun toString(): String = id
 
-    /** The pages of a domain and its subdomains. */
-    DOMAIN,
+    public companion object {
+        /** A folder and everything later written in it, outside the repositories nested in it. */
+        public val FOLDER: TrustRootKind = TrustRootKind("folder")
 
-    /** The output of a program. */
-    PROGRAM,
+        /** The pages of a domain and its subdomains. */
+        public val DOMAIN: TrustRootKind = TrustRootKind("domain")
 
-    /** The output of an MCP server's tools. */
-    SERVER,
+        /** The output of a program that a command runs. */
+        public val PROGRAM: TrustRootKind = TrustRootKind("program")
 
-    /** What a person writes. */
-    PERSON,
+        /** The output of the tools that a tool source offers under one name, such as one MCP server's. */
+        public val TOOL_SOURCE: TrustRootKind = TrustRootKind("tool_source")
+
+        /** What a person writes. */
+        public val PERSON: TrustRootKind = TrustRootKind("person")
+
+        /** The values this version knows. */
+        public val entries: List<TrustRootKind> = listOf(FOLDER, DOMAIN, PROGRAM, TOOL_SOURCE, PERSON)
+
+        /** The value of [id], which keeps an id this version does not know. */
+        public fun of(id: String): TrustRootKind = TrustRootKind(id)
+    }
 }
 
 /**

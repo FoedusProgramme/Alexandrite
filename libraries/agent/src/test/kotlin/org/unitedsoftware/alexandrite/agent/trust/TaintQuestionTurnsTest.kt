@@ -1,6 +1,8 @@
 package org.unitedsoftware.alexandrite.agent.trust
 
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -15,8 +17,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ForwardKind
 import org.unitedsoftware.alexandrite.sdk.chat.ForwardOrigin
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -27,14 +27,18 @@ import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
+import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.sdk.tool.ToolSource
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.TrustControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
@@ -162,6 +166,12 @@ class TaintQuestionTurnsTest {
     private fun paths(arguments: JsonObject): List<Path> =
         arguments.getValue("paths").jsonPrimitive.content.split(',').map { Path.of(it) }
 
+    /** An MCP server's tools as their source offers them. */
+    private val mcp = object : ToolSource {
+        override val namespace: String = "mcp"
+        override val tools: StateFlow<List<Tool>> = MutableStateFlow(listOf(untrusted("mcp.files.read")))
+    }
+
     private fun harness(trustedUsers: Set<String> = emptySet()): PluginHarness {
         val config = """
             {
@@ -178,7 +188,7 @@ class TaintQuestionTurnsTest {
         """.trimIndent()
         return agentHarness(config, store) {
             channel(operators = setOf("operator"), trusted = trustedUsers).model(model).tool(read)
-                .tool(untrusted("mcp.files.read")).tool(untrusted("web.fetch", ToolRisk.NETWORK_READ))
+                .toolSource(mcp).tool(untrusted("web.fetch", ToolRisk.NETWORK_READ))
                 .tool(untrusted("notes.paste")).tool(write).tool(search)
                 .tool(consume).tool(quiet).tool(create)
         }
@@ -235,7 +245,7 @@ class TaintQuestionTurnsTest {
             val request = channel().approvals.single()
             assertNull(clean)
             assertNull(mark())
-            assertTrue(request.taints)
+            assertTrue(request.untrusted != null)
             assertEquals(listOf(TrustRoot(TrustRootKind.FOLDER, "$project")), request.roots)
             assertEquals("fs.read would reach $project, a folder that is not trusted", request.untrusted)
             assertEquals(emptyList(), request.alwaysRules)
@@ -321,7 +331,7 @@ class TaintQuestionTurnsTest {
             channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
             ask()
 
-            assertEquals(listOf(false), channel().approvals.map { it.taints })
+            assertEquals(listOf(false), channel().approvals.map { it.untrusted != null })
             assertEquals("text\n", written.readText())
             assertNull(mark())
         }
@@ -335,7 +345,7 @@ class TaintQuestionTurnsTest {
             ask()
 
             val request = channel().approvals.single()
-            assertTrue(request.taints)
+            assertTrue(request.untrusted != null)
             assertEquals(listOf(RuleSubject("notes.write", emptyList(), "notes.write")), request.alwaysRules)
         }
     }
@@ -402,7 +412,7 @@ class TaintQuestionTurnsTest {
 
             assertEquals(
                 listOf(
-                    listOf(TrustRoot(TrustRootKind.SERVER, "files")),
+                    listOf(TrustRoot(TrustRootKind.TOOL_SOURCE, "mcp.files")),
                     listOf(TrustRoot(TrustRootKind.DOMAIN, "docs.example.org")),
                 ),
                 channel().approvals.map { it.roots },
@@ -430,7 +440,7 @@ class TaintQuestionTurnsTest {
 
             val request = channel().approvals.first()
             assertEquals(null, clean)
-            assertEquals(true to emptyList(), request.taints to request.roots)
+            assertEquals(true to emptyList(), (request.untrusted != null) to request.roots)
             assertEquals("the output of notes.paste is untrusted", request.untrusted)
             assertEquals(
                 "notes.paste brought in a page",
@@ -587,7 +597,7 @@ class TaintQuestionTurnsTest {
             ask(user = "friend")
 
             val request = channel().approvals.single()
-            assertTrue(request.taints)
+            assertTrue(request.untrusted != null)
             assertEquals("fs.read reached $project, a folder that is not trusted", mark()?.reason)
         }
     }

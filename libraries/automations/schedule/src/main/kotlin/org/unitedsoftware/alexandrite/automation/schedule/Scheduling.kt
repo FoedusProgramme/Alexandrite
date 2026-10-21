@@ -105,8 +105,8 @@ internal class Scheduling(
             logger.warn("Scheduled task {} came due without its record: skipped", task.id)
             return Fired.DONE
         }
-        val turn = InitiatedTurn.builder(record.chat, TurnKind.REMINDER, framing(task.id, record, occurrence))
-            .agent(record.key.agent)
+        val prompt = framing(task.id, record, occurrence)
+        val turn = InitiatedTurn.builder(record.chat, record.key.agent, TurnKind.REMINDER, prompt)
             .route(ReplyRoute.ToChat(record.chat))
             .trust(if (record.mandate == null) Trust.UNTRUSTED else Trust.TRUSTED)
             .mandate(record.mandate)

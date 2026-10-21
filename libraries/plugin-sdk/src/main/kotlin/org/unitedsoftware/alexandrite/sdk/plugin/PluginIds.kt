@@ -1,11 +1,12 @@
 package org.unitedsoftware.alexandrite.sdk.plugin
 
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
+import org.unitedsoftware.alexandrite.sdk.chat.ID_PATTERN
 
 /** The rules for plugin ids and the config roots they own. */
 @InternalAlexandriteApi
 public object PluginIds {
-    public val PATTERN: Regex = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
+    public val PATTERN: Regex = ID_PATTERN
 
     /** The prefix of every built-in plugin id. */
     public const val RESERVED_PREFIX: String = "alexandrite-"

@@ -11,8 +11,6 @@ import org.unitedsoftware.alexandrite.sdk.sandbox.Sandbox
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutputPart
-import org.unitedsoftware.alexandrite.sdk.turn.Mandate
-import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import java.nio.file.Path
 import kotlin.time.Duration
 
@@ -122,7 +120,7 @@ public interface ToolContext {
     /**
      * A [Mandate] for turns that the tool's plugin initiates later at this turn's chat to run as the turn's operator,
      * null unless this is an operator's own turn in a conversation that took in nothing untrusted. The agent keeps it
-     * until the plugin revokes it ([TurnInitiator.revoke]).
+     * until the plugin revokes it (`TurnInitiator.revoke`).
      */
     public suspend fun mandate(): Mandate? = null
 

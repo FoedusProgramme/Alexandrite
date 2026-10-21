@@ -86,7 +86,7 @@ internal fun HardFloor.readRoot(path: Path, context: ToolContext): ReadRoot =
     when (val check = checkRead(path, context.turn.agent, context.turn.rootConversation)) {
         is FloorCheck.Allowed -> ReadRoot(check.canonical, false)
         is FloorCheck.Ask -> ReadRoot(check.canonical, true)
-        is FloorCheck.Denied -> throw ToolRefusal("$path is protected (${check.reason}): no file tool may read it.")
+        else -> throw ToolRefusal("$path is protected (${check.denial}): no file tool may read it.")
     }
 
 /** A canonical path that a read starts at, [asked] when a person allowed it as the floor asks one. */
@@ -147,3 +147,7 @@ internal fun JsonObjectBuilder.property(name: String, type: String, description:
         put("description", description)
     }
 }
+
+/** Why the floor refused, as [FloorCheck.Denied] says, or that it decided as this version does not know. */
+internal val FloorCheck.denial: String
+    get() = (this as? FloorCheck.Denied)?.reason ?: "a decision of the floor that this version does not know"

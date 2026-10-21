@@ -5,7 +5,7 @@ import org.unitedsoftware.alexandrite.sdk.di.ContributedSpi
 /** An OS sandbox that bounds what a program and every process it starts may write and reach. */
 @ContributedSpi
 public interface ExecutionEnvironment {
-    /** Lowercase letters, digits and `-`, such as `seatbelt`, as an agent's `sandbox.type` names it. */
+    /** Lowercase letters, digits and `-`, as [NAME] takes them, such as `seatbelt`, which the host's settings name. */
     public val name: String
 
     /** Whether the platform and the tools the environment needs are there. */

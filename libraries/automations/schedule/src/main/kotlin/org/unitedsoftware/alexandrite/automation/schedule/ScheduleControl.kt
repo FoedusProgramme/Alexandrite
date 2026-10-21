@@ -12,7 +12,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
-import org.unitedsoftware.alexandrite.sdk.turn.Mandate
+import org.unitedsoftware.alexandrite.sdk.tool.Mandate
 import java.security.SecureRandom
 import java.time.Instant
 import java.time.ZoneId

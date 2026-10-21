@@ -144,7 +144,7 @@ internal class ToolRegistry(
     }
 
     /** The source that offers [tool] now, null for a contributed tool or one no source offers. */
-    private fun sourceOf(tool: Tool): ToolSource? = sourced()[tool.definition.name]?.takeIf { it.tool === tool }?.source
+    fun sourceOf(tool: Tool): ToolSource? = sourced()[tool.definition.name]?.takeIf { it.tool === tool }?.source
 
     /** The tools that every turn of [agent] offers [model]. */
     fun offered(agent: AgentId, model: ModelRef, nativeTools: Boolean): List<Tool> {

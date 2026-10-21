@@ -43,8 +43,10 @@ class StoreValuesTest {
 
         assertEquals(key.chat, record.chat)
         assertEquals(member, linked.chat)
-        assertEquals(other.chat, record.rebuild { key(other) }.chat)
-        assertEquals(member, linked.rebuild { key(other) }.chat)
+        assertEquals(
+            other.chat,
+            TurnRecord.builder(TurnId("t2"), ConversationId("c1"), other, TurnKind.MESSAGE, time).build().chat,
+        )
     }
 
     @Test

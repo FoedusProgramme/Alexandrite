@@ -20,7 +20,6 @@ import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.agent.AgentProfile
 import org.unitedsoftware.alexandrite.sdk.agent.ProfileSource
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -33,6 +32,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.ProfileSummary
+import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import java.nio.file.Path
 
 @Singleton

@@ -27,8 +27,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.TurnEventKind
 import org.unitedsoftware.alexandrite.sdk.channel.rebuild
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
@@ -66,6 +64,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.AgentRunLifecycle
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.JobLifecycle
 import org.unitedsoftware.alexandrite.sdk.turn.TurnControl
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome

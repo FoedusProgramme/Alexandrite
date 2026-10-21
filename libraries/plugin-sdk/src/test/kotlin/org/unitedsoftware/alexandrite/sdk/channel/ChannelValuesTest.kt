@@ -148,7 +148,7 @@ class ChannelValuesTest {
     @Test
     fun `an approval request has a short id of letters, digits, hyphens and underscores, and a tool name`() {
         fun request(id: String, tool: String = "fs.write") =
-            ApprovalRequest(id, testTurn, tool, ToolRisk.WORKSPACE_WRITE, "{}", null, "a guest's call")
+            ApprovalRequest.builder(id, testTurn, tool, ToolRisk.WORKSPACE_WRITE, "{}", "a guest's call").build()
 
         assertEquals("a-Z_09", request("a-Z_09").id)
         assertEquals(32, request("x".repeat(32)).id.length)
@@ -163,7 +163,10 @@ class ChannelValuesTest {
         val chain = mutableListOf(AgentId("coder"))
         val rules = mutableListOf(RuleSubject("fs.write", listOf("notes.md"), "fs.write notes.md"))
         val request =
-            ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x", chain, rules)
+            ApprovalRequest.builder("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", "x")
+                .chain(chain)
+                .alwaysRules(rules)
+                .build()
         val offered = rules.first()
 
         chain.clear()
@@ -171,25 +174,26 @@ class ChannelValuesTest {
 
         assertEquals(listOf(AgentId("coder")), request.chain)
         assertEquals(listOf(offered), request.alwaysRules)
-        assertEquals(offered, request.always)
-        assertNull(ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x").always)
+        assertEquals(offered, request.alwaysRules.firstOrNull())
+        assertNull(
+            ApprovalRequest.builder(
+                "k3x9",
+                testTurn,
+                "fs.write",
+                ToolRisk.WORKSPACE_WRITE,
+                "{}",
+                "x",
+            ).build().alwaysRules.firstOrNull(),
+        )
     }
 
     @Test
     fun `a trust root names what it trusts, and only a person's root a person`() {
         val roots = mutableListOf(TrustRoot(TrustRootKind.FOLDER, "/srv/clone"), TrustRoot.person(sender))
-        val request = ApprovalRequest(
-            "k3x9",
-            testTurn,
-            "fs.read",
-            ToolRisk.READ_ONLY,
-            "{}",
-            null,
-            "x",
-            taints = true,
-            untrusted = "fs.read would reach /srv/clone",
-            roots = roots,
-        )
+        val request = ApprovalRequest.builder("k3x9", testTurn, "fs.read", ToolRisk.READ_ONLY, "{}", "x")
+            .untrusted("fs.read would reach /srv/clone")
+            .roots(roots)
+            .build()
         roots.clear()
 
         assertEquals(listOf(TrustRootKind.FOLDER, TrustRootKind.PERSON), request.roots.map { it.kind })
@@ -211,7 +215,7 @@ class ChannelValuesTest {
 
     @Test
     fun `a trust offer has a short id and offers at least one root`() {
-        val root = TrustRoot(TrustRootKind.SERVER, "files")
+        val root = TrustRoot(TrustRootKind.TOOL_SOURCE, "files")
 
         assertEquals("o-1", TrustOffer("o-1", testTurn, "x", listOf(root)).id)
         assertFailsWith<IllegalArgumentException> { TrustOffer("o 1", testTurn, "x", listOf(root)) }
@@ -237,8 +241,8 @@ class ChannelValuesTest {
 
     @Test
     fun `a bare channel names no operators, splits no text and cannot ask for approvals or offer trust`() {
-        val request = ApprovalRequest("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "x")
-        val offer = TrustOffer("o-1", testTurn, "x", listOf(TrustRoot(TrustRootKind.SERVER, "files")))
+        val request = ApprovalRequest.builder("k3x9", testTurn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", "x").build()
+        val offer = TrustOffer("o-1", testTurn, "x", listOf(TrustRoot(TrustRootKind.TOOL_SOURCE, "files")))
 
         runBlocking {
             assertFalse(bare.isOperator(chat, UserAddress(work, "2")))

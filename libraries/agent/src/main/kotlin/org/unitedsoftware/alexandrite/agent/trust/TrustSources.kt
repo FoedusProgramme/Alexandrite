@@ -23,6 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 
 /** Foresees the untrusted content that a call would bring in, and trusts the roots that an approver chose. */
@@ -80,7 +81,7 @@ internal class TrustSources(
                 }
             }
         } else if (call.review.untrusted || isNetworkRead(call)) {
-            found += output(name, call.review.host, isNetworkRead(call))
+            found += output(gate.tool, call.review.host, isNetworkRead(call))
         }
         val written = call.review.preview.writtenFile
         for (place in reads.places(gate.turn, call.review.reads.filterNot { it.isWritten(written) })) {
@@ -147,8 +148,12 @@ internal class TrustSources(
         return ToolRisk.NETWORK_READ in setOf(tool.definition.risk, call.risk) && !tools.isBuiltIn(tool)
     }
 
-    /** Why the output of a call of [name] from [host] taints, and the rule that would trust it. */
-    private fun output(name: String, host: String?, network: Boolean): Pair<String, Source?> {
+    /**
+     * Why the output of a call of [tool] from [host] taints, and the rule that would trust it: the host's, else that of
+     * every tool that the tool's source offers under the tool's group, the second word of its name.
+     */
+    private fun output(tool: Tool, host: String?, network: Boolean): Pair<String, Source?> {
+        val name = tool.definition.name
         if (host != null) {
             val rule = "$name($host)"
             val root = Root.Rule(TrustRootKind.DOMAIN, host, rule).takeIf {
@@ -157,10 +162,11 @@ internal class TrustSources(
             }
             return "$name reads $host, whose content is untrusted" to root?.let(Source::Fixed)
         }
-        val server = name.split('.').takeIf { it.size >= 3 && it.first() == MCP }?.get(1)
-        if (server != null) {
-            return "$name returns the output of MCP server $server" to
-                Source.Fixed(Root.Rule(TrustRootKind.SERVER, server, "$MCP.$server.*"))
+        val namespace = tools.sourceOf(tool)?.namespace
+        val group = name.split('.').takeIf { it.size >= 3 && it.first() == namespace }?.get(1)
+        if (group != null) {
+            return "$name returns the output of $namespace.$group" to
+                Source.Fixed(Root.Rule(TrustRootKind.TOOL_SOURCE, "$namespace.$group", "$namespace.$group.*"))
         }
         return (if (network) "a call of $name, which reads the network" else "the output of $name is untrusted") to null
     }
@@ -192,7 +198,6 @@ internal class TrustSources(
     }
 
     private companion object {
-        const val MCP = "mcp"
 
         /** The most roots that one question offers to trust. */
         const val MAX_ROOTS = 3

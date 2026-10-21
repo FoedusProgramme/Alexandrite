@@ -1,10 +1,9 @@
 package org.unitedsoftware.alexandrite.sdk.chat
 
-import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
-import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
+/** Lowercase words of letters and digits, each starting with a letter, joined by single hyphens. */
+internal val ID_PATTERN: Regex = Regex("[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*")
 
-@OptIn(InternalAlexandriteApi::class)
-internal fun isId(value: String): Boolean = PluginIds.PATTERN.matches(value)
+internal fun isId(value: String): Boolean = ID_PATTERN.matches(value)
 
 internal fun requireId(value: String, what: String) {
     require(isId(value)) {

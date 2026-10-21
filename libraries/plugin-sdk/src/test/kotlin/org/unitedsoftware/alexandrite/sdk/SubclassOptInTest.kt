@@ -315,11 +315,11 @@ class SubclassOptInTest {
             ) = TODO()
         }
 
-        class Settings : org.unitedsoftware.alexandrite.sdk.chat.ChatSettings {
+        class Settings : org.unitedsoftware.alexandrite.sdk.turn.ChatSettings {
             override suspend fun snapshot(chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress) = TODO()
             override suspend fun update(
                 chat: org.unitedsoftware.alexandrite.sdk.chat.ChatAddress,
-                update: org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate,
+                update: org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate,
                 by: org.unitedsoftware.alexandrite.sdk.chat.ChatUser?,
             ) = TODO()
         }
@@ -531,10 +531,10 @@ class SubclassOptInTest {
             ELSE
         }
 
-        fun source(source: org.unitedsoftware.alexandrite.sdk.chat.AgentSource): Int = when (source) {
-            org.unitedsoftware.alexandrite.sdk.chat.AgentSource.SELECTED -> 0
-            org.unitedsoftware.alexandrite.sdk.chat.AgentSource.HOME -> 1
-            org.unitedsoftware.alexandrite.sdk.chat.AgentSource.DEFAULT -> 2
+        fun source(source: org.unitedsoftware.alexandrite.sdk.turn.AgentSource): Int = when (source) {
+            org.unitedsoftware.alexandrite.sdk.turn.AgentSource.SELECTED -> 0
+            org.unitedsoftware.alexandrite.sdk.turn.AgentSource.HOME -> 1
+            org.unitedsoftware.alexandrite.sdk.turn.AgentSource.DEFAULT -> 2
             ELSE
         }
 
@@ -599,9 +599,36 @@ class SubclassOptInTest {
         }
 
         fun eventContent(content: org.unitedsoftware.alexandrite.sdk.channel.TurnEvent.Content): Int = when (content) {
-            is org.unitedsoftware.alexandrite.sdk.channel.TurnEvent.Content.Text -> 0
-            is org.unitedsoftware.alexandrite.sdk.channel.TurnEvent.Content.Diff -> 1
-            is org.unitedsoftware.alexandrite.sdk.channel.TurnEvent.Content.Output -> 2
+            is org.unitedsoftware.alexandrite.sdk.channel.TurnEvent.Content.Preview -> 0
+            is org.unitedsoftware.alexandrite.sdk.channel.TurnEvent.Content.Output -> 1
+            ELSE
+        }
+
+        fun admission(admission: org.unitedsoftware.alexandrite.sdk.turn.Admission): Int = when (admission) {
+            is org.unitedsoftware.alexandrite.sdk.turn.Admission.Accepted -> 0
+            is org.unitedsoftware.alexandrite.sdk.turn.Admission.Refused -> 1
+            ELSE
+        }
+
+        fun floor(check: org.unitedsoftware.alexandrite.sdk.tool.FloorCheck): Int = when (check) {
+            is org.unitedsoftware.alexandrite.sdk.tool.FloorCheck.Allowed -> 0
+            is org.unitedsoftware.alexandrite.sdk.tool.FloorCheck.Ask -> 1
+            is org.unitedsoftware.alexandrite.sdk.tool.FloorCheck.Denied -> 2
+            ELSE
+        }
+
+        fun network(access: org.unitedsoftware.alexandrite.sdk.sandbox.NetworkAccess): Int = when (access) {
+            org.unitedsoftware.alexandrite.sdk.sandbox.NetworkAccess.None -> 0
+            is org.unitedsoftware.alexandrite.sdk.sandbox.NetworkAccess.Proxy -> 1
+            ELSE
+        }
+
+        fun root(kind: org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind): Int = when (kind) {
+            org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind.FOLDER -> 0
+            org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind.DOMAIN -> 1
+            org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind.PROGRAM -> 2
+            org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind.TOOL_SOURCE -> 3
+            org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind.PERSON -> 4
             ELSE
         }
 
@@ -659,7 +686,7 @@ class SubclassOptInTest {
                 override suspend fun complete(message: OutboundMessage): Delivery =
                     Delivery.Delivered(listOfNotNull(request.trigger))
 
-                override suspend fun abandon(end: ReplyEnd) = println(end)
+                override suspend fun abandon(end: ReplyEnd, vouched: Boolean) = println(end)
             }
 
             override suspend fun send(chat: ChatAddress, message: OutboundMessage): Delivery =
@@ -669,7 +696,7 @@ class SubclassOptInTest {
                 println("Allow " + request.tool + " " + request.arguments + "? (y/n)")
                 val operator = request.turn.actor ?: return ApprovalAnswer.Unavailable("nobody sits at the console")
                 return when (readlnOrNull()) {
-                    "y" -> ApprovalAnswer.Allowed(operator, always = request.always != null)
+                    "y" -> ApprovalAnswer.Allowed(operator, always = request.alwaysRules.isNotEmpty())
                     "t" -> ApprovalAnswer.Allowed(
                         operator,
                         trust = if (request.roots.isEmpty()) ApprovalTrust.OUTPUT_ONCE else ApprovalTrust.ROOTS,
@@ -686,7 +713,7 @@ class SubclassOptInTest {
 
             override suspend fun complete(message: OutboundMessage): Delivery = Delivery.Delivered(emptyList())
 
-            override suspend fun abandon(end: ReplyEnd) {}
+            override suspend fun abandon(end: ReplyEnd, vouched: Boolean) {}
         }
 
         val content = MediaContent { maxBytes -> ByteArray(minOf(maxBytes, 4L).toInt()) }
@@ -808,9 +835,9 @@ class SubclassOptInTest {
     /** A command plugin, a hook and a channel's submission as a third-party plugin writes them. */
     private val turns = """
         import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
-        import org.unitedsoftware.alexandrite.sdk.chat.AgentSource
-        import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
-        import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
+        import org.unitedsoftware.alexandrite.sdk.turn.AgentSource
+        import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
+        import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
         import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
         import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
         import org.unitedsoftware.alexandrite.sdk.hook.InterceptorHook
@@ -921,6 +948,7 @@ class SubclassOptInTest {
                     }
                     is FloorCheck.Ask -> ToolResult("Ask a person: ${'$'}{check.reason}.", isError = true)
                     is FloorCheck.Denied -> ToolResult("Refused: ${'$'}{check.reason}.", isError = true)
+                    else -> ToolResult("Refused.", isError = true)
                 }
             }
         }

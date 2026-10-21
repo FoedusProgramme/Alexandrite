@@ -16,7 +16,7 @@ public interface ReviewedTool : Tool {
 /** What a [ReviewedTool] found out about a call. */
 @Poko
 public class CallReview private constructor(
-    /** The risk of this call, null for the declared one. */
+    /** The risk of this call, null for the declared one; another than a built-in tool may only raise it. */
     public val risk: ToolRisk?,
     /** Why the call is refused without asking anyone, null when it is not. */
     public val refusal: String?,
@@ -28,7 +28,10 @@ public class CallReview private constructor(
     public val rule: RuleSubject?,
     /** Why the call cannot run as asked, null when it can. */
     public val problem: String?,
-    /** Whether the call needs no approval outside `plan` mode, as a write in the turn's own conversation directory does. */
+    /**
+     * Whether the call needs no approval outside `plan` mode, as a write in the turn's own conversation directory does;
+     * only a built-in tool's review may claim it.
+     */
     public val exempt: Boolean,
     /** Whether the call runs as a background job from its start, which [ToolContext.background] then hands it. */
     public val background: Boolean,
@@ -36,7 +39,7 @@ public class CallReview private constructor(
     public val untrusted: Boolean,
     /** Why only a person may allow the call whatever the mode, null when a mode, a rule or the judge may. */
     public val person: String?,
-    /** The sandbox the call runs in, null when it runs on the host. */
+    /** The sandbox the call runs in, null when it runs on the host; only a built-in tool's review may claim it. */
     public val contained: Contained?,
     /**
      * The absolute paths that the call reads or works in, as far as the review can tell, which the permission layer

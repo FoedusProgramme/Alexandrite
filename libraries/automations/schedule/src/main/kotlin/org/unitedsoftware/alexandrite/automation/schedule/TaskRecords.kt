@@ -19,7 +19,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
-import org.unitedsoftware.alexandrite.sdk.turn.Mandate
+import org.unitedsoftware.alexandrite.sdk.tool.Mandate
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import java.time.Instant
 import java.time.LocalDateTime

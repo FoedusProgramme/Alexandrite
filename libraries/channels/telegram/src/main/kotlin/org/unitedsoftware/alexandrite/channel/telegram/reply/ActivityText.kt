@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 
 /** One tool call of an activity message, as [TurnEvent]s update it, made by the sub-agent [agent] unless null. */
@@ -134,9 +135,10 @@ private fun suffix(texts: Texts, language: LanguageTag?, call: CallState): Strin
             return " — " + texts.text(TextKeys.ACTIVITY_EXIT, language, "code" to it)
         }
 
-        is TurnEvent.Content.Diff -> lineCounts(content.unified)?.let { (added, removed) ->
-            return " (" + texts.text(TextKeys.ACTIVITY_DIFF, language, "added" to added, "removed" to removed) + ")"
-        }
+        is TurnEvent.Content.Preview -> (content.preview as? ReviewPreview.Diff)?.let { lineCounts(it.unified) }
+            ?.let { (added, removed) ->
+                return " (" + texts.text(TextKeys.ACTIVITY_DIFF, language, "added" to added, "removed" to removed) + ")"
+            }
 
         else -> Unit
     }

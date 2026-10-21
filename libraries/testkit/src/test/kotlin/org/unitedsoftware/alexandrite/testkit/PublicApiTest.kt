@@ -46,7 +46,7 @@ class PublicApiTest {
             val channel = RecordingChannel(TEST_INSTANCE, setOf("ada"))
             val admission = channel.receive("hi")
             channel.scriptApprovals(ApprovalAnswer.Expired)
-            val request = ApprovalRequest("a1", testTurn(), "notes.add", ToolRisk.EXEC, "{}", null, "a test")
+            val request = ApprovalRequest.builder("a1", testTurn(), "notes.add", ToolRisk.EXEC, "{}", "a test").build()
             return listOf(admission, channel.askApproval(request), channel.sent, channel.approvals)
         }
 

@@ -9,11 +9,11 @@ import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginScope
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import java.time.Clock
 import java.time.ZoneId

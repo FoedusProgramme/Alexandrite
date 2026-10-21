@@ -15,7 +15,6 @@ import org.unitedsoftware.alexandrite.runtime.getOrNull
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelControl
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
@@ -25,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.HostApi
 import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
 import java.nio.file.Path
 import kotlin.coroutines.cancellation.CancellationException
 

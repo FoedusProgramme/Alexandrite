@@ -308,7 +308,7 @@ private fun contentOf(
 ): TurnEvent.Content? = when (activity) {
     ToolActivity.EDIT -> (preview as? ReviewPreview.Diff)
         ?.takeIf { result.outcome == ToolOutcome.Succeeded && !scratch }
-        ?.let { TurnEvent.Content.Diff(it.path, it.unified) }
+        ?.let { TurnEvent.Content.Preview(it) }
 
     ToolActivity.EXECUTE -> textOf(result.content).takeIf { it.isNotBlank() }
         ?.let { TurnEvent.Content.Output(tailLines(it, OUTPUT_TAIL_LINES)) }

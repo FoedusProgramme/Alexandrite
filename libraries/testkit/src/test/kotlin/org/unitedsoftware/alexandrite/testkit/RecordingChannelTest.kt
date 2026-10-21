@@ -252,7 +252,7 @@ class RecordingChannelTest {
     }
 
     private fun approval(id: String, turn: TurnInfo = this.turn) =
-        ApprovalRequest(id, turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", null, "a test")
+        ApprovalRequest.builder(id, turn, "fs.write", ToolRisk.WORKSPACE_WRITE, "{}", "a test").build()
 
     @Test
     fun `a stopped instance takes the agent's calls, ignores previews, delivers nothing and sees broken rules`() {

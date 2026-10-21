@@ -6,8 +6,6 @@ import org.unitedsoftware.alexandrite.agent.turn.Interceptor
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
@@ -18,6 +16,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolResultEntry
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import org.unitedsoftware.alexandrite.testkit.MemoryStore

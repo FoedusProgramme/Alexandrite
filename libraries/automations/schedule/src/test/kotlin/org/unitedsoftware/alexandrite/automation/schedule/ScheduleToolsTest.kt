@@ -10,10 +10,10 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
+import org.unitedsoftware.alexandrite.sdk.tool.Mandate
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewedTool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
-import org.unitedsoftware.alexandrite.sdk.turn.Mandate
 import org.unitedsoftware.alexandrite.testkit.testChat
 import org.unitedsoftware.alexandrite.testkit.testDelegatedTurn
 import org.unitedsoftware.alexandrite.testkit.testToolContext

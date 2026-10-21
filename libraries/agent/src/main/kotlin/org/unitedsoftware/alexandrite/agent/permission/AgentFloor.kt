@@ -387,3 +387,7 @@ private const val NOT_MARKDOWN = "a persona file that is no Markdown file"
 private const val MARKDOWN = ".md"
 
 private val logger = LoggerFactory.getLogger(AgentFloor::class.java)
+
+/** Why the floor refused, as [FloorCheck.Denied] says, or that it decided as this version does not know. */
+internal val FloorCheck.denial: String
+    get() = (this as? FloorCheck.Denied)?.reason ?: "a decision of the floor that this version does not know"

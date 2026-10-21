@@ -197,8 +197,12 @@ internal class UpdateWatch(
         return when (val admission = initiator.initiate(turn)) {
             is Admission.Accepted -> true
 
-            is Admission.Refused -> {
-                logger.debug("Agent '{}' was not told of an update: {}", agent, admission.reason)
+            else -> {
+                logger.debug(
+                    "Agent '{}' was not told of an update: {}",
+                    agent,
+                    (admission as? Admission.Refused)?.reason,
+                )
                 false
             }
         }

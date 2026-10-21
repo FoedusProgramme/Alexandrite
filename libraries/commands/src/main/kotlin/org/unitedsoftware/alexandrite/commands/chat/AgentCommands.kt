@@ -13,13 +13,13 @@ import org.unitedsoftware.alexandrite.commands.support.updateSettings
 import org.unitedsoftware.alexandrite.commands.support.words
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.turn.AgentCatalog
 import org.unitedsoftware.alexandrite.sdk.turn.AgentSummary
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.turn.CommandContext
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation

@@ -170,7 +170,7 @@ private fun shown(call: CheckedCall): ShownCall {
             lines += "Program: ${preview.executable?.let { field(it.toString()) } ?: "not found"}"
             lines += if (preview.opaque) "Opaque: yes" else "Opaque: no"
             val contained = call.review.contained
-            lines += contained?.let { "Runs in: the ${field(it.environment)} sandbox" }
+            lines += contained?.let { "Runs in: the ${field(it.environmentName)} sandbox" }
                 ?: "Runs in: no sandbox, on the host with the operator's full rights"
             if (!contained?.hosts.isNullOrEmpty()) {
                 lines += "Asks to reach: ${contained.hosts.joinToString { field(it) }}"

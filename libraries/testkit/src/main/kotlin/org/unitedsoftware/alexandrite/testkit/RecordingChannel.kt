@@ -416,7 +416,7 @@ public class RecordingChannel(
             delivery
         }
 
-        override suspend fun abandon(end: ReplyEnd) {
+        override suspend fun abandon(end: ReplyEnd, vouched: Boolean) {
             synchronized(lock) {
                 checkOpen("abandoned")
                 reply.end = Event.Abandoned(turn, end).also(::record)

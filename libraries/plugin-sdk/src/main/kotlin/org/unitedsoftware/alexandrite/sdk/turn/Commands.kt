@@ -132,12 +132,10 @@ public class CommandSpec private constructor(
         .secretArguments(secretArguments)
         .operatorsOnly(operatorsOnly)
 
-    public class Builder internal constructor(private var name: String, private var description: String) {
+    public class Builder internal constructor(private val name: String, private var description: String) {
         private var runsAlongside: Boolean = false
         private var secretArguments: Boolean = false
         private var operatorsOnly: CommandForms = CommandForms.NONE
-
-        public fun name(name: String): Builder = apply { this.name = name }
 
         public fun description(description: String): Builder = apply { this.description = description }
 

@@ -17,6 +17,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
+import org.unitedsoftware.alexandrite.tools.fs.denial
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
@@ -333,9 +334,9 @@ internal class Planner(
             check.canonical
         }
 
-        is FloorCheck.Denied ->
+        else ->
             throw ToolRefusal.blocked(
-                "${refused("a protected place (${check.reason})")}: command.exec does not run this call.",
+                "${refused("a protected place (${check.denial})")}: command.exec does not run this call.",
             )
     }
 

@@ -81,24 +81,24 @@ internal class ChannelApprovals(
             emptyList()
         }
         val shown = grantable.map { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) }
-        val request = ApprovalRequest(
+        val request = ApprovalRequest.builder(
             shortId(),
             turn,
             gate.tool.definition.name,
             call.risk,
             ReviewText.escape(canonical),
-            call.review.preview?.let { escaped(it) },
             ReviewText.escape(reason),
-            gate.calls.chain?.agents.orEmpty(),
-            shown,
-            question != null,
-            taint = gate.taint.known?.let { ConversationTaint(it.at, ReviewText.escape(it.reason)) },
-            note = note?.let { ReviewText.escape(it, keepNewlines = true) },
-            contained = call.review.contained,
-            background = call.review.background,
-            untrusted = question?.let { ReviewText.escape(it.foreseen.reason) },
-            roots = question?.roots.orEmpty().map { it.shown },
         )
+            .preview(call.review.preview?.let { escaped(it) })
+            .chain(gate.calls.chain?.agents.orEmpty())
+            .alwaysRules(shown)
+            .taint(gate.taint.known?.let { ConversationTaint(it.at, ReviewText.escape(it.reason)) })
+            .note(note?.let { ReviewText.escape(it, keepNewlines = true) })
+            .contained(call.review.contained)
+            .background(call.review.background)
+            .untrusted(question?.let { ReviewText.escape(it.foreseen.reason) })
+            .roots(question?.roots.orEmpty().map { it.shown })
+            .build()
         if (turn.chat.instance == ChatAddress.AGENTS) {
             return unavailable(request, "the turn belongs to no chat, so nobody can be asked", call, question)
         }

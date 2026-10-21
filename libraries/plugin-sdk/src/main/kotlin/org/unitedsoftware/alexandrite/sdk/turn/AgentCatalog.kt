@@ -35,9 +35,9 @@ public interface AgentCatalog {
     public suspend fun models(endpoint: EndpointId): List<ModelInfo>
 }
 
-/** An agent as it serves one channel instance. */
+/** An agent as it serves one channel instance, as the agent reports it. */
 @Poko
-public class AgentSummary(
+public class AgentSummary @InternalAlexandriteApi constructor(
     public val id: AgentId,
     /** How the agent calls itself. */
     public val name: String,

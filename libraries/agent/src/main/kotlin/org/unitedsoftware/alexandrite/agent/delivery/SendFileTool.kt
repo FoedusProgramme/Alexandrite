@@ -13,6 +13,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.permission.askedPlace
+import org.unitedsoftware.alexandrite.agent.permission.denial
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.flag
@@ -170,8 +171,8 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
 
             is FloorCheck.Ask -> check.canonical.also { person = askedPlace(path, check) }
 
-            is FloorCheck.Denied ->
-                throw ToolRefusal("$path is protected (${check.reason}): no file of it may be sent.", blocked = true)
+            else ->
+                throw ToolRefusal("$path is protected (${check.denial}): no file of it may be sent.", blocked = true)
         }
         val attributes = runInterruptible(Dispatchers.IO) {
             Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)

@@ -27,7 +27,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatState
 import org.unitedsoftware.alexandrite.sdk.chat.ChatStates
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
-import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -55,6 +54,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.AllowRule
 import org.unitedsoftware.alexandrite.sdk.turn.Revocation
+import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.sdk.turn.ToolCallCheck
 import org.unitedsoftware.alexandrite.testkit.TestChatStates
 import org.unitedsoftware.alexandrite.testkit.recordingTool

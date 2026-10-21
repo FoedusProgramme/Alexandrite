@@ -37,8 +37,7 @@ internal class Deliveries(
         if (!gate.isPaired(request.turn.chat)) return Undelivered(NOT_PAIRED)
         val target = targetOf(request.turn.chat) ?: return Undelivered(Delivery.NotDelivered(DeliveryFailure.CHAT_GONE))
         val style = styles.of(request.turn.chat)
-        val shownIn: (Collection<Long>) -> Unit =
-            if (request.vouched) ({ vouched.note(target.chat, it) }) else ({})
+        val shownIn: (Collection<Long>) -> Unit = { vouched.note(target.chat, it) }
         val reply = TelegramReply(
             request,
             target,
@@ -93,7 +92,7 @@ internal class Deliveries(
 
         override suspend fun complete(message: OutboundMessage): Delivery = delivery
 
-        override suspend fun abandon(end: ReplyEnd) {}
+        override suspend fun abandon(end: ReplyEnd, vouched: Boolean) {}
     }
 
     private companion object {

@@ -31,9 +31,9 @@ public class ConversationInfo private constructor(
         .fork(fork)
 
     public class Builder internal constructor(
-        private var id: ConversationId,
+        private val id: ConversationId,
         private var kind: ConversationKind,
-        private var key: AgentChatKey,
+        private val key: AgentChatKey,
         private var state: ConversationState,
         private var createdAt: Instant,
     ) {
@@ -42,11 +42,7 @@ public class ConversationInfo private constructor(
         private var lineage: TurnLineage? = null
         private var fork: ForkPoint? = null
 
-        public fun id(id: ConversationId): Builder = apply { this.id = id }
-
         public fun kind(kind: ConversationKind): Builder = apply { this.kind = kind }
-
-        public fun key(key: AgentChatKey): Builder = apply { this.key = key }
 
         public fun state(state: ConversationState): Builder = apply { this.state = state }
 

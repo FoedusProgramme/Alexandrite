@@ -360,7 +360,8 @@ internal class AgentTurnRunner(
             val cancelled = cause is TurnCancelled
             answerOpenCalls { call -> cutOffResult(call, shutdown = !cancelled) }
             sink?.takeUnless { replied }?.let { sink ->
-                attempt("abandon its reply") { sink.abandon(if (cancelled) ReplyEnd.CANCELLED else ReplyEnd.SHUTDOWN) }
+                val end = if (cancelled) ReplyEnd.CANCELLED else ReplyEnd.SHUTDOWN
+                attempt("abandon its reply") { sink.abandon(end, turn?.let(::vouched) == true) }
             }
             val outcome = if (cancelled) {
                 TurnOutcome.Cancelled
@@ -388,7 +389,7 @@ internal class AgentTurnRunner(
                     null
                 }
                 if (message == null) {
-                    attempt("abandon its reply") { sink.abandon(ReplyEnd.FAILED) }
+                    attempt("abandon its reply") { sink.abandon(ReplyEnd.FAILED, vouched(turn)) }
                 } else {
                     showNotice(sink, turn, message)
                 }
@@ -543,7 +544,7 @@ internal class AgentTurnRunner(
                 return false
             }
             val capabilities = channel.capabilities(turn.chat)
-            val sink = channel.openReply(ReplyRequest(turn, plan.trigger, vouched = vouched(turn)))
+            val sink = channel.openReply(ReplyRequest(turn, plan.trigger))
             this.capabilities = capabilities
             this.sink = sink
             if (capabilities.streaming) {

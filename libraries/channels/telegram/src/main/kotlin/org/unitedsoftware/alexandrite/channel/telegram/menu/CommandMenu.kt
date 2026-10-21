@@ -21,10 +21,10 @@ import org.unitedsoftware.alexandrite.channel.telegram.intake.isDirect
 import org.unitedsoftware.alexandrite.channel.telegram.pairing.TelegramPairingDesk
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.turn.CommandHandler
 import java.util.Locale
 import kotlin.coroutines.cancellation.CancellationException

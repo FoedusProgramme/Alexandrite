@@ -79,9 +79,9 @@ public class CompactionReport(
     public val tokensAfter: Long,
 )
 
-/** How much of its model's context window a conversation takes. */
+/** How much of its model's context window a conversation takes, as the agent reports it. */
 @Poko
-public class ContextStatus(
+public class ContextStatus @InternalAlexandriteApi constructor(
     public val conversation: ConversationId,
     /** The model the conversation's turns call now, null when its agent has none. */
     public val model: ModelRef?,

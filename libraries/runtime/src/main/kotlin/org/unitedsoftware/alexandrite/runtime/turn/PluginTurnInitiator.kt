@@ -2,9 +2,9 @@ package org.unitedsoftware.alexandrite.runtime.turn
 
 import org.unitedsoftware.alexandrite.sdk.di.container.DiException
 import org.unitedsoftware.alexandrite.sdk.di.container.DiProblemKind
+import org.unitedsoftware.alexandrite.sdk.tool.Mandate
 import org.unitedsoftware.alexandrite.sdk.turn.Admission
 import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
-import org.unitedsoftware.alexandrite.sdk.turn.Mandate
 import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiation
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator

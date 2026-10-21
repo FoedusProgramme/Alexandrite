@@ -79,7 +79,12 @@ internal class SearchTool(
     private val models: WebModels?,
     backends: List<WebSearchBackend>,
 ) : ReviewedTool {
-    private val backends = backends.associateBy { it.id }
+    private val backends = backends.associateBy { backend ->
+        check(WebSearchBackend.ID.matches(backend.id)) {
+            "${backend.javaClass.name} contributes a web search backend with the malformed id '${backend.id}'."
+        }
+        backend.id
+    }
 
     init {
         require(this.backends.size == backends.size) { "Duplicate web search backend ids." }

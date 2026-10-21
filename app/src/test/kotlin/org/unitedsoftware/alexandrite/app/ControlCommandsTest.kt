@@ -18,8 +18,8 @@ import org.unitedsoftware.alexandrite.channel.common.pairing.PairingDesk
 import org.unitedsoftware.alexandrite.channel.common.pairing.Unpairing
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsUpdate
 import org.unitedsoftware.alexandrite.testkit.RecordingAgent
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream

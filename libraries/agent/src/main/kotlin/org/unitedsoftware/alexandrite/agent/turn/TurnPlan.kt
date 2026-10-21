@@ -12,7 +12,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ReplyTarget
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.model.Trust
-import org.unitedsoftware.alexandrite.sdk.turn.Mandate
+import org.unitedsoftware.alexandrite.sdk.tool.Mandate
 import org.unitedsoftware.alexandrite.sdk.turn.ReplyRoute
 import java.time.Instant
 

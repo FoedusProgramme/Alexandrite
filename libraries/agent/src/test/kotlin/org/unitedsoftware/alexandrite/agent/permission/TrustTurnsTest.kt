@@ -240,7 +240,7 @@ class TrustTurnsTest {
             assertNull(trusted)
             assertNull(still)
             assertEquals(listOf("command.exec(make)"), rules)
-            assertEquals(listOf(true, false, true), channel().approvals.map { it.taints })
+            assertEquals(listOf(true, false, true), channel().approvals.map { it.untrusted != null })
             assertEquals(listOf(TrustRoot(TrustRootKind.PROGRAM, "make")), channel().approvals.first().roots)
             assertEquals("command.exec runs make, which no safeguard vets", channel().approvals.first().untrusted)
             assertEquals("command.exec ran cargo", reported())

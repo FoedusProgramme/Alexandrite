@@ -44,7 +44,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.TrustRoot
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
@@ -54,6 +53,7 @@ import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.tool.CommandSegment
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -180,7 +180,7 @@ internal class ApprovalDesk(
         }
         lines += Line(text(TextKeys.APPROVAL_REASON, language, "reason" to request.reason))
         request.note?.let { lines += Line(text(TextKeys.APPROVAL_NOTE, language), it) }
-        if (request.taints) {
+        if (request.untrusted != null) {
             request.untrusted?.let { lines += Line(text(TextKeys.APPROVAL_UNTRUSTED, language), it) }
             lines += roots(request.roots, turn.agent, language)
         }
@@ -277,7 +277,7 @@ internal class ApprovalDesk(
                     text(TextKeys.APPROVAL_DIRECTORY, language, "directory" to preview.cwd),
                     text(TextKeys.APPROVAL_PROGRAM, language, "program" to program).takeIf { segments.isEmpty() },
                     text(TextKeys.APPROVAL_NOT_ASCII, language).takeIf { names.any(ReviewText::beyondAscii) },
-                    contained?.let { text(TextKeys.APPROVAL_SANDBOX, language, "sandbox" to it.environment) }
+                    contained?.let { text(TextKeys.APPROVAL_SANDBOX, language, "sandbox" to it.environmentName) }
                         ?: text(TextKeys.APPROVAL_HOST, language),
                     contained?.hosts?.takeIf { it.isNotEmpty() }
                         ?.let { text(TextKeys.APPROVAL_NETWORK, language, "hosts" to it.joinToString()) },
@@ -285,7 +285,8 @@ internal class ApprovalDesk(
                     text(TextKeys.APPROVAL_OPAQUE, language).takeIf { preview.opaque },
                     text(TextKeys.APPROVAL_STEPS, language, "count" to segments.size).takeIf { segments.isNotEmpty() },
                     text(TextKeys.APPROVAL_TRUST_OPAQUE, language).takeIf {
-                        preview.opaque && request.taints && request.roots.any { it.kind == TrustRootKind.PROGRAM }
+                        preview.opaque && request.untrusted != null &&
+                            request.roots.any { it.kind == TrustRootKind.PROGRAM }
                     },
                 ).map(::Line) + listOfNotNull(
                     preview.monitor?.let { Line(text(TextKeys.APPROVAL_MONITOR, language), it) },
@@ -372,11 +373,11 @@ internal class ApprovalDesk(
      * with no roots to trust offers instead to allow it and trust its output this once.
      */
     private fun keyboard(request: ApprovalRequest, language: LanguageTag?): InlineKeyboardMarkup {
-        val allowKey = if (request.taints) TextKeys.APPROVAL_ALLOW_MARK else TextKeys.APPROVAL_ALLOW
+        val allowKey = if (request.untrusted != null) TextKeys.APPROVAL_ALLOW_MARK else TextKeys.APPROVAL_ALLOW
         val allow = InlineKeyboardButton(text(allowKey, language), "$PREFIX${request.id}:$ALLOW")
         val deny = InlineKeyboardButton(text(TextKeys.APPROVAL_DENY, language), "$PREFIX${request.id}:$DENY")
         val roots = request.roots.takeIf { trustable(request) }.orEmpty()
-        val always = request.always != null
+        val always = request.alwaysRules.isNotEmpty()
         val more = when {
             roots.isNotEmpty() -> {
                 val (one, all) = if (always) {
@@ -392,7 +393,7 @@ internal class ApprovalDesk(
                 InlineKeyboardButton(label, "$PREFIX${request.id}:${if (always) ALWAYS_TRUST else TRUST}")
             }
 
-            request.taints ->
+            request.untrusted != null ->
                 InlineKeyboardButton(text(TextKeys.APPROVAL_ALLOW_ONCE, language), "$PREFIX${request.id}:$ONCE")
 
             always -> {
@@ -486,16 +487,20 @@ internal class ApprovalDesk(
 
                 ALLOW -> ApprovalAnswer.Allowed(presser)
 
-                ALWAYS -> ApprovalAnswer.Allowed(presser, always = request.always != null)
+                ALWAYS -> ApprovalAnswer.Allowed(presser, always = request.alwaysRules.isNotEmpty())
 
                 TRUST -> ApprovalAnswer.Allowed(presser, trust = ApprovalTrust.ROOTS).takeIf { trustable(request) }
 
                 ALWAYS_TRUST ->
-                    ApprovalAnswer.Allowed(presser, always = request.always != null, trust = ApprovalTrust.ROOTS)
+                    ApprovalAnswer.Allowed(
+                        presser,
+                        always = request.alwaysRules.isNotEmpty(),
+                        trust = ApprovalTrust.ROOTS,
+                    )
                         .takeIf { trustable(request) }
 
                 ONCE -> ApprovalAnswer.Allowed(presser, trust = ApprovalTrust.OUTPUT_ONCE)
-                    .takeIf { request.taints && !trustable(request) }
+                    .takeIf { request.untrusted != null && !trustable(request) }
 
                 else -> null
             }
@@ -566,7 +571,7 @@ internal class ApprovalDesk(
 
         is Ending.Answered -> when (val answer = ending.answer) {
             is ApprovalAnswer.Allowed -> {
-                val rule = request.always?.takeIf { answer.always }?.let { ending(rules(request)) }
+                val rule = request.alwaysRules.firstOrNull()?.takeIf { answer.always }?.let { ending(rules(request)) }
                 val name = named(answer.by)
                 val trusted = answer.trust == ApprovalTrust.ROOTS
                 when {
@@ -591,7 +596,7 @@ internal class ApprovalDesk(
                             "roots" to listed(request.roots),
                         )
 
-                    request.taints -> text(TextKeys.APPROVAL_ALLOWED_MARKED, language, "name" to name)
+                    request.untrusted != null -> text(TextKeys.APPROVAL_ALLOWED_MARKED, language, "name" to name)
 
                     else -> text(TextKeys.APPROVAL_ALLOWED, language, "name" to name)
                 }
@@ -759,7 +764,7 @@ internal class ApprovalDesk(
     }
 
     /** Whether [request] offers to trust its roots: it would taint, and offers some. */
-    private fun trustable(request: ApprovalRequest): Boolean = request.taints && request.roots.isNotEmpty()
+    private fun trustable(request: ApprovalRequest): Boolean = request.untrusted != null && request.roots.isNotEmpty()
 
     private companion object {
         const val PREFIX = "apv:"
@@ -783,8 +788,8 @@ private fun covers(kind: TrustRootKind): String = when (kind) {
     TrustRootKind.FOLDER -> TextKeys.APPROVAL_TRUSTS_FOLDER
     TrustRootKind.DOMAIN -> TextKeys.APPROVAL_TRUSTS_DOMAIN
     TrustRootKind.PROGRAM -> TextKeys.APPROVAL_TRUSTS_PROGRAM
-    TrustRootKind.SERVER -> TextKeys.APPROVAL_TRUSTS_SERVER
     TrustRootKind.PERSON -> TextKeys.APPROVAL_TRUSTS_PERSON
+    else -> TextKeys.APPROVAL_TRUSTS_SOURCE
 }
 
 /** The text key of the word for a root of [kind]. */
@@ -792,8 +797,8 @@ private fun kindWord(kind: TrustRootKind): String = when (kind) {
     TrustRootKind.FOLDER -> TextKeys.TRUST_KIND_FOLDER
     TrustRootKind.DOMAIN -> TextKeys.TRUST_KIND_DOMAIN
     TrustRootKind.PROGRAM -> TextKeys.TRUST_KIND_PROGRAM
-    TrustRootKind.SERVER -> TextKeys.TRUST_KIND_SERVER
     TrustRootKind.PERSON -> TextKeys.TRUST_KIND_PERSON
+    else -> TextKeys.TRUST_KIND_SOURCE
 }
 
 /** The names of [roots], each cut at its start, as one text. */

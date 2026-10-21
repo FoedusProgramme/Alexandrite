@@ -6,8 +6,8 @@ import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
-import java.nio.file.Path
 
 /** One step of a turn's activity, shown only through the kinds a channel's capabilities declare. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
@@ -15,7 +15,7 @@ public interface TurnEvent {
     /** The model's call [id] of [tool], of kind [activity], titled [title]. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class ToolCallStarted(
+    public class ToolCallStarted @InternalAlexandriteApi constructor(
         public val id: ToolCallId,
         public val tool: String,
         public val activity: ToolActivity,
@@ -29,7 +29,7 @@ public interface TurnEvent {
     /** Call [id] of [run] now has [status], shown with [content]. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class ToolCallUpdated(
+    public class ToolCallUpdated @InternalAlexandriteApi constructor(
         public val id: ToolCallId,
         public val status: ToolCallStatus,
         public val content: Content? = null,
@@ -40,12 +40,12 @@ public interface TurnEvent {
     /** A fragment of the model's reasoning. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class ThoughtChunk(public val text: String) : TurnEvent
+    public class ThoughtChunk @InternalAlexandriteApi constructor(public val text: String) : TurnEvent
 
     /** The turn's usage so far. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class UsageUpdated(
+    public class UsageUpdated @InternalAlexandriteApi constructor(
         public val promptTokens: Long?,
         public val outputTokens: Long?,
         public val window: Int?,
@@ -54,24 +54,23 @@ public interface TurnEvent {
     /** The turn compacted its conversation, which shrank its prompt from [tokensBefore] to about [tokensAfter] tokens. */
     @OptIn(InternalAlexandriteApi::class)
     @Poko
-    public class Compacted(public val tokensBefore: Long, public val tokensAfter: Long) : TurnEvent
+    public class Compacted @InternalAlexandriteApi constructor(
+        public val tokensBefore: Long,
+        public val tokensAfter: Long,
+    ) : TurnEvent
 
     /** What a [ToolCallUpdated] shows of its call. */
     @SubclassOptInRequired(InternalAlexandriteApi::class)
     public interface Content {
+        /** What the call did as its review showed it before it ran, such as a file's change. */
         @OptIn(InternalAlexandriteApi::class)
         @Poko
-        public class Text(public val text: String) : Content
-
-        /** A change of the file [path]. */
-        @OptIn(InternalAlexandriteApi::class)
-        @Poko
-        public class Diff(public val path: Path, public val unified: String) : Content
+        public class Preview @InternalAlexandriteApi constructor(public val preview: ReviewPreview) : Content
 
         /** The last lines of a call's output. */
         @OptIn(InternalAlexandriteApi::class)
         @Poko
-        public class Output(public val tail: String) : Content
+        public class Output @InternalAlexandriteApi constructor(public val tail: String) : Content
     }
 }
 

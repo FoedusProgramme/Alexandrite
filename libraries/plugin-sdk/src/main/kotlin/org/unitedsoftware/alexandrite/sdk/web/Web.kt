@@ -7,12 +7,18 @@ import org.unitedsoftware.alexandrite.sdk.di.BoundSpi
 import org.unitedsoftware.alexandrite.sdk.di.ContributedSpi
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 
-/** A search service contributed by a plugin, chosen by its [id] in the `web.searchBackend` setting. */
+/** A search service contributed by a plugin, which the host's settings choose by its [id]. */
 @ContributedSpi
 public interface WebSearchBackend {
+    /** Lowercase letters, digits and `-`, as [ID] takes them, such as `brave`. */
     public val id: String
 
     public suspend fun search(query: WebQuery): List<WebSearchResult>
+
+    public companion object {
+        /** The ids a backend may have. */
+        public val ID: Regex = Regex("[a-z][a-z0-9]*(-[a-z0-9]+)*")
+    }
 }
 
 /** A web search for [text], wanting at most [limit] results. */
