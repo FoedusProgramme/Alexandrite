@@ -264,10 +264,11 @@ internal class Jobs(
     /** Stops the job [id] for [by], when [chat] runs it or [chat] is null, and returns whether it ran. */
     fun stop(id: RunId, chat: ChatAddress?, by: ChatUser?, tree: Boolean = true): Boolean {
         val stopped = synchronized(lock) {
-            active.values.filter {
-                (it.job.id == id || (tree && id in it.job.ancestors)) &&
-                    (chat == null || it.job.turn.chat == chat)
-            }.filter { it.stop(TurnCancelled(by)) }
+            stopAll(
+                active.values.filter {
+                    (it.job.id == id || (tree && id in it.job.ancestors)) && (chat == null || it.job.turn.chat == chat)
+                },
+            ) { TurnCancelled(by) }
         }
         stopped.forEach {
             logger.info("Job {} ({}) of {} is stopped by {}", it.job.id, described(it.job), it.job.turn.chat, who(by))
@@ -287,13 +288,20 @@ internal class Jobs(
     /** Stops the jobs that the run [run] or a run below it started, as [run] ends, and returns how many ran. */
     fun stopUnder(run: RunId): Int {
         val stopped = synchronized(lock) {
-            active.values.filter { run in it.job.ancestors && it.job.id != run && it.stop(TurnCancelled(null)) }
+            stopAll(active.values.filter { run in it.job.ancestors && it.job.id != run }) { TurnCancelled(null) }
         }
         if (stopped.isNotEmpty()) {
             logger.info("The jobs {} are stopped as run {} ends", stopped.joinToString { "${it.job.id}" }, run)
         }
         return stopped.size
     }
+
+    /** Why the job [id] is being stopped, null while it runs on. */
+    fun stopping(id: RunId): CancellationException? = synchronized(lock) { active[id]?.cause }
+
+    /** Stops those of [jobs] not being stopped, marking all before it cancels the deepest first, under [lock]. */
+    private fun stopAll(jobs: List<Active>, cause: () -> CancellationException): List<Active> =
+        jobs.filter { it.mark(cause()) }.sortedByDescending { it.job.ancestors.size }.onEach { it.cancel() }
 
     /** Stops every job as the agent shuts down, keeping their records, and waits at most [wait] for them to end. */
     suspend fun drain(wait: Duration) {
@@ -464,11 +472,17 @@ private class Active(
         )
 
     /** Stops the job with [cause] unless it is being stopped, and returns whether it was not. */
-    fun stop(cause: CancellationException): Boolean {
+    fun stop(cause: CancellationException): Boolean = mark(cause).also { if (it) cancel() }
+
+    /** Marks the job as being stopped with [cause] unless it is, and returns whether it was not. */
+    fun mark(cause: CancellationException): Boolean {
         if (this.cause != null) return false
         this.cause = cause
-        watcher.cancel(cause)
         return true
+    }
+
+    fun cancel() {
+        watcher.cancel(cause)
     }
 }
 

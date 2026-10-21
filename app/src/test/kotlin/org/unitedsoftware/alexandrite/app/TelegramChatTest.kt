@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.app
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.ADA
@@ -8,9 +9,13 @@ import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.CODE
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.FAST_MODEL
 import org.unitedsoftware.alexandrite.app.TelegramApp.Companion.GROUP
 import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotMessage
+import org.unitedsoftware.alexandrite.sdk.hook.ObserverHook
+import org.unitedsoftware.alexandrite.sdk.hook.ObserverPoint
 import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.turn.ChatLinks
+import org.unitedsoftware.alexandrite.sdk.turn.TurnCommitted
+import org.unitedsoftware.alexandrite.sdk.turn.TurnPoints
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.AfterTest
@@ -89,6 +94,35 @@ class TelegramChatTest {
         val ended = runBlocking { app.store.conversations.turn(cancelled.ids.turn)?.end }
         assertEquals(TurnEndKind.CANCELLED, ended)
         assertEquals(listOf("", "Are you there?"), next.history.filterIsInstance<UserEntry>().map { it.words })
+    }
+
+    @Test
+    fun `cancel after the answer arrived, while its turn still wraps up, says that no answer is running`() {
+        app.model.reply { text("All done.") }
+        val committing = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val wrapUp = object : ObserverHook<TurnCommitted> {
+            override val point: ObserverPoint<TurnCommitted> = TurnPoints.TURN_COMMITTED
+
+            override suspend fun observe(payload: TurnCommitted) {
+                committing.complete(Unit)
+                release.await()
+            }
+        }
+
+        app.run(app.builder(directory).hook(wrapUp)) {
+            app.send(app.ada, app.adaChat, "Finish the change.")
+            app.message(app.adaChat, "All done.")
+            committing.await()
+            app.send(app.ada, app.adaChat, "/cancel")
+            app.message(app.adaChat, NOTHING_RUNNING)
+            release.complete(Unit)
+            idle()
+        }
+
+        assertEquals(listOf("All done.", NOTHING_RUNNING), app.fake.botMessages(ADA).map { it.text })
+        val turn = app.model.requests.single().ids.turn
+        assertEquals(TurnEndKind.COMPLETED, runBlocking { app.store.conversations.turn(turn)?.end })
     }
 
     @Test
@@ -195,3 +229,5 @@ class TelegramChatTest {
 
 private const val CANCELLED = "The answer that was running in this chat is stopped. Messages that were waiting are " +
     "answered next, and background jobs go on (stop one with /jobs stop <id>)."
+
+private const val NOTHING_RUNNING = "No answer is running in this chat."

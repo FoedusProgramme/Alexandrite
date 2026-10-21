@@ -213,7 +213,7 @@ internal class TurnWorkers(
     /** Cancels the running turns of [agent] that came from [chat], and returns whether there was one. */
     fun cancelRunning(chat: ChatAddress, agent: AgentId, cause: CancellationException): Boolean = lock.locked {
         val running = workers.values.filter { it.key.agent == agent }.mapNotNull { it.current }
-            .filter { it.startedAt != null && it.turn?.plan?.origin == chat }
+            .filter { it.startedAt != null && !it.ended && it.turn?.plan?.origin == chat }
         running.forEach { it.cancel(cause) }
         running.isNotEmpty()
     }
@@ -229,6 +229,7 @@ internal class TurnWorkers(
             }
             val current = worker.current?.takeIf { it.turn?.plan?.id == turn }
             if (current != null) {
+                if (current.ended) return@locked false
                 current.cancel(cause)
                 return@locked true
             }
@@ -320,7 +321,8 @@ internal class TurnWorkers(
                     current.cause?.let { throw it }
                     current.startedAt = clock.instant()
                 }
-                runner.run(turn.plan, QueuedFollowUps(turn.plan.key), permit) { conversation ->
+                val decided = { lock.locked { current.decided = true } }
+                val resolved = { conversation: ConversationId ->
                     lock.locked {
                         current.conversation = conversation
                         when (turn.plan.kind) {
@@ -330,6 +332,7 @@ internal class TurnWorkers(
                         }
                     }
                 }
+                runner.run(turn.plan, QueuedFollowUps(turn.plan.key), permit, resolved, decided).also { decided() }
             } finally {
                 permit.give()
             }
@@ -502,10 +505,15 @@ private class Current(val job: WorkerJob) {
     var startedAt: Instant? = null
     var cause: CancellationException? = null
 
+    /** Whether the runner decided the turn's outcome, after which a cancel no longer stops it. */
+    var decided = false
+
     /** The conversation that the runner of the turn read, null before then. */
     var conversation: ConversationId? = null
 
     val turn: WorkerJob.Turn? get() = job as? WorkerJob.Turn
+
+    val ended: Boolean get() = decided || turn?.ticket?.ended == true
 
     fun cancel(cause: CancellationException) {
         if (this.cause == null) this.cause = cause

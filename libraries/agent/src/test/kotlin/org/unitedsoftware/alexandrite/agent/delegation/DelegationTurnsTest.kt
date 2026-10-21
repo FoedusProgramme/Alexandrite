@@ -76,6 +76,7 @@ import org.unitedsoftware.alexandrite.testkit.RecordingChannel
 import org.unitedsoftware.alexandrite.testkit.RequestMatch
 import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.recordingTool
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -89,6 +90,7 @@ class DelegationTurnsTest {
     private val model = ScriptedModel()
     private val key = AgentChatKey.parse("coder@test:main:chat")
     private val lifecycleEvents = CopyOnWriteArrayList<String>()
+    private val jobsEnded = ConcurrentHashMap<RunId, CompletableDeferred<Unit>>()
     private var readGate: CompletableDeferred<Unit>? = null
     private val read = recordingTool(
         ToolDefinition(
@@ -181,10 +183,14 @@ class DelegationTurnsTest {
                     override val point: ObserverPoint<JobLifecycle> = point
                     override suspend fun observe(payload: JobLifecycle) {
                         lifecycleEvents += "${point.id}:${payload.run}"
+                        if (point == TurnPoints.JOB_ENDED) jobEnded(payload.run).complete(Unit)
                     }
                 })
             }
         }
+
+    private fun jobEnded(run: RunId): CompletableDeferred<Unit> =
+        jobsEnded.computeIfAbsent(run) { CompletableDeferred() }
 
     private fun PluginHarness.Running.ask(text: String = "Go.", user: String = "operator", chat: String = "chat") =
         channel().receive(text, channel().chat(chat), channel().user(user)) as Admission.Accepted
@@ -988,6 +994,42 @@ class DelegationTurnsTest {
     @Test
     fun `cancelling a background run tree removes a child waiting for a permit before it can execute`() {
         cancelNestedBackgroundTree(maxBackgroundRuns = 1, expectedReads = 1)
+    }
+
+    @Test
+    fun `a tree stopped while its child waits for the only background slot never starts the child, and frees it`() {
+        readGate = CompletableDeferred()
+        val afterRan = CompletableDeferred<Unit>()
+        model.reply(ROOT) {
+            toolCall(DELEGATE_TOOL, """{"profile":"nester","task":"Parent","background":true}""")
+        }.reply(ROOT) { text("Started.") }
+            .reply(ROOT) { toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"After","background":true}""") }
+            .reply(ROOT) { text("Started again.") }
+            .reply(ROOT) { text("Report received.") }
+        model.reply(task("Parent")) {
+            toolCall(DELEGATE_TOOL, """{"profile":"reviewer","task":"Child","background":true}""")
+        }.reply(task("Parent")) { toolCall("test.read", """{"path":"parent"}""") }
+        model.reply(task("After")) {
+            pause { afterRan.complete(Unit) }
+            text("Reviewed.")
+        }
+
+        harness(maxBackgroundRuns = 1).execute {
+            assertIs<TurnOutcome.Completed>(ask().ticket.outcome())
+            val control = get<TurnControl>()
+            val parentRun = checkNotNull(read.awaitCalls(1).single().turn.lineage).run
+            val child = control.jobs(channel().chat()).single { it.id != parentRun }.id
+
+            assertTrue(control.cancelRun(parentRun, tree = true, channel().user("operator")))
+            jobEnded(parentRun).await()
+            jobEnded(child).await()
+            assertIs<TurnOutcome.Completed>(ask("Again.").ticket.outcome())
+            afterRan.await()
+
+            assertEquals(listOf("After"), runs(REVIEWER).map { it.task() })
+            assertFalse("${TurnPoints.AGENT_SPAWN.id}:$child" in lifecycleEvents)
+            assertTrue(channel().replies.none { it.request.run?.run == child })
+        }
     }
 
     @Test
