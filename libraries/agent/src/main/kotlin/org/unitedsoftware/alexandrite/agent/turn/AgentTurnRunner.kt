@@ -343,6 +343,7 @@ internal class AgentTurnRunner(
             val opening = opening(turn, input, text, context.baked)
             val notes = if (delegation == null) pendingNotes(turn, definitions) else emptyList()
             val view = contextView(inherited + history.entries(turn.conversation))
+            tracked.history = view.loaded
             hooks.contextLoaded(turn, view.loaded)
             val sections = hooks.promptSections(turn, sections(turn, message))
             val summaryModel = agent.summaryModel ?: selected.ref
@@ -1494,6 +1495,10 @@ internal class AgentTurnRunner(
 
             val words: MutableList<String> = CopyOnWriteArrayList(listOfNotNull(plan.input.message?.let(::wordsOf)))
 
+            /** The entries of the conversation that the turn loaded at its start. */
+            @Volatile
+            var history: List<TranscriptEntry> = emptyList()
+
             /** Lets one call of the turn's tree ask at a time. */
             private val asks = Mutex()
 
@@ -1533,6 +1538,8 @@ internal class AgentTurnRunner(
                 ?: (principal?.let { followUps.queued(it, plan.origin, startedAt) } == true)
 
             override fun ownWords(): List<String> = delegation?.parent?.ownWords() ?: words.toList()
+
+            override fun history(): List<TranscriptEntry> = delegation?.parent?.history() ?: history
 
             override suspend fun running(call: ToolCallId) = emitToolCallUpdated(call, ToolCallStatus.RUNNING)
 

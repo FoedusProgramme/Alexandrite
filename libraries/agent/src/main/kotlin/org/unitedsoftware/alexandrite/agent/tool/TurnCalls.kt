@@ -14,6 +14,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
+import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 
 /** What a turn does for its tool calls besides running them. */
 internal interface TurnCalls {
@@ -25,6 +26,9 @@ internal interface TurnCalls {
 
     /** The texts that the turn's principal wrote itself in the turn so far, message by message. */
     fun ownWords(): List<String>
+
+    /** The entries of the conversation that the turn loaded at its start, before its own. */
+    fun history(): List<TranscriptEntry> = emptyList()
 
     /**
      * What [ask] returns for [call], which waits for the approval request [request] without the turn's permit, or null
