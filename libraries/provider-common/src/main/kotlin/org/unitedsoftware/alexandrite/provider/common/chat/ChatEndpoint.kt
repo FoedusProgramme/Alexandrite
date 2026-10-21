@@ -61,8 +61,14 @@ public class ChatEndpoint(
 
     private suspend fun FlowCollector<ModelEvent>.read(stream: HttpResponseStream, response: ChatResponse) {
         when (stream.mediaType) {
-            "text/event-stream" -> stream.events().takeWhile { it.data != DONE }.collect { event ->
-                if (event.data.isNotBlank()) response.chunk(chunk(event.data, response.started)).forEach { emit(it) }
+            "text/event-stream" -> {
+                var ended = false
+                stream.events().takeWhile { event -> (event.data != DONE).also { ended = !it } }.collect { event ->
+                    if (event.data.isNotBlank()) {
+                        response.chunk(chunk(event.data, response.started)).forEach { emit(it) }
+                    }
+                }
+                if (ended) stream.drain()
             }
 
             "application/json", null ->

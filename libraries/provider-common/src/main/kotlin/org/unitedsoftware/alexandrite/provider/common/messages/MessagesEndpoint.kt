@@ -102,14 +102,17 @@ public class MessagesEndpoint(
 
     private suspend fun FlowCollector<ModelEvent>.read(stream: HttpResponseStream, response: MessagesResponse) {
         when (stream.mediaType) {
-            "text/event-stream" -> stream.events().transformWhile { event ->
-                emit(event)
-                !response.done
-            }.collect { event ->
-                if (event.data.isNotBlank()) {
-                    val data = core.json(event.data, response.started)
-                    response.event(data, event.type, ::classify).forEach { emit(it) }
+            "text/event-stream" -> {
+                stream.events().transformWhile { event ->
+                    emit(event)
+                    !response.done
+                }.collect { event ->
+                    if (event.data.isNotBlank()) {
+                        val data = core.json(event.data, response.started)
+                        response.event(data, event.type, ::classify).forEach { emit(it) }
+                    }
                 }
+                if (response.done) stream.drain()
             }
 
             "application/json", null -> {

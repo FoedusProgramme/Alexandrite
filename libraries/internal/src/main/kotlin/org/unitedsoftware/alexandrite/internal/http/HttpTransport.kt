@@ -23,6 +23,7 @@ import java.util.concurrent.Flow.Subscription
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 import kotlin.time.toJavaDuration
 import kotlinx.coroutines.channels.Channel as CoroutineChannel
@@ -253,6 +254,21 @@ public class HttpResponseStream internal constructor(
         parsed { parser.finish() }?.let { emit(it) }
     }
 
+    /**
+     * Reads what is left of the body for at most [grace] and drops it, so that a server sees its answer taken whole
+     * rather than cut off: a proxy counts a stream closed before its end as a failed request.
+     */
+    public suspend fun drain(grace: Duration = DRAIN_GRACE) {
+        try {
+            withTimeoutOrNull(grace) {
+                while (true) read() ?: break
+            }
+        } catch (e: HttpException) {
+            // A body that breaks off after the answer took nothing from it
+            return
+        }
+    }
+
     /** The body as text, its first [limit] bytes at most. */
     public suspend fun text(limit: Int): String = bytes(limit).toString(Charsets.UTF_8)
 
@@ -403,3 +419,6 @@ private fun unwrap(error: Throwable): Throwable {
     }
     return current
 }
+
+/** How long a finished answer's stream is read on for its end. */
+private val DRAIN_GRACE: Duration = 5.seconds
