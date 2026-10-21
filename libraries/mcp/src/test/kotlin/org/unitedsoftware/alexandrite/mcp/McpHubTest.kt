@@ -134,24 +134,29 @@ class McpHubTest {
 
     @Test
     fun `the drain ends the stdio servers' processes`() {
-        var running = 0
+        // Processes of the tests before may not be reaped yet, so only the ones this hub started count
+        val before = processes().map { it.pid() }.toSet()
+        var started = emptyList<ProcessHandle>()
         withHub("files" to fake(), "notes" to fake()) {
             connected("files", "notes")
-            running = fakeProcesses().size
+            started = processes().filter { it.pid() !in before }
         }
 
-        assertEquals(2, running)
+        assertEquals(2, started.size)
         // A process the drain ended may still be reaped a moment later.
         val deadline = System.nanoTime() + 5_000_000_000
-        while (fakeProcesses().isNotEmpty() && System.nanoTime() < deadline) Thread.sleep(20)
-        assertEquals(emptyList(), fakeProcesses())
+        while (started.any { it.isAlive } && System.nanoTime() < deadline) Thread.sleep(20)
+        assertEquals(emptyList(), started.filter { it.isAlive })
     }
 
     @Test
-    fun `a disabled server is never started`() = withHub("off" to fake { enabled = false }) {
-        Thread.sleep(300)
-        assertEquals(ServerStatus(ServerState.DISABLED), server("off").status.value)
-        assertEquals(emptyList(), fakeProcesses())
+    fun `a disabled server is never started`() {
+        val before = processes().map { it.pid() }.toSet()
+        withHub("off" to fake { enabled = false }) {
+            Thread.sleep(300)
+            assertEquals(ServerStatus(ServerState.DISABLED), server("off").status.value)
+            assertEquals(emptyList(), processes().filter { it.pid() !in before })
+        }
     }
 
     // HTTP.
@@ -270,7 +275,9 @@ class McpHubTest {
         }
     }
 
-    private fun fakeProcesses(): List<ProcessHandle> = ProcessHandle.current().descendants()
-        .filter { it.isAlive && it.info().commandLine().orElse("").contains("FakeStdioServerKt") }
-        .toList()
+    /**
+     * The processes this test run started that still live, told apart by pid: Linux does not always tell a process's
+     * command line, so the fake servers cannot be told by theirs.
+     */
+    private fun processes(): List<ProcessHandle> = ProcessHandle.current().descendants().filter { it.isAlive }.toList()
 }
