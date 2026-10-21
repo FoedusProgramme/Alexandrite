@@ -4,7 +4,8 @@
     "language": "en",
     "shutdownGraceSeconds": 15,
     "startTimeoutSeconds": 30,
-    "plugins": []
+    "plugins": [],
+    "updates": {"check": true, "install": false, "idleMinutes": 120}
   },
   "mcp": {
     "servers": {

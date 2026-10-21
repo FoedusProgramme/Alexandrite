@@ -1,6 +1,6 @@
 # The alexandrite command
 
-What the operator's `alexandrite` command does on the host: setup, the service, config and secrets, shortcuts for agents, models, channels and MCP servers, pairing chats, and this manual.
+What the operator's `alexandrite` command does on the host: setup, the service, updates, config and secrets, shortcuts for agents, models, channels and MCP servers, pairing chats, and this manual.
 
 Only an operator at the host's terminal runs these; you cannot. When someone asks how to do one of these things, tell
 them the command. `alexandrite --help` lists every command and `alexandrite <command> --help` explains one. Every
@@ -22,6 +22,18 @@ places (`~/.config/alexandrite/alexandrite.json` on Linux).
 - `alexandrite update [--version <release>]` — install the latest release, or the one named, checking it against the
   config before switching and restarting the service; the release before is kept, and a failed update switches back.
 - `alexandrite uninstall [--keep-data] [--yes]` — remove the service, the program and, unless kept, config and data.
+
+## Updates
+
+Once a day the running Alexandrite asks GitHub for the latest release. When one is newer, `status` and `doctor` show
+it, and the default agent gets a heartbeat turn that asks it to tell the admins, once per release. The `app.updates`
+keys of the config:
+
+- `check` (default `true`) — whether to ask at all; `false` makes no request for updates.
+- `install` (default `false`) — whether to run `alexandrite update` by itself once nobody wrote to any chat for
+  `idleMinutes` and no turn or job runs, which only an instance the install script installed does; the new version
+  then has the agent tell the admins which version it came from. It needs `check`.
+- `idleMinutes` (default `120`) — how long nobody may have written before an automatic update.
 
 ## Config and secrets
 

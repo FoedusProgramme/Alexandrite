@@ -54,22 +54,35 @@ internal fun installPlaces(environment: Map<String, String>, install: Path?): Li
 /** Runs the installed install script in its update mode for this command's config file and data directory. */
 internal fun update(cli: Cli, version: String?): Int {
     if (version != null && !RELEASE.matches(version)) return cli.fail(cli.t("update.no_release", "version" to version))
-    val root = cli.environment[INSTALL_DIR]?.takeIf { it.isNotEmpty() }?.let { Path.of(it) }
+    val command = updateCommand(cli.environment, cli.platform, cli.locations, version)
         ?: return cli.fail(cli.t("update.not_scripted"))
-    val config = "${cli.locations.configFile.toAbsolutePath()}"
-    val data = "${cli.locations.dataDir.toAbsolutePath()}"
-    val command = if (cli.platform == Platform.WINDOWS) {
+    return try {
+        cli.machine.attach(command)
+    } catch (e: IOException) {
+        cli.fail(cli.t("service.cannot_run", "program" to command.first(), "reason" to (e.message ?: e)))
+    }
+}
+
+/**
+ * The install script's update of the instance at [locations] to [version], else to the latest release; null when the
+ * install script did not install the running Alexandrite.
+ */
+internal fun updateCommand(
+    environment: Map<String, String>,
+    platform: Platform,
+    locations: Locations,
+    version: String?,
+): List<String>? {
+    val root = environment[INSTALL_DIR]?.takeIf { it.isNotEmpty() }?.let { Path.of(it) } ?: return null
+    val config = "${locations.configFile.toAbsolutePath()}"
+    val data = "${locations.dataDir.toAbsolutePath()}"
+    return if (platform == Platform.WINDOWS) {
         listOf("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "${root.resolve("install.ps1")}") +
             listOf("-Update") + (version?.let { listOf("-Version", it) } ?: emptyList()) +
             listOf("-Config", config, "-DataDir", data)
     } else {
         listOf("sh", "${root.resolve("install.sh")}", "--update") +
             (version?.let { listOf("--version", it) } ?: emptyList()) + listOf("--config", config, "--data-dir", data)
-    }
-    return try {
-        cli.machine.attach(command)
-    } catch (e: IOException) {
-        cli.fail(cli.t("service.cannot_run", "program" to command.first(), "reason" to (e.message ?: e)))
     }
 }
 

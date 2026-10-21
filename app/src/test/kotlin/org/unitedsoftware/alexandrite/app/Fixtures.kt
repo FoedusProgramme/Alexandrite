@@ -171,6 +171,10 @@ internal class FakeMachine(
     val fetched = mutableListOf<Pair<String, Map<String, String>>>()
     val posted = mutableListOf<Pair<String, String>>()
     val web = mutableMapOf<String, Fetched>()
+
+    /** Where a GET of an address redirects to, by address. */
+    val redirects = mutableMapOf<String, String?>()
+    val redirected = mutableListOf<String>()
     var live = false
     var programs: (List<String>) -> Executed = { Executed(0, "") }
     var attach: (List<String>) -> Int = { 0 }
@@ -210,6 +214,12 @@ internal class FakeMachine(
     override fun post(url: String, body: String): Fetched {
         posted += url to body
         return web[url] ?: if (live) LocalMachine.post(url, body) else throw IOException("Connection refused")
+    }
+
+    override fun redirect(url: String): String? {
+        redirected += url
+        if (url in redirects) return redirects[url]
+        return if (live) LocalMachine.redirect(url) else throw IOException("Connection refused")
     }
 
     override fun sleep(duration: Duration) {
