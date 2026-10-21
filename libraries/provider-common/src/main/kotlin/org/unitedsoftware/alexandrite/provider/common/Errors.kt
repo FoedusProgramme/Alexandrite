@@ -65,6 +65,16 @@ internal fun ModelException.masked(mask: (String) -> String): ModelException {
         .also { it.stackTrace = stackTrace }
 }
 
+/** This failure with a sentence that its model needs the Responses API, when its HTTP 400 says to use that API. */
+internal fun ModelException.pointedToResponses(): ModelException {
+    val body = (cause as? HttpException)?.body.orEmpty()
+    if (error.status != 400 || RESPONSES_PATH !in body.lowercase()) return this
+    val message = "${error.message.trimEnd()} This model needs the openai-responses provider."
+    return ModelException(error.rebuild { message(message) }, cause).also { it.stackTrace = stackTrace }
+}
+
+private const val RESPONSES_PATH = "v1/responses"
+
 /** What an error object or body says, its parts null where it says nothing. */
 internal class ErrorDetail(val message: String?, val type: String?, val code: String?)
 

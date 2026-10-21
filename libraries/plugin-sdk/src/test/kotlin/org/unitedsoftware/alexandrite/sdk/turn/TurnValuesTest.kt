@@ -198,6 +198,8 @@ class TurnValuesTest {
         assertEquals(at.plusSeconds(1), running.startedAt)
         assertFailsWith<IllegalArgumentException> { queued.rebuild { startedAt(at) } }
         assertFailsWith<IllegalArgumentException> { queued.rebuild { phase(TurnPhase.RUNNING) } }
+        assertFailsWith<IllegalArgumentException> { queued.rebuild { phase(TurnPhase.FINISHING) } }
+        assertEquals(TurnPhase.FINISHING, running.rebuild { phase(TurnPhase.FINISHING) }.phase)
         assertEquals(at.minusSeconds(1), running.rebuild { startedAt(at.minusSeconds(1)) }.startedAt)
     }
 

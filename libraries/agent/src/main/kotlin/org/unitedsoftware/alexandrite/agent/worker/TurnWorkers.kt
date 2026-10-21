@@ -206,14 +206,14 @@ internal class TurnWorkers(
             val conversation = turn.conversation
                 ?: read.getOrPut(plan.key to heartbeat) { conversation(plan.key, heartbeat) }
                 ?: return@mapNotNull null
-            status(plan, conversation, turn.startedAt)
+            status(plan, conversation, turn.startedAt, turn.finishing)
         }.sortedBy { it.queuedAt }
     }
 
     /** Cancels the running turns of [agent] that came from [chat], and returns whether there was one. */
     fun cancelRunning(chat: ChatAddress, agent: AgentId, cause: CancellationException): Boolean = lock.locked {
         val running = workers.values.filter { it.key.agent == agent }.mapNotNull { it.current }
-            .filter { it.startedAt != null && it.turn?.plan?.origin == chat }
+            .filter { it.startedAt != null && !it.ended && it.turn?.plan?.origin == chat }
         running.forEach { it.cancel(cause) }
         running.isNotEmpty()
     }
@@ -229,6 +229,7 @@ internal class TurnWorkers(
             }
             val current = worker.current?.takeIf { it.turn?.plan?.id == turn }
             if (current != null) {
+                if (current.ended) return@locked false
                 current.cancel(cause)
                 return@locked true
             }
@@ -320,7 +321,8 @@ internal class TurnWorkers(
                     current.cause?.let { throw it }
                     current.startedAt = clock.instant()
                 }
-                runner.run(turn.plan, QueuedFollowUps(turn.plan.key), permit) { conversation ->
+                val decided = { lock.locked { current.decided = true } }
+                val resolved = { conversation: ConversationId ->
                     lock.locked {
                         current.conversation = conversation
                         when (turn.plan.kind) {
@@ -330,6 +332,7 @@ internal class TurnWorkers(
                         }
                     }
                 }
+                runner.run(turn.plan, QueuedFollowUps(turn.plan.key), permit, resolved, decided).also { decided() }
             } finally {
                 permit.give()
             }
@@ -479,7 +482,7 @@ private class Worker(val key: AgentChatKey) {
     /** The running and queued turns that came from [chat], or from every chat when it is null. */
     fun listed(chat: ChatAddress?): List<Listed> {
         val running = current?.let { current ->
-            current.turn?.let { Listed(it.plan, current.startedAt, current.conversation) }
+            current.turn?.let { Listed(it.plan, current.startedAt, current.conversation, current.ended) }
         }
         val queued = queue.filterIsInstance<WorkerJob.Turn>().map { turn ->
             val known = when (turn.plan.kind) {
@@ -487,14 +490,19 @@ private class Worker(val key: AgentChatKey) {
                 TurnKind.JOB -> turn.plan.jobConversation
                 else -> conversation
             }
-            Listed(turn.plan, null, known)
+            Listed(turn.plan, null, known, finishing = false)
         }
         return (listOfNotNull(running) + queued).filter { chat == null || it.plan.origin == chat }
     }
 }
 
 /** A turn that a worker runs or queues, with the conversation it runs in when the worker knows it. */
-private class Listed(val plan: TurnPlan, val startedAt: Instant?, val conversation: ConversationId?)
+private class Listed(
+    val plan: TurnPlan,
+    val startedAt: Instant?,
+    val conversation: ConversationId?,
+    val finishing: Boolean,
+)
 
 /** The job a worker took from its queue. */
 private class Current(val job: WorkerJob) {
@@ -502,10 +510,15 @@ private class Current(val job: WorkerJob) {
     var startedAt: Instant? = null
     var cause: CancellationException? = null
 
+    /** Whether the runner decided the turn's outcome, after which a cancel no longer stops it. */
+    var decided = false
+
     /** The conversation that the runner of the turn read, null before then. */
     var conversation: ConversationId? = null
 
     val turn: WorkerJob.Turn? get() = job as? WorkerJob.Turn
+
+    val ended: Boolean get() = decided || turn?.ticket?.ended == true
 
     fun cancel(cause: CancellationException) {
         if (this.cause == null) this.cause = cause
@@ -531,14 +544,18 @@ private fun TurnPlan.isFollowUp(principal: UserAddress, chat: ChatAddress, since
         origin == chat &&
         !queuedAt.isBefore(since)
 
-private fun status(plan: TurnPlan, conversation: ConversationId, startedAt: Instant?): TurnStatus {
+private fun status(plan: TurnPlan, conversation: ConversationId, startedAt: Instant?, finishing: Boolean): TurnStatus {
     val turn = TurnInfo.builder(plan.id, plan.origin, conversation, plan.kind)
         .actor(plan.actor)
         .agent(plan.key.agent)
         .replyTarget(plan.replyTarget)
         .key(plan.key)
         .build()
-    val phase = if (startedAt == null) TurnPhase.QUEUED else TurnPhase.RUNNING
+    val phase = when {
+        startedAt == null -> TurnPhase.QUEUED
+        finishing -> TurnPhase.FINISHING
+        else -> TurnPhase.RUNNING
+    }
     return TurnStatus.builder(turn, phase, plan.queuedAt).startedAt(startedAt).build()
 }
 

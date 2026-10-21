@@ -15,8 +15,8 @@ private const val ATTEMPTS = 3
 /** The items a plain list shows at once. */
 private const val SHOWN_ITEMS = 30
 
-/** Thrown when the person cancels a prompt on the terminal. */
-internal class CancelledException : RuntimeException("cancelled")
+/** Thrown when the person cancels a prompt on the terminal, by Ctrl-C or the end of the input when [interrupted]. */
+internal class CancelledException(val interrupted: Boolean = true) : RuntimeException("cancelled")
 
 /** How a command talks with the person: in plain lines, or along a rail on the terminal. */
 internal interface Ui {
@@ -175,24 +175,26 @@ internal class TerminalUi(private val tui: Tui) : Ui {
     override fun outro(text: String) = tui.outro(text)
 
     override fun confirm(question: String, default: Boolean): Boolean =
-        tui.confirm(title(question), default) ?: throw CancelledException()
+        tui.confirm(title(question), default) ?: cancelled()
 
     override fun ask(prompt: String, default: String?, problem: (String) -> String?): String? =
-        tui.text(title(prompt), default?.ifEmpty { null }, problem = problem) ?: throw CancelledException()
+        tui.text(title(prompt), default?.ifEmpty { null }, problem = problem) ?: cancelled()
 
-    override fun secret(prompt: String): String? = tui.text(title(prompt), secret = true) ?: throw CancelledException()
+    override fun secret(prompt: String): String? = tui.text(title(prompt), secret = true) ?: cancelled()
 
     override fun <T> choose(prompt: String, choices: List<Choice<T>>, unknown: (String) -> String): T? =
-        tui.select(title(prompt), choices) ?: throw CancelledException()
+        tui.select(title(prompt), choices) ?: cancelled()
 
     override fun pick(prompt: String, items: List<String>, hint: String): List<String>? =
-        tui.pick(title(prompt), items, hint) ?: throw CancelledException()
+        tui.pick(title(prompt), items, hint) ?: cancelled()
 
     override fun <T> busy(label: () -> String, work: () -> T): T = tui.spin(label, work)
 
     override fun code(code: String) = tui.code(code)
 
     override fun summary(title: String, rows: List<Pair<String, String>>) = tui.box(title, rows)
+
+    private fun cancelled(): Nothing = throw CancelledException(tui.interrupted)
 
     /** [prompt] without the colon that ends a prompt on a plain line. */
     private fun title(prompt: String): String = prompt.trim().removeSuffix(":").removeSuffix("：").trim()

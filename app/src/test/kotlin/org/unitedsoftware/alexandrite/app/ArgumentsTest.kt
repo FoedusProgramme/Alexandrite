@@ -110,7 +110,6 @@ class ArgumentsTest {
             listOf("unpair", "telegram:work:1", "telegram:work:2") to
                 "unpair needs one chat address, such as telegram:work:123456789.",
             listOf("unpair", "work") to "'work' is no chat address, such as telegram:work:123456789.",
-            listOf("config") to "config needs one of get, set, unset, edit, check, path.",
             listOf("config", "move") to "Unknown command config move: config takes get, set, unset, edit, check, path.",
             listOf("config", "set", "app.zone") to "config set needs a key and a value.",
             listOf("config", "set", "app..zone", "1") to

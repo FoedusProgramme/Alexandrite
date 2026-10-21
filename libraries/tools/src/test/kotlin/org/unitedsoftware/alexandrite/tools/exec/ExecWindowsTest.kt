@@ -5,14 +5,10 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
-import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
-import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
-import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -73,28 +69,19 @@ class ExecWindowsTest {
 
     @Test
     fun `a word that no Windows file name may hold is no path either`() {
-        val script = fs.write("bin/list.cmd", "@echo off\r\n")
-
         for (word in listOf("*.apk", "A|B", "Write-Output \"OK\"", "echo hello | findstr hello")) {
-            val review = review(script.toString(), word)
+            val review = review("findstr", word)
             assertNull(review.refusal, word)
             assertNull(review.problem, word)
         }
     }
 
-    /**
-     * The floor of the host itself does not refuse a path under a deny root on Windows yet: its keys compare `\` as a
-     * name character, so nothing lies under anything (`libraries/internal/.../path/PathKeys.kt:isAtOrUnder`). That is a
-     * platform defect outside command.exec, so this test stands in a floor that refuses the place and checks that
-     * command.exec passes that refusal on as `blocked_floor`.
-     */
     @Test
-    fun `an argument that a floor refuses is refused still`() {
+    fun `an argument under a protected place is refused by the floor`() {
         val script = fs.write("bin/read.cmd", "@echo off\r\n")
         val secret = fs.secret.resolve("key.txt")
-        val refusing = ExecTool(DenyingFloor(fs.secret), ExecConfig())
 
-        val review = refusing.check(fs.context(), "argv" to listOf(script.toString(), secret.toString()))
+        val review = review(script.toString(), secret.toString())
 
         assertEquals(
             "'$secret' reaches a protected place (a place the test protects): command.exec does not run this call.",
@@ -104,11 +91,12 @@ class ExecWindowsTest {
     }
 
     @Test
-    fun `a script string passed to a Windows shell is no path to refuse, and the shell is opaque`() {
+    fun `a Windows shell is opaque however it is spelled, and its script text is no path to refuse`() {
         for (argv in listOf(
             listOf("powershell", "-NoProfile", "-Command", "Get-Item C:\\work\\*.md"),
-            listOf("PowerShell", "-NoProfile", "-Command", "Get-Item C:\\work\\*.md"),
+            listOf("PowerShell.exe", "-NoProfile", "-Command", "Get-Item C:\\work\\*.md"),
             listOf("cmd", "/c", "dir C:\\work\\*.md"),
+            listOf("CMD.EXE", "/c", "echo hello"),
         )) {
             val review = review(*argv.toTypedArray())
             assertNull(review.refusal, "$argv: ${review.refusal}")
@@ -118,10 +106,37 @@ class ExecWindowsTest {
     }
 
     @Test
-    fun `a glob that names a path is still a path, checked as the floor checks any other`() {
-        val script = fs.write("bin/list.cmd", "@echo off\r\n")
+    fun `a batch file runs as a script of its own and gets a plain argument as given`() {
+        val script = fs.write("bin/greet.cmd", "@echo off\r\necho hello %~1\r\n")
 
-        val review = review(script.toString(), "${fs.secret}\\*.txt")
+        val review = review(script.toString(), "big world")
+        val result = run(script.toString(), "big world")
+
+        assertNull(review.problem, review.problem)
+        val preview = assertIs<ReviewPreview.Command>(review.preview)
+        assertFalse(preview.opaque)
+        assertFalse(result.isError, result.text)
+        assertTrue(result.text.contains("hello big world"), result.text)
+    }
+
+    @Test
+    fun `a batch file's argument that cmd would read as its own syntax is refused before anything runs`() {
+        val marker = directory.resolve("injected.txt")
+        val script = fs.write("bin/greet.BAT", "@echo off\r\necho hello %1\r\n")
+
+        for (argument in listOf("a&echo x>\"$marker\"", "%PATH%", "x\"&echo x>$marker&\"", "!x!", "(a)", "a\nb")) {
+            val result = run(script.toString(), argument)
+
+            assertTrue(result.isError, result.text)
+            assertTrue(result.text.contains("is a batch file"), result.text)
+            assertTrue(result.text.contains("cmd /c"), result.text)
+        }
+        assertFalse(Files.exists(marker))
+    }
+
+    @Test
+    fun `a glob that names a path is still a path, checked as the floor checks any other`() {
+        val review = review("findstr", "x", "${fs.secret}\\*.txt")
 
         assertEquals(
             "'${fs.secret}\\*.txt' is no valid path, so the floor cannot check it: command.exec does not run this call.",
@@ -150,21 +165,5 @@ class ExecWindowsTest {
             assertFalse(result.isError, "$program: ${result.text}")
             assertTrue(result.text.startsWith("Exit code: 0"), "$program: ${result.text}")
         }
-    }
-}
-
-/** A floor that refuses [root] and everything under it, and allows every other path as it is. */
-@OptIn(InternalAlexandriteApi::class)
-private class DenyingFloor(private val root: Path) : HardFloor {
-    override fun checkRead(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck = decide(path)
-
-    override fun checkWrite(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck = decide(path)
-
-    override fun checkTree(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck = decide(path)
-
-    private fun decide(path: Path): FloorCheck = if (path.normalize().startsWith(root.normalize())) {
-        FloorCheck.Denied("a place the test protects")
-    } else {
-        FloorCheck.Allowed(path)
     }
 }

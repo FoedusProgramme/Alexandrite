@@ -10,10 +10,12 @@ import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
 import org.unitedsoftware.alexandrite.provider.common.EndpointSettings
 import org.unitedsoftware.alexandrite.provider.common.modelException
+import org.unitedsoftware.alexandrite.provider.common.pointedToResponses
 import org.unitedsoftware.alexandrite.provider.common.turnContextMode
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
+import org.unitedsoftware.alexandrite.sdk.model.ModelException
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
@@ -40,8 +42,12 @@ public class ChatEndpoint(
         val info = core.admit(request)
         val built = ChatRequest(request, info, flavor, chat.promptCacheKey)
         val response = ChatResponse(request, flavor, built.warnings)
-        core.post("/chat/completions", built.body.toString(), emptyMap(), { response.started }) { stream ->
-            read(stream, response)
+        try {
+            core.post("/chat/completions", built.body.toString(), emptyMap(), { response.started }) { stream ->
+                read(stream, response)
+            }
+        } catch (e: ModelException) {
+            throw e.pointedToResponses()
         }
         response.finish().forEach { emit(it) }
     }

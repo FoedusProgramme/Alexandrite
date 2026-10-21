@@ -15,6 +15,7 @@ import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.control.ConfigChangeView
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
+import org.unitedsoftware.alexandrite.provider.common.apiPathIn
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.config.HostConfigFile
@@ -56,10 +57,16 @@ internal fun requireKey(key: String): String {
     return key
 }
 
+/** Tells the person how a written change came out, and returns the exit code. */
+internal typealias Report = (Written) -> Int
+
+/** The report of a command, which restarts Alexandrite after a change that needs it when [restart]. */
+internal fun Cli.reporting(restart: Boolean): Report = { reported(this, it, restart) }
+
 /** Makes [changes] through the running app, or in the file when none runs. */
-internal fun changeConfig(cli: Cli, changes: List<ConfigChangeView>, restart: Boolean): Int {
+internal fun changeConfig(cli: Cli, changes: List<ConfigChangeView>, report: Report): Int {
     val written = writeChanges(cli, changes) ?: return ExitCode.FAILURE
-    return reported(cli, written, restart)
+    return report(written)
 }
 
 /**
@@ -97,13 +104,13 @@ internal fun writeChanges(cli: Cli, changes: List<ConfigChangeView>): Written? {
  * Writes [text] as the whole config file as [changeConfig] writes changes, null when the change is refused. A secret
  * it adds as a value goes into the secrets file, and the config names it by reference.
  */
-internal fun replaceConfig(cli: Cli, text: String, restart: Boolean): Int? {
+internal fun replaceConfig(cli: Cli, text: String, report: Report): Int? {
     val moved = configText(cli)?.let { movedSecrets(cli, it, text) ?: return null }
     val replacing = moved?.text ?: text
     val outcome = change(cli, ControlRequest.ReplaceConfig(replacing)) { replace(replacing) }
     if (outcome !is Written) moved?.restore(cli)
     return when (outcome) {
-        is Written -> reported(cli, outcome, restart)
+        is Written -> report(outcome)
         is Failed -> outcome.code
         null -> null
     }
@@ -270,22 +277,42 @@ internal fun configCheck(cli: Cli, json: Boolean): Int {
     } catch (e: IOException) {
         listOf(cli.t("secret.unreadable", "file" to SECRETS_FILE, "reason" to (e.message ?: e)))
     }
+    val raw = try {
+        writtenConfig(Files.readString(file))
+    } catch (e: IOException) {
+        null
+    }
+    val warnings = raw?.let { baseUrlWarnings(cli, it) }.orEmpty()
     if (json) {
         cli.printJson(
             buildJsonObject {
                 put("file", "$file")
                 put("valid", problems.isEmpty())
                 put("problems", JsonArray(problems.map(::JsonPrimitive)))
+                put("warnings", JsonArray(warnings.map(::JsonPrimitive)))
             },
         )
-    } else if (problems.isEmpty()) {
-        cli.done(cli.t("check.passes", "file" to file))
     } else {
-        cli.fail(cli.t("check.fails", "file" to file))
-        problems.forEach(cli.ui::detail)
+        if (problems.isEmpty()) {
+            cli.done(cli.t("check.passes", "file" to file))
+        } else {
+            cli.fail(cli.t("check.fails", "file" to file))
+            problems.forEach(cli.ui::detail)
+        }
+        warnings.forEach(cli.ui::warn)
     }
     return if (problems.isEmpty()) ExitCode.OK else ExitCode.CONFIG
 }
+
+/** A warning for each endpoint of [config] whose baseUrl ends with an API path. */
+internal fun baseUrlWarnings(cli: Cli, config: JsonObject): List<String> =
+    config.objectAt("providers").values.flatMap { provider ->
+        (provider as? JsonObject)?.objectAt("endpoints").orEmpty().mapNotNull { (id, endpoint) ->
+            val base = (endpoint as? JsonObject)?.get("baseUrl").text ?: return@mapNotNull null
+            val path = apiPathIn(base) ?: return@mapNotNull null
+            cli.t("check.base_url_path", "base" to base, "endpoint" to id, "path" to path)
+        }
+    }
 
 internal fun configPath(cli: Cli, json: Boolean): Int {
     if (!json) return cli.done("${cli.locations.configFile}")
@@ -301,7 +328,7 @@ internal fun configPath(cli: Cli, json: Boolean): Int {
 }
 
 /** Opens a copy of the config file in the operator's editor and writes it once it passes, offering edits again. */
-internal fun configEdit(cli: Cli, restart: Boolean): Int {
+internal fun configEdit(cli: Cli, report: Report): Int {
     val file = cli.locations.configFile
     val original = try {
         Files.readString(file)
@@ -325,7 +352,7 @@ internal fun configEdit(cli: Cli, restart: Boolean): Int {
             if (code != 0) return cli.fail(cli.t("edit.editor_failed", "code" to code))
             val edited = Files.readString(copy)
             if (edited == original) return cli.done(cli.t("edit.no_change"))
-            val result = replaceConfig(cli, edited, restart)
+            val result = replaceConfig(cli, edited, report)
             if (result != null) return result
             if (!cli.confirm(cli.t("edit.again"), default = true)) {
                 return ExitCode.FAILURE

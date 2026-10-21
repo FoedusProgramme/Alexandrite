@@ -236,6 +236,10 @@ internal class McpStdioConnection private constructor(
             onInvalid: (String) -> Unit = {},
             stopGrace: Duration = DEFAULT_GRACE,
         ): McpStdioConnection {
+            LaunchCheck.refusal(launch.command, launch.args)?.let { refusal ->
+                launch.held?.close()
+                throw McpConnectionException(refusal)
+            }
             val builder = ProcessBuilder(listOf(launch.command) + launch.args)
             builder.environment().apply {
                 clear()

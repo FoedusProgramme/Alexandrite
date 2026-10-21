@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.tools.exec
 
+import org.unitedsoftware.alexandrite.internal.path.programName
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
@@ -19,7 +20,7 @@ internal fun unwrap(argv: List<String>): Unwrapped? {
     var timeout: Duration? = null
     while (rest.isNotEmpty()) {
         val arguments = rest.drop(1)
-        val inner = when (baseName(rest.first())) {
+        val inner = when (programName(rest.first())) {
             "env" -> {
                 val assignments = arguments.takeWhile { ASSIGNMENT.matches(it) }
                 for (assignment in assignments) {

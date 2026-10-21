@@ -18,6 +18,7 @@ internal class AppConfig(
     val startTimeoutSeconds: Long = 30,
     /** Ids of the plugins to load by name besides the built-in ones. */
     val plugins: List<String> = emptyList(),
+    val updates: UpdatesConfig = UpdatesConfig(),
 ) {
     init {
         require(zone == null || zoneOrNull(zone) != null) {
@@ -36,4 +37,18 @@ internal class AppConfig(
     val zoneId: ZoneId get() = zone?.let(::zoneOrNull) ?: ZoneId.systemDefault()
 
     val languageTag: LanguageTag get() = LanguageTag.of(language)
+}
+
+@Serializable
+internal class UpdatesConfig(
+    /** Whether the app asks once a day for the latest release. */
+    val check: Boolean = true,
+    /** Whether the app installs a newer release by itself once nobody wrote for [idleMinutes]. */
+    val install: Boolean = false,
+    val idleMinutes: Long = 120,
+) {
+    init {
+        require(idleMinutes > 0) { "updates.idleMinutes must be positive" }
+        require(check || !install) { "updates.install needs updates.check, which is off" }
+    }
 }

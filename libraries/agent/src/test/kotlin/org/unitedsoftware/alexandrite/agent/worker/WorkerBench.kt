@@ -121,16 +121,19 @@ internal class FakeRunner : TurnRunner {
     val permits: MutableMap<TurnId, TurnPermit> = ConcurrentHashMap()
 
     private val resolved = ConcurrentHashMap<TurnId, (ConversationId) -> Unit>()
+    private val decided = ConcurrentHashMap<TurnId, () -> Unit>()
 
     override suspend fun run(
         plan: TurnPlan,
         followUps: FollowUps,
         permit: TurnPermit,
         resolved: (ConversationId) -> Unit,
+        decided: () -> Unit,
     ): TurnOutcome {
         this.followUps[plan.id] = followUps
         permits[plan.id] = permit
         this.resolved[plan.id] = resolved
+        this.decided[plan.id] = decided
         started += plan.id
         val end = end(plan.id)
         if (plan.id in stubborn) return withContext(NonCancellable) { end.await() }
@@ -144,6 +147,11 @@ internal class FakeRunner : TurnRunner {
     /** Tells the worker of [turn], which started, that it runs in [conversation]. */
     fun resolve(turn: TurnId, conversation: ConversationId) {
         resolved.getValue(turn)(conversation)
+    }
+
+    /** Tells the worker of [turn], which started, that its outcome is decided while it still wraps up. */
+    fun decide(turn: TurnId) {
+        decided.getValue(turn)()
     }
 
     fun finish(turn: TurnId, outcome: TurnOutcome = TurnOutcome.Completed(null)) {

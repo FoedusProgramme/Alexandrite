@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.tools.exec
 
+import org.unitedsoftware.alexandrite.internal.path.programName
+
 /**
  * An argv as the program's own getopt would see it.
  *
@@ -33,7 +35,7 @@ internal data class ParsedOption(val name: String, val value: String?)
 internal object CommandOptions {
     /** [argv] parsed by its program's option table, or by none unless [withTable]. */
     fun parse(argv: List<String>, withTable: Boolean = true): ParsedCommand {
-        val program = argv.firstOrNull()?.let(::baseName).orEmpty()
+        val program = argv.firstOrNull()?.let(::programName).orEmpty()
         val table = if (withTable) TABLES[program] else null
         val options = mutableListOf<ParsedOption>()
         val operands = mutableListOf<String>()

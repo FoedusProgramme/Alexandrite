@@ -294,6 +294,28 @@ class TurnWorkersTest {
     }
 
     @Test
+    fun `a turn whose outcome is decided is listed as finishing and no longer cancelled while it wraps up`() = runTest {
+        val bench = bench()
+        val decided = bench.receive("test:main:1")
+        val running = bench.receive("test:main:2")
+        runCurrent()
+        assertEquals(listOf(decided.turn to TurnPhase.RUNNING), bench.phases("test:main:1"))
+        bench.runner.decide(decided.turn)
+
+        assertEquals(listOf(decided.turn to TurnPhase.FINISHING), bench.phases("test:main:1"))
+        assertEquals(listOf(running.turn to TurnPhase.RUNNING), bench.phases("test:main:2"))
+        assertFalse(bench.workers.cancelRunning(ChatAddress.parse("test:main:1"), CODER, TurnCancelled(null)))
+        assertFalse(bench.workers.cancel(decided.turn, TurnCancelled(null)))
+        assertFalse(decided.ticket.cancel())
+        assertTrue(bench.workers.cancelRunning(ChatAddress.parse("test:main:2"), CODER, TurnCancelled(null)))
+        bench.runner.finish(decided.turn)
+        runCurrent()
+
+        assertEquals(TurnOutcome.Completed(null), decided.ticket.outcome())
+        assertEquals(TurnOutcome.Cancelled, running.ticket.outcome())
+    }
+
+    @Test
     fun `a turn waiting for a permit is dropped by its ticket without starting`() = runTest {
         val bench = bench(maxConcurrentTurns = 1)
         val first = bench.receive("test:main:1")

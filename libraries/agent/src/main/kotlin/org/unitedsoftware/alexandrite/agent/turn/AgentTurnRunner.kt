@@ -222,8 +222,9 @@ internal class AgentTurnRunner(
         followUps: FollowUps,
         permit: TurnPermit,
         resolved: (ConversationId) -> Unit,
+        decided: () -> Unit,
     ): TurnOutcome {
-        val run = Run(plan, followUps, permit, resolved)
+        val run = Run(plan, followUps, permit, resolved, decided)
         val budget = (plan.input as? TurnSource.FromAgentMessage)?.message?.budget
             ?: (plan.input as? TurnSource.FromJob)?.job?.job?.carried?.get(MessageBudget)
             ?: currentCoroutineContext()[MessageBudget] ?: MessageBudget(plan.id)
@@ -250,6 +251,7 @@ internal class AgentTurnRunner(
         private val followUps: FollowUps,
         private val permit: TurnPermit,
         private val resolved: (ConversationId) -> Unit,
+        private val decided: () -> Unit,
     ) {
         private val startedAt = clock.instant()
         val meter = UsageMeter(budgets)
@@ -1263,6 +1265,7 @@ internal class AgentTurnRunner(
 
         /** Delivers the stored [reply] as the turn's answer, followed by the notice [after]. */
         private suspend fun answer(reply: AssistantEntry, after: Pair<NoticeKind, String>?): TurnOutcome {
+            decided()
             val turn = checkNotNull(turn)
             val text = visibleText(reply)
             val quiet = turn.kind in SILENT_KINDS || chatReplies.answered(turn.id)
@@ -1415,6 +1418,7 @@ internal class AgentTurnRunner(
             end: TurnEndKind,
             vouched: Boolean = true,
         ): TurnOutcome = withContext(NonCancellable) {
+            decided()
             val turn = checkNotNull(turn)
             append(NoticeEntry(null, text, kind))
             sink?.let { showNotice(it, turn, notice(text, plan.trigger, turn.conversation, vouched)) }
@@ -1437,6 +1441,7 @@ internal class AgentTurnRunner(
         }
 
         private suspend fun end(outcome: TurnOutcome, end: TurnEndKind): TurnOutcome {
+            decided()
             val turn = turn
             if (::taint.isInitialized) taint.record()
             if (turn != null && recorded) {

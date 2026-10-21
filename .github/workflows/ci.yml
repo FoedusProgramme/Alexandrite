@@ -27,6 +27,9 @@ jobs:
       - name: Publish to Maven local
         run: ./gradlew publishToMavenLocal -Palexandrite.version=0.0.0-ci --console=plain
 
+      - name: Build a host of the runtime, the agent and the tools from the published artifacts
+        run: ./gradlew -p examples/host build -Palexandrite.version=0.0.0-ci --console=plain
+
       - name: Build the notes example as a third-party plugin
         run: ./gradlew -p examples/notes/standalone build -Palexandrite.version=0.0.0-ci --console=plain
 
@@ -35,6 +38,36 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
+          path: |
+            **/build/reports/tests/
+            **/build/test-results/
+          if-no-files-found: ignore
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Test what is meant for Windows
+        run: >-
+          ./gradlew --console=plain
+          :libraries:internal:test --tests "*WindowsTest" --tests "*PlatformTest"
+          :libraries:tools:test --tests "*WindowsTest" --tests "*ProgramsTest"
+          :libraries:agent:test --tests "*LocalRunsTest"
+          :app:test --tests "*WindowsTest"
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-windows
           path: |
             **/build/reports/tests/
             **/build/test-results/

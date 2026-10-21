@@ -35,23 +35,49 @@ class PublishingTest {
     private fun library(description: String? = null) = "plugins {\n    id(\"alexandrite.kotlin-library\")\n}\n" +
         description?.let { "description = \"$it\"\n" }.orEmpty()
 
-    @Test
-    fun `a published module's POM carries its jar name, the version and its description`() {
+    private fun pom(directory: String, description: String): String {
+        val path = ":" + directory.replace('/', ':')
         build(
-            mapOf("libraries/internal" to library("Helpers")),
-            ":libraries:internal:generatePomFileForMavenPublication",
+            mapOf(directory to library(description), "build-ksp-plugin" to ""),
+            "$path:generatePomFileForMavenPublication",
             "-Palexandrite.version=1.2.3",
         ).build()
+        return root.resolve("$directory/build/publications/maven/pom-default.xml").readText()
+    }
 
-        val pom = root.resolve("libraries/internal/build/publications/maven/pom-default.xml").readText()
+    @Test
+    fun `a published module's POM carries its jar name, the version and its description`() {
+        val pom = pom("libraries/plugin-sdk", "The SDK")
+
         for (expected in listOf(
             "<groupId>org.unitedsoftware.alexandrite</groupId>",
-            "<artifactId>alexandrite-internal</artifactId>",
+            "<artifactId>alexandrite-plugin-sdk</artifactId>",
             "<version>1.2.3</version>",
-            "<description>Helpers</description>",
+            "<name>alexandrite-plugin-sdk</name>",
+            "<description>The SDK</description>",
         )) {
             assertContains(pom, expected)
         }
+    }
+
+    @Test
+    fun `an implementation module's POM description warns that its API may change`() {
+        val pom = pom("libraries/internal", "Helpers")
+
+        assertContains(
+            pom,
+            "<description>Helpers. An implementation module: its API may change in any release, so plugins " +
+                "build on alexandrite-plugin-sdk, alexandrite-channel-common and alexandrite-provider-common " +
+                "only.</description>",
+        )
+    }
+
+    @Test
+    fun `a family module is published in the base group`() {
+        val pom = pom("libraries/providers/example", "A provider")
+
+        assertContains(pom, "<groupId>org.unitedsoftware.alexandrite</groupId>")
+        assertContains(pom, "<artifactId>alexandrite-provider-example</artifactId>")
     }
 
     @Test
@@ -67,14 +93,11 @@ class PublishingTest {
     @Test
     fun `a module outside the published layers cannot apply the publishing convention`() {
         val result = build(
-            mapOf("libraries/automation-common" to library() + "apply(plugin = \"alexandrite.publish\")\n"),
+            mapOf("examples/x" to library() + "apply(plugin = \"alexandrite.publish\")\n"),
             "help",
         ).buildAndFail()
 
-        assertContains(
-            result.output,
-            "Project ':libraries:automation-common' (AUTOMATION_COMMON) applies 'alexandrite.publish'",
-        )
+        assertContains(result.output, "Project ':examples:x' (EXAMPLE) applies 'alexandrite.publish'")
     }
 
     @Test

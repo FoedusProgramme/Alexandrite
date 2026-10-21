@@ -34,6 +34,7 @@ import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.recordingTool
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
@@ -143,7 +144,7 @@ class CancellationTest {
     }
 
     @Test
-    fun `a cancel that lands while the final answer is delivered lets it reach the chat`() {
+    fun `a cancel that lands while the final answer is delivered finds nothing to stop and lets it reach the chat`() {
         val delivering = CompletableDeferred<Unit>()
         val go = CompletableDeferred<Unit>()
         val before = object : InterceptorHook<ReplyDraft> {
@@ -161,7 +162,7 @@ class CancellationTest {
             val admission = ask()
             delivering.await()
 
-            assertTrue(admission.ticket.cancel())
+            assertFalse(admission.ticket.cancel())
             go.complete(Unit)
             val outcome = admission.ticket.outcome()
 

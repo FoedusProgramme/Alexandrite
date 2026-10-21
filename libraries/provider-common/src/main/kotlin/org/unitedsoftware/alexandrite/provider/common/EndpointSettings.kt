@@ -193,6 +193,14 @@ public class TimeoutConfig(
         HttpTimeouts(connectSeconds.seconds, firstByteSeconds.seconds, idleSeconds.seconds)
 }
 
+/** The path of a wire API that [baseUrl] ends with, null when there is none. */
+public fun apiPathIn(baseUrl: String): String? {
+    val base = baseUrl.trimEnd('/')
+    return API_PATHS.firstOrNull { base.endsWith(it, ignoreCase = true) }
+}
+
+private val API_PATHS = listOf("/v1/messages", "/chat/completions", "/responses", "/messages")
+
 /** Throws when one of [ids], the keys of a provider's `endpoints`, is no [EndpointId]. */
 public fun requireEndpointIds(ids: Collection<String>) {
     for (id in ids) {

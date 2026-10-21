@@ -4,8 +4,10 @@ plugins {
     id("alexandrite.poko")
 }
 
+description = "Alexandrite's schedule automation: tasks that run turns at set times"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     api(project(":libraries:automation-common"))
 
     testImplementation(project(":libraries:testkit"))

@@ -9,7 +9,7 @@ plugins {
 }
 
 val module = AlexandriteLayout.moduleAt(path) ?: throw GradleException(AlexandriteLayout.noLocationMessage(path))
-if (module.layer !in AlexandriteLayout.PUBLISHED_LAYERS) {
+if (!module.published) {
     throw GradleException(
         "Project '$path' (${module.layer}) applies 'alexandrite.publish', but only the modules of " +
             "${AlexandriteLayout.PUBLISHED_LAYERS} are published. See ${AlexandriteLayout.LAYOUT_LOCATION}.",
@@ -23,11 +23,18 @@ mavenPublishing {
     configureBasedOnAppliedPlugins(JavadocJar.Empty(), SourcesJar.Sources())
     publishToMavenCentral(automaticRelease = false)
     signAllPublications()
-    coordinates(module.group, module.jarName, alexandriteVersion)
+    coordinates(AlexandriteLayout.PUBLISHED_GROUP, module.jarName, alexandriteVersion)
     pom {
         name = module.jarName
         description = provider {
-            project.description ?: throw GradleException("Project '$path' is published, so it needs a description.")
+            val described = project.description
+                ?: throw GradleException("Project '$path' is published, so it needs a description.")
+            if (module.layer in AlexandriteLayout.AUTHOR_LAYERS) {
+                described
+            } else {
+                "$described. An implementation module: its API may change in any release, so plugins build on " +
+                    "alexandrite-plugin-sdk, alexandrite-channel-common and alexandrite-provider-common only."
+            }
         }
         url = "https://alexandrite.unitedsoftware.org"
         licenses {

@@ -2,8 +2,10 @@ plugins {
     id("alexandrite.kotlin-library")
 }
 
+description = "The SQLite store of Alexandrite"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))
     implementation(libs.sqlite.jdbc)
 

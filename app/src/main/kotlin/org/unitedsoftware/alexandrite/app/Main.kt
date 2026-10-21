@@ -34,6 +34,7 @@ import java.io.IOException
 import java.io.PrintStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
@@ -182,7 +183,7 @@ internal fun run(
     }
     val locations = located(options) ?: return ExitCode.CONFIG
     return try {
-        host(locations, environment, err, execute, install, textsInterval)
+        host(locations, environment, err, execute, install, textsInterval, machine, platformOf(osName))
     } catch (e: Exception) {
         logger.error("Unexpected error", e)
         err.println("alexandrite: unexpected error: $e")
@@ -197,6 +198,8 @@ private fun host(
     execute: suspend (RuntimeSpec, suspend AlexandriteRuntime.() -> Unit) -> Termination,
     install: Path?,
     textsInterval: Duration,
+    machine: Machine,
+    platform: Platform,
 ): Int {
     val secrets = secretsFile(locations.configFile)
     val readEnvironment = { withSecrets(environment, secrets) }
@@ -271,6 +274,23 @@ private fun host(
                 val app = HostedApp(this, locations, Instant.now())
                 coroutineScope {
                     launch { texts.watch(textsInterval) }
+                    if (settings.updates.check && !isDevelopmentBuild(alexandriteVersion)) {
+                        services.getOrNull<UpdateDesk>()?.let { desk ->
+                            val base = releasesBase(environment)
+                            val watch = UpdateWatch(
+                                alexandriteVersion,
+                                settings.updates,
+                                LatestRelease(machine, base, locations.cacheDir)::get,
+                                base,
+                                desk,
+                                desk.initiator,
+                                desk.records,
+                                scriptedUpdate(environment, platform, locations),
+                                Clock.systemUTC(),
+                            )
+                            launch { watch.run() }
+                        }
+                    }
                     val answers = ControlAnswers(alexandriteVersion, { agentApis(services) }, app) {
                         services.get<ContributedDesks>().desks
                     }

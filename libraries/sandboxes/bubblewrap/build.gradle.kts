@@ -2,8 +2,10 @@ plugins {
     id("alexandrite.kotlin-library")
 }
 
+description = "The bubblewrap sandbox that Alexandrite runs commands and MCP servers in on Linux"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))
 
     testImplementation(project(":libraries:testkit"))

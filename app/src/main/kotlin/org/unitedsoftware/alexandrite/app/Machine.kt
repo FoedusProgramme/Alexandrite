@@ -49,6 +49,9 @@ internal interface Machine {
     /** Answers a POST of the JSON [body] to [url], or throws [IOException] when it is unreachable. */
     fun post(url: String, body: String): Fetched
 
+    /** Where a GET of [url] redirects to, null when it does not, or throws [IOException] when it fails. */
+    fun redirect(url: String): String?
+
     fun sleep(duration: KotlinDuration)
 
     /** Whether a follow of a log goes on. */
@@ -63,6 +66,11 @@ internal object LocalMachine : Machine {
     private val http: HttpClient by lazy {
         HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL)
             .build()
+    }
+
+    /** A client for quick checks that follows no redirect. */
+    private val direct: HttpClient by lazy {
+        HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.NEVER).build()
     }
 
     private val input by lazy { BufferedReader(InputStreamReader(System.`in`)) }
@@ -121,6 +129,31 @@ internal object LocalMachine : Machine {
             throw IOException(e.message, e)
         }
         return send(request.build())
+    }
+
+    override fun redirect(url: String): String? {
+        val answer = try {
+            val request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(5)).GET().build()
+            direct.send(request, HttpResponse.BodyHandlers.discarding())
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw IOException("interrupted", e)
+        } catch (e: IllegalArgumentException) {
+            throw IOException(e.message, e)
+        }
+        return when (answer.statusCode()) {
+            in 300..399 -> answer.headers().firstValue("location").orElse(null)?.let {
+                try {
+                    "${answer.uri().resolve(it)}"
+                } catch (e: IllegalArgumentException) {
+                    throw IOException(e.message, e)
+                }
+            }
+
+            in 200..299, 404 -> null
+
+            else -> throw IOException("HTTP ${answer.statusCode()}")
+        }
     }
 
     private fun send(request: HttpRequest): Fetched {

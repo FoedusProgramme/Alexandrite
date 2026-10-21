@@ -62,10 +62,12 @@ internal fun status(cli: Cli, json: Boolean): Int {
     val status = cli.status()
     val service = installedService(cli)
     val state = service?.state()
+    val release = availableRelease(cli)
     if (json) {
         cli.printJson(
             buildJsonObject {
                 put("running", status != null)
+                put("update", release)
                 if (status != null) {
                     put("version", status.version)
                     put("pid", status.pid)
@@ -98,7 +100,8 @@ internal fun status(cli: Cli, json: Boolean): Int {
             },
         )
     } else {
-        val text = statusText(cli, status, service, state)
+        val text = statusText(cli, status, service, state) +
+            release?.let { "\n" + cli.t("update.available", "version" to it) }.orEmpty()
         val style = cli.style
         if (style == null) {
             cli.out.println(text)

@@ -222,7 +222,7 @@ class OAuthTest {
                     text("login fake $mixed"),
                 )
                 assertFalse(fake.events.any { it == "token pkce verified" })
-                assertEquals(ServerState.NEEDS_LOGIN, server("fake").status.value.state)
+                waitingForLogin()
             }
         }
 
@@ -359,7 +359,7 @@ class OAuthTest {
                     "run. An operator must send /mcp login fake in a direct chat with the bot, then try again.",
                 result.text,
             )
-            assertEquals(ServerState.CONNECTED, server("fake").status.value.state)
+            connected("fake")
             val listed = text("")
             assertContains(
                 listed,

@@ -19,7 +19,7 @@ import java.io.IOException
 
 internal const val AGENTS = "agent.agents"
 internal const val TELEGRAM_INSTANCES = "channels.telegram.instances"
-private const val MCP_SERVERS = "mcp.servers"
+internal const val MCP_SERVERS = "mcp.servers"
 
 /** [id] when it is a valid id, else a [UsageException] naming it the [what] text. */
 internal fun requireId(id: String, what: String): String {
@@ -94,7 +94,7 @@ internal fun agentAdd(
     model: String?,
     channels: List<String>,
     default: Boolean,
-    restart: Boolean,
+    report: Report,
 ): Int {
     val config = cli.rawConfig() ?: return ExitCode.CONFIG
     if (agents(config).any { it.id == id }) return cli.fail(cli.t("agent.exists", "agent" to id))
@@ -110,13 +110,13 @@ internal fun agentAdd(
             }
         }
     }
-    return changeConfig(cli, listOf(ConfigChangeView("$AGENTS.$id", agent)), restart)
+    return changeConfig(cli, listOf(ConfigChangeView("$AGENTS.$id", agent)), report)
 }
 
-internal fun agentRemove(cli: Cli, id: String, restart: Boolean): Int {
+internal fun agentRemove(cli: Cli, id: String, report: Report): Int {
     val config = cli.rawConfig() ?: return ExitCode.CONFIG
     if (agents(config).none { it.id == id }) return cli.fail(cli.t("agent.unknown", "agent" to id))
-    return changeConfig(cli, listOf(ConfigChangeView("$AGENTS.$id", remove = true)), restart)
+    return changeConfig(cli, listOf(ConfigChangeView("$AGENTS.$id", remove = true)), report)
 }
 
 /** Shows the models of the agents, or of [agentId], or makes [model] the default model of the agent. */
@@ -154,7 +154,7 @@ internal fun model(cli: Cli, model: String?, agentId: String?, json: Boolean, re
             ExitCode.USAGE,
         )
     unknownEndpoint(config, model)?.let { return cli.fail(cli.texts(it)) }
-    return changeConfig(cli, defaultModels(agent.id, agent.config, listOf(model)), restart)
+    return changeConfig(cli, defaultModels(agent.id, agent.config, listOf(model)), cli.reporting(restart))
 }
 
 /** The changes that put [models] first among the models of agent [id] configured as [agent]. */
@@ -205,16 +205,16 @@ internal fun channelAddTelegram(
     variable: String?,
     apiBaseUrl: String?,
     restart: Boolean,
-): Int = cli.onTerminal { addTelegram(cli, name, admins, agentId, variable, apiBaseUrl, restart) }
+): Int = cli.onTerminal { addTelegram(cli, name, admins, agentId, variable, apiBaseUrl, cli.reporting(restart)) }
 
-private fun addTelegram(
+internal fun addTelegram(
     cli: Cli,
     name: String,
     admins: List<Long>,
     agentId: String?,
     variable: String?,
     apiBaseUrl: String?,
-    restart: Boolean,
+    report: Report,
 ): Int {
     val config = cli.rawConfig() ?: return ExitCode.CONFIG
     if (config.at("$TELEGRAM_INSTANCES.$name") != null) {
@@ -241,7 +241,7 @@ private fun addTelegram(
         return cli.fail(cli.t("secret.unwritable", "file" to cli.secrets, "reason" to (e.message ?: e)))
     }
     val changes = telegramChanges(name, secret, ids, agent, apiBaseUrl)
-    val code = changeConfig(cli, changes, restart)
+    val code = changeConfig(cli, changes, report)
     if (code != ExitCode.OK) {
         try {
             writeSecrets(cli.secrets, secrets)
@@ -319,7 +319,7 @@ internal fun configuredBot(cli: Cli, config: JsonObject, token: String): String?
 
 // MCP servers.
 
-internal fun mcpAdd(cli: Cli, name: String, url: String?, command: List<String>, restart: Boolean): Int {
+internal fun mcpAdd(cli: Cli, name: String, url: String?, command: List<String>, report: Report): Int {
     val config = cli.rawConfig() ?: return ExitCode.CONFIG
     if (config.at("$MCP_SERVERS.$name") != null) return cli.fail(cli.t("mcp.exists", "server" to name))
     val server = buildJsonObject {
@@ -330,13 +330,13 @@ internal fun mcpAdd(cli: Cli, name: String, url: String?, command: List<String>,
             put("args", JsonArray(command.drop(1).map(::JsonPrimitive)))
         }
     }
-    return changeConfig(cli, listOf(ConfigChangeView("$MCP_SERVERS.$name", server)), restart)
+    return changeConfig(cli, listOf(ConfigChangeView("$MCP_SERVERS.$name", server)), report)
 }
 
-internal fun mcpRemove(cli: Cli, name: String, restart: Boolean): Int {
+internal fun mcpRemove(cli: Cli, name: String, report: Report): Int {
     val config = cli.rawConfig() ?: return ExitCode.CONFIG
     if (config.at("$MCP_SERVERS.$name") == null) return cli.fail(cli.t("mcp.unknown", "server" to name))
-    return changeConfig(cli, listOf(ConfigChangeView("$MCP_SERVERS.$name", remove = true)), restart)
+    return changeConfig(cli, listOf(ConfigChangeView("$MCP_SERVERS.$name", remove = true)), report)
 }
 
 internal fun mcpList(cli: Cli, json: Boolean): Int {

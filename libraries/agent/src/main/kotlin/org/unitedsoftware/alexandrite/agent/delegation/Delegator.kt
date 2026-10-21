@@ -208,6 +208,10 @@ internal class Delegator(
                 withContext(messageBudget ?: EmptyCoroutineContext) {
                     val permit = PoolPermit(permits)
                     permit.acquire()
+                    jobs.stopping(run)?.let { cause ->
+                        permit.release()
+                        throw cause
+                    }
                     var status = ToolCallStatus.FAILED
                     try {
                         checkNotNull(detachedParent).open()
@@ -260,7 +264,7 @@ internal class Delegator(
         try {
             coroutineScope {
                 val job = launch(start = CoroutineStart.LAZY) {
-                    outcome = runner.value.run(plan, inbox, permit) {}
+                    outcome = runner.value.run(plan, inbox, permit, resolved = {}, decided = {})
                 }
                 runs.started(LiveRun(delegation, plan.id, job, plan.queuedAt))
                 hooks.fire(TurnPoints.AGENT_SPAWN, lifecycle(delegation))

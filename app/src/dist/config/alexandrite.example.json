@@ -4,7 +4,8 @@
     "language": "en",
     "shutdownGraceSeconds": 15,
     "startTimeoutSeconds": 30,
-    "plugins": []
+    "plugins": [],
+    "updates": {"check": true, "install": false, "idleMinutes": 120}
   },
   "mcp": {
     "servers": {
@@ -21,20 +22,9 @@
       },
       "docs": {
         "url": "https://mcp.example.com/mcp",
-        "oauth": {
-          "scopes": [
-            "read"
-          ]
-        },
-        "tools": {
-          "allow": [
-            "search_*",
-            "fetch_*"
-          ]
-        },
-        "risk": {
-          "*": "network_read"
-        },
+        "oauth": {"scopes": ["read"]},
+        "tools": {"allow": ["search_*", "fetch_*"]},
+        "risk": {"*": "network_read"},
         "timeoutSeconds": 30,
         "enabled": false
       }

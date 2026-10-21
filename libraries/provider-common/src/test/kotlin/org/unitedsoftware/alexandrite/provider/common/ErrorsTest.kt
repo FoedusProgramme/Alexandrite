@@ -22,6 +22,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ErrorsTest {
@@ -46,6 +47,22 @@ class ErrorsTest {
         return assertFailsWith<ModelException> {
             runBlocking { chatEndpoint(server, ChatFlavor.STANDARD).use { it.events(request) } }
         }.error
+    }
+
+    @Test
+    fun `a 400 that says to use the Responses API adds that the model needs the openai-responses provider`() {
+        val hint = "This model needs the openai-responses provider."
+        val pointed =
+            error(400, """{"error": {"message": "This model is only supported in v1/responses.", "type": "x"}}""")
+        val used = error(400, """{"error": {"message": "Use /v1/responses for this model."}}""")
+        val other = error(400, """{"error": {"message": "Bad tool schema."}}""")
+        val missing = error(404, """{"error": {"message": "Try /v1/responses."}}""")
+
+        assertTrue(pointed.message.endsWith("\"type\": \"x\"}} $hint"), pointed.message)
+        assertTrue(used.message.endsWith(hint), used.message)
+        assertEquals(ModelErrorKind.INVALID_REQUEST, used.kind)
+        assertFalse(hint in other.message, other.message)
+        assertFalse(hint in missing.message, missing.message)
     }
 
     @Test

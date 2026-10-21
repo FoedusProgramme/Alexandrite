@@ -35,11 +35,14 @@ private const val MIB = 1024L * 1024
 
 /** Checks what Alexandrite needs to run and prints each finding. */
 internal fun doctor(cli: Cli, json: Boolean): Int {
-    val findings = diagnose(cli)
+    val release = availableRelease(cli)
+    val findings = diagnose(cli) +
+        listOfNotNull(release?.let { Finding("update", Verdict.WARN, cli.t("update.available", "version" to it)) })
     if (json) {
         cli.printJson(
             buildJsonObject {
                 put("ok", findings.none { it.verdict == Verdict.FAIL })
+                put("update", release)
                 put(
                     "checks",
                     JsonArray(
@@ -97,6 +100,7 @@ internal fun diagnose(cli: Cli): List<Finding> {
     findings += permissions(cli)
     findings += disk(cli)
     if (resolved != null) {
+        findings += baseUrlWarnings(cli, resolved).map { Finding("config", Verdict.WARN, it) }
         findings += endpoints(cli, resolved)
         findings += telegram(cli, resolved)
     }

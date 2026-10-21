@@ -3,8 +3,10 @@ plugins {
     id("alexandrite.kotlin-serialization")
 }
 
+description = "Alexandrite's heartbeat automation: agent turns on a timer that belong to no chat"
+
 dependencies {
-    implementation(project(":libraries:plugin-sdk"))
+    api(project(":libraries:plugin-sdk"))
     implementation(project(":libraries:internal"))
     implementation(project(":libraries:automation-common"))
 

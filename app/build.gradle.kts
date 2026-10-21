@@ -15,6 +15,7 @@ dependencies {
     implementation(project(":libraries:channel-common"))
     implementation(project(":libraries:channels:onebot"))
     implementation(project(":libraries:channels:qqbot"))
+    implementation(project(":libraries:provider-common"))
     implementation(project(":libraries:providers:openai-compatible"))
     implementation(project(":libraries:providers:openai-responses"))
     implementation(project(":libraries:providers:deepseek"))

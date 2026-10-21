@@ -47,7 +47,9 @@ class McpCommandTest {
         val lines = reply.lines()
         assertEquals("MCP servers:", lines[0])
         assertEquals("files: connected, protocol 2026-07-28, 8 tools", lines[1])
-        assertTrue(lines[2].startsWith("broken: down; last error: Cannot start /nonexistent/mcp-server: "), lines[2])
+        // A broken server keeps retrying, so it may be connecting again by the time /mcp lists it
+        val broken = Regex("broken: (down|connecting); last error: Cannot start /nonexistent/mcp-server: .*")
+        assertTrue(broken.matches(lines[2]), lines[2])
         assertEquals("off: disabled", lines[3])
         assertEquals(listOf(false), told)
     }

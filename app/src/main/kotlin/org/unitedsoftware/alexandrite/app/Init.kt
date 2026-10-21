@@ -585,7 +585,7 @@ private class Setup(private val cli: Cli, private val options: InitOptions) {
     }
 }
 
-private fun keyVariable(endpoint: String): String = "ALEXANDRITE_${endpoint.uppercase().replace('-', '_')}_API_KEY"
+internal fun keyVariable(endpoint: String): String = "ALEXANDRITE_${endpoint.uppercase().replace('-', '_')}_API_KEY"
 
 /**
  * What the service runs: the launcher of the install script, else the start script of the distribution this command

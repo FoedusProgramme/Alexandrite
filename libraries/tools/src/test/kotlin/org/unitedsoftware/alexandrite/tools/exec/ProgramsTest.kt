@@ -2,10 +2,12 @@ package org.unitedsoftware.alexandrite.tools.exec
 
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
+import org.unitedsoftware.alexandrite.internal.path.Platform
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ProgramsTest {
@@ -90,6 +92,35 @@ class ProgramsTest {
 
         for (argv in coded) assertTrue(opaque(*argv.toTypedArray()), "$argv")
         for (argv in scripts) assertFalse(opaque(*argv.toTypedArray()), "$argv")
+    }
+
+    @Test
+    fun `Windows shells, script hosts and code runners are opaque however Windows spells their names`() {
+        val coded = listOf(
+            listOf("CMD.EXE", "/c", "dir"),
+            listOf("C:\\Windows\\System32\\cmd.exe", "/c", "dir"),
+            listOf("PowerShell", "-NoProfile", "-Command", "Get-Item x"),
+            listOf("pwsh.exe", "-c", "x"),
+            listOf("wscript", "a.vbs"),
+            listOf("CScript.exe", "a.js"),
+            listOf("mshta", "a.hta"),
+            listOf("rundll32.exe", "a.dll,Run"),
+            listOf("wsl", "ls"),
+            listOf("bash.exe", "-c", "ls"),
+            listOf("py", "-3", "-c", "print(1)"),
+            listOf("Python.exe", "-c", "print(1)"),
+            listOf("R.exe", "-e", "1"),
+        )
+
+        for (argv in coded) assertTrue(isOpaque(Platform.WINDOWS.programName(argv.first()), argv.drop(1)), "$argv")
+        assertFalse(isOpaque(Platform.WINDOWS.programName("Git.exe"), listOf("status")))
+        assertFalse(isOpaque(Platform.POSIX.programName("CMD.EXE"), listOf("/c", "dir")))
+    }
+
+    @Test
+    fun `a Windows shell's command line is no POSIX script that is run step by step`() {
+        assertNull(shellChain(listOf("cmd", "/c", "echo a && echo b"), null))
+        assertNull(shellChain(listOf("powershell", "-c", "echo a; echo b"), null))
     }
 
     @Test

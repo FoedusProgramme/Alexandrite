@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.permission
 
 import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
+import org.unitedsoftware.alexandrite.internal.path.programName
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
@@ -78,7 +79,7 @@ internal class RuleEntry private constructor(
     /** Whether the rule trusts programs that run whatever code they are given. */
     val anyCode: Boolean
         get() = (glob?.matches(EXEC) ?: (tool == EXEC)) &&
-            (prefix.isEmpty() || prefix.first().substringAfterLast('/') in RUNS_ANY_CODE)
+            (prefix.isEmpty() || programName(prefix.first()) in RUNS_ANY_CODE)
 
     /** Whether [argv] starts with [prefix], with its program named as the prefix names it or with the file name [file]. */
     private fun startsWith(argv: List<String>, file: String?): Boolean = argv.size >= prefix.size &&
@@ -226,7 +227,8 @@ private const val EXEC = "command.exec"
 /** Programs that run whatever code they are given, so that trusting them trusts any script. */
 private val RUNS_ANY_CODE = setOf(
     "sh", "bash", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh", "busybox", "env", "xargs", "sudo", "doas",
-    "su", "eval", "exec", "python", "python3", "node", "ruby", "perl", "php", "lua", "osascript", "ssh",
+    "su", "eval", "exec", "python", "python3", "node", "ruby", "perl", "php", "lua", "osascript", "ssh", "cmd",
+    "powershell", "pwsh", "wsl", "cscript", "wscript", "mshta", "py",
 )
 
 private const val OPERATORS = "|&;<>"
