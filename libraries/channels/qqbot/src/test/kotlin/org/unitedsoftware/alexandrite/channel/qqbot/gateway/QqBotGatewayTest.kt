@@ -9,8 +9,10 @@ import org.unitedsoftware.alexandrite.channel.qqbot.net.QqBotHttp
 import org.unitedsoftware.alexandrite.channel.qqbot.testing.FakeApiServer
 import org.unitedsoftware.alexandrite.channel.qqbot.testing.FakeGatewayServer
 import org.unitedsoftware.alexandrite.channel.qqbot.testing.MutableClock
+import org.unitedsoftware.alexandrite.channel.qqbot.testing.PlatformAnswer
 import org.unitedsoftware.alexandrite.channel.qqbot.testing.testConfig
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -57,6 +59,40 @@ class QqBotGatewayTest {
     }
 
     @Test
+    fun `a token the platform cannot sell is retried rather than ending the gateway loop`() = runBlocking {
+        val api = FakeApiServer()
+        val bought = AtomicInteger()
+        api.on(TOKEN_PATH) {
+            if (bought.incrementAndGet() <= 2) {
+                PlatformAnswer(500, """{"message":"token endpoint unavailable"}""")
+            } else {
+                PlatformAnswer(200, """{"access_token":"access","expires_in":"7200"}""")
+            }
+        }
+        val platform = FakeGatewayServer().startAndAwait()
+        api.on(GATEWAY_PATH, """{"url":"${platform.url}"}""")
+        val config = testConfig(api.base)
+        val http = QqBotHttp(config)
+        try {
+            val tokens = QqBotTokens(config, http, clock)
+            val gateway = QqBotGateway(config, QqBotApi(http, tokens), tokens)
+            gateway.onStart()
+
+            assertTrue(platform.awaitConnection(), "the gateway was not connected after the token was bought")
+            val identify = assertNotNull(platform.awaitFrame(predicate = { it.contains("\"op\":2") }))
+            assertTrue("QQBot access" in identify, identify)
+            assertTrue(bought.get() >= 3, "the token was bought ${bought.get()} times, so it was not retried")
+            assertEquals("bot1", gateway.botId)
+
+            gateway.onStop()
+        } finally {
+            platform.stop()
+            http.close()
+            api.close()
+        }
+    }
+
+    @Test
     fun `a close code that ends the session is not resumed`() {
         assertTrue(dropsSession(4006))
         assertTrue(dropsSession(4007))
@@ -69,6 +105,8 @@ class QqBotGatewayTest {
 
     private companion object {
         const val TOKEN_PATH = "/app/getAppAccessToken"
+
+        const val GATEWAY_PATH = "/gateway"
 
         const val EVENT = """{"id":"event1","op":0,"s":2,"t":"C2C_MESSAGE_CREATE","d":""" +
             """{"id":"msg1","author":{"id":"u1","user_openid":"u1","username":"Ada"},"content":"hi",""" +

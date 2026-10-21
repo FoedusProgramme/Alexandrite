@@ -28,6 +28,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
 import org.unitedsoftware.alexandrite.sdk.turn.TurnSubmitter
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * What the gateway pushes, taken into the agent.
@@ -96,7 +97,16 @@ internal class QqBotInbox(
     }
 
     private suspend fun read() {
-        gateway.frames.collect { frame -> read(frame) }
+        gateway.frames.collect { frame ->
+            // One frame that fails to read must not end the intake: the next message may still reach the agent.
+            try {
+                read(frame)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                logger.warn("{}: reading a frame of the platform failed: {}", PLUGIN, e.toString())
+            }
+        }
     }
 
     /** Takes one frame of the gateway, and the message it dispatches when it dispatches one. */

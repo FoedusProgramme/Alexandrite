@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.channel.qqbot.gateway
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,6 +37,7 @@ import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import java.net.URI
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * The gateway of one bot: the WebSocket the open platform pushes its events on.
@@ -80,7 +82,10 @@ internal class QqBotGateway(
     override suspend fun onStart() {
         check(scope == null) { "The gateway is already open." }
         val opened = CompletableDeferred<Throwable?>()
-        val run = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val failed = CoroutineExceptionHandler { _, error ->
+            logger.error("{}: the gateway loop failed", PLUGIN, error)
+        }
+        val run = CoroutineScope(SupervisorJob() + Dispatchers.IO + failed)
         scope = run
         loop = run.launch { connectLoop(opened) }
         val failure = try {
@@ -105,12 +110,32 @@ internal class QqBotGateway(
     }
 
     private suspend fun connectLoop(opened: CompletableDeferred<Throwable?>) {
+        // How often naming the gateway failed before the runtime was ready, which the startup retries before it gives
+        // up: the platform may be briefly unreachable, and one blip must not fail the start.
+        var unnamed = 0
         while (scope != null) {
-            val url = gatewayUrl()
+            // Naming the gateway asks the platform, which may be unreachable: that is a reconnect, not the end of the
+            // loop, so that a single failed call never leaves the bot without its gateway until the runtime restarts.
+            val url = try {
+                gatewayUrl()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!opened.isCompleted) {
+                    opened.complete(e)
+                    return
+                }
+                logger.warn("{}: the gateway could not be named: {}; trying again", PLUGIN, e.toString())
+                delay(config.reconnectIntervalMillis)
+                continue
+            }
             if (url == null) {
                 if (!opened.isCompleted) {
-                    opened.complete(IllegalStateException("The platform named no gateway."))
-                    return
+                    unnamed += 1
+                    if (unnamed >= START_ATTEMPTS) {
+                        opened.complete(IllegalStateException("The platform named no gateway in $unnamed tries."))
+                        return
+                    }
                 }
                 logger.warn("{}: the platform named no gateway; trying again", PLUGIN)
                 delay(config.reconnectIntervalMillis)
@@ -359,7 +384,7 @@ internal class QqBotGateway(
 
         const val EVENT_CAPACITY = 1024
 
-        /** How many times a connect timeout the startup may take: the token, the gateway and the ready frame. */
+        /** How often the startup may try a step before it gives up: the token, the gateway and the ready frame. */
         const val START_ATTEMPTS = 3L
 
         /** The dispatches that carry a message, which are worth a line at the usual level. */

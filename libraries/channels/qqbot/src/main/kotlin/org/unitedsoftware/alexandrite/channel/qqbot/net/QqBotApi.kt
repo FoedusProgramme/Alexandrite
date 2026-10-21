@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.channel.qqbot.protocol.failureOf
 import org.unitedsoftware.alexandrite.internal.http.HttpCall
 import org.unitedsoftware.alexandrite.internal.http.HttpException
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
+import kotlin.coroutines.cancellation.CancellationException
 
 /** What a call to the open platform answered: the body, or why it gave none. */
 internal sealed class QqBotAnswer {
@@ -48,19 +49,21 @@ internal class QqBotApi(private val http: QqBotHttp, private val tokens: QqBotTo
     }
 
     /** Calls [method] on [path] with [body], buying a new token once when the platform says the old one expired. */
-    private suspend fun call(method: String, path: String, body: JsonObject?, retried: Boolean = false): QqBotAnswer {
-        val authorization = tokens.authorization(refresh = retried)
-        val call = HttpCall(
-            method = method,
-            uri = http.uri(path),
-            headers = buildMap {
-                put("Authorization", authorization)
-                if (body != null) put("Content-Type", "application/json; charset=utf-8")
-            },
-            body = body?.toString(),
-            secrets = listOf(authorization.removePrefix("QQBot ")),
-        )
-        return try {
+    private suspend fun call(method: String, path: String, body: JsonObject?, retried: Boolean = false): QqBotAnswer =
+        try {
+            // Buying the token is part of the call: a platform that cannot be reached for the token must answer the
+            // caller like any other failed call rather than throw past it.
+            val authorization = tokens.authorization(refresh = retried)
+            val call = HttpCall(
+                method = method,
+                uri = http.uri(path),
+                headers = buildMap {
+                    put("Authorization", authorization)
+                    if (body != null) put("Content-Type", "application/json; charset=utf-8")
+                },
+                body = body?.toString(),
+                secrets = listOf(authorization.removePrefix("QQBot ")),
+            )
             val text = http.send(call)
             val answer = if (text.isBlank()) {
                 null
@@ -73,24 +76,27 @@ internal class QqBotApi(private val http: QqBotHttp, private val tokens: QqBotTo
             if (failure.code != null && failure.code != 0) {
                 if (failure.code in EXPIRED_TOKEN && !retried) {
                     logger.warn("{}: the token is not taken while calling {}; buying another", PLUGIN, path)
-                    return call(method, path, body, retried = true)
+                    call(method, path, body, retried = true)
+                } else {
+                    QqBotAnswer.Failed(failure, null)
                 }
-                QqBotAnswer.Failed(failure, null)
             } else {
                 QqBotAnswer.Ok(answer)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: HttpException) {
             val parsed = e.body?.let { runCatching { QqBotWire.json.parseToJsonElement(it) }.getOrNull() }
             if (e.status == UNAUTHORIZED && !retried) {
                 logger.warn("{}: the token expired while calling {}; buying another", PLUGIN, path)
-                return call(method, path, body, retried = true)
+                call(method, path, body, retried = true)
+            } else {
+                QqBotAnswer.Failed(failureOf(parsed), e.status)
             }
-            QqBotAnswer.Failed(failureOf(parsed), e.status)
         } catch (e: Exception) {
             logger.warn("{}: the call to {} failed: {}", PLUGIN, path, e.toString())
             QqBotAnswer.Failed(QqBotFailure(null, e.toString(), null), null)
         }
-    }
 
     private companion object {
         const val PLUGIN = "alexandrite-channel-qqbot"
