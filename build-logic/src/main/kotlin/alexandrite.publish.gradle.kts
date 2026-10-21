@@ -32,8 +32,8 @@ mavenPublishing {
             if (module.layer in AlexandriteLayout.AUTHOR_LAYERS) {
                 described
             } else {
-                "$described. An implementation module: its API may change in any release, so plugins depend on " +
-                    "alexandrite-plugin-sdk only."
+                "$described. An implementation module: its API may change in any release, so plugins build on " +
+                    "alexandrite-plugin-sdk, alexandrite-channel-common and alexandrite-provider-common only."
             }
         }
         url = "https://alexandrite.unitedsoftware.org"

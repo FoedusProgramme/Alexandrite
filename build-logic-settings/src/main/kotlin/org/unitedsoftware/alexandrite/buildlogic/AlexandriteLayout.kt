@@ -273,7 +273,8 @@ object AlexandriteLayout {
     val PUBLISHED_LAYERS: Set<Layer> = Layer.entries.toSet() - setOf(Layer.EXAMPLE, Layer.APP)
 
     /** Published layers that plugin authors build on, whose POM carries no implementation-module warning */
-    val AUTHOR_LAYERS: Set<Layer> = setOf(Layer.SDK, Layer.TESTKIT, Layer.KSP, Layer.BOM)
+    val AUTHOR_LAYERS: Set<Layer> =
+        setOf(Layer.SDK, Layer.TESTKIT, Layer.KSP, Layer.BOM, Layer.CHANNEL_COMMON, Layer.PROVIDER_COMMON)
 
     /** Layers whose modules get a generated `PluginIndex` */
     val INDEXED_LAYERS: Set<Layer> = setOf(

@@ -350,7 +350,7 @@ class AlexandriteLayoutTest {
         }
         assertEquals((libraries + ksp + bom).sorted(), all.filter { module(it).published }.sorted())
         assertEquals(
-            setOf(sdk, testkit, ksp, bom),
+            setOf(sdk, testkit, ksp, bom, channelCommon, providerCommon),
             all.filter {
                 module(it).layer in AlexandriteLayout.AUTHOR_LAYERS
             }.toSet(),
