@@ -5,7 +5,6 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.NoSuchFileException
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermissions
 
 /** The secrets file's name beside the config file. */
 internal const val SECRETS_FILE = "secrets.env"
@@ -38,10 +37,7 @@ internal fun readSecrets(file: Path): Map<String, String> {
 internal fun writeSecrets(file: Path, secrets: Map<String, String>) {
     Files.createDirectories(file.toAbsolutePath().parent)
     val text = secrets.entries.joinToString("") { (name, value) -> "$name=$value\n" }
-    writeAtomically(file) { it.write(text.toByteArray(Charsets.UTF_8)) }
-    if ("posix" in file.fileSystem.supportedFileAttributeViews()) {
-        Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"))
-    }
+    writeAtomically(file, ownerOnly = true) { it.write(text.toByteArray(Charsets.UTF_8)) }
 }
 
 /** [environment] over the variables of the secrets [file]. */

@@ -19,13 +19,14 @@ import java.util.UUID
 /**
  * Replaces the entry [target] with a file of what [write] writes, moved there atomically once it is written and synced.
  *
- * The new file takes the permissions of the file it replaces, or is owner-only when there is none to take.
+ * The new file is owner-only when [ownerOnly] or when there is no file to replace, else takes the permissions of the
+ * file it replaces.
  */
-public fun writeAtomically(target: Path, write: (OutputStream) -> Unit) {
+public fun writeAtomically(target: Path, ownerOnly: Boolean = false, write: (OutputStream) -> Unit) {
     val directory = target.parent ?: throw IOException("$target names no file in a directory.")
     val temporary = directory.resolve(temporaryName(target.fileName.toString()))
     try {
-        writeNewFile(temporary, targetPermissions(target), write)
+        writeNewFile(temporary, if (ownerOnly) OWNER_ONLY else targetPermissions(target), write)
         Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE)
     } catch (e: Throwable) {
         try {
@@ -43,7 +44,7 @@ public fun writeAtomically(target: Path, write: (OutputStream) -> Unit) {
  * (owner-only when null) where the file system has POSIX permissions.
  */
 public fun writeNewFile(file: Path, permissions: Set<PosixFilePermission>? = null, write: (OutputStream) -> Unit) {
-    val posix = "posix" in file.fileSystem.supportedFileAttributeViews()
+    val posix = hasPosixPermissions(file)
     val owner = if (posix) arrayOf<FileAttribute<*>>(PosixFilePermissions.asFileAttribute(OWNER_ONLY)) else emptyArray()
     val options = setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
     FileChannel.open(file, options, *owner).use { channel ->
