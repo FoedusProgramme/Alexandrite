@@ -35,8 +35,8 @@ public class Protect private constructor(
 }
 
 /**
- * The one of [environments] that a sandbox [type] selects: none for [HOST_SANDBOX], the platform's for [AUTO_SANDBOX]
- * where it is available, else none after telling [missing] why. Throws an [IllegalArgumentException] for a named one
+ * The one of [environments] that a sandbox [type] selects: none for [HOST_SANDBOX], the first that is available on this
+ * host for [AUTO_SANDBOX], else none after telling [missing] why. Throws an [IllegalArgumentException] for a named one
  * that is missing or unavailable.
  */
 public fun <E : Any> selectEnvironment(
@@ -48,10 +48,15 @@ public fun <E : Any> selectEnvironment(
 ): E? = when (type) {
     HOST_SANDBOX -> null
 
-    AUTO_SANDBOX -> {
-        val platform = platformEnvironment()
-        environments.firstOrNull { name(it) == platform && available(it) }.also { found ->
-            if (found == null) missing(platform?.let { "the $it sandbox is not available" } ?: "this platform has none")
+    AUTO_SANDBOX -> environments.firstOrNull(available).also { found ->
+        if (found == null) {
+            missing(
+                if (environments.isEmpty()) {
+                    "no plugin contributes a sandbox"
+                } else {
+                    "none of the sandboxes ${environments.joinToString { name(it) }} is available on this host"
+                },
+            )
         }
     }
 
@@ -63,13 +68,6 @@ public fun <E : Any> selectEnvironment(
         require(available(named)) { "the sandbox '$type' is not available on this host" }
         named
     }
-}
-
-/** The execution environment that a sandbox of type `auto` runs in on the platform [os], null where there is none. */
-public fun platformEnvironment(os: String = System.getProperty("os.name").orEmpty()): String? = when {
-    os.startsWith("Mac") -> "seatbelt"
-    os.startsWith("Linux") -> "bubblewrap"
-    else -> null
 }
 
 /** The variables that send a program's network traffic through the HTTP proxy on the loopback [port]. */

@@ -110,6 +110,4 @@ private fun hash(path: Path): String? = try {
     null
 }
 
-private const val MAX_REASON_CHARS = 300
-
 private val logger = LoggerFactory.getLogger(RecordTaintLedger::class.java)

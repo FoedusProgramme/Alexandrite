@@ -32,6 +32,7 @@ import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.internal.text.cutStartWithEllipsis
 import org.unitedsoftware.alexandrite.internal.text.cutWithEllipsis
 import org.unitedsoftware.alexandrite.internal.text.fittingLength
+import org.unitedsoftware.alexandrite.internal.text.shellLine
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
@@ -288,7 +289,7 @@ internal class ApprovalDesk(
                     },
                 ).map(::Line) + listOfNotNull(
                     preview.monitor?.let { Line(text(TextKeys.APPROVAL_MONITOR, language), it) },
-                ) to commandLine(preview.argv) + steps(segments)
+                ) to shellLine(preview.argv) + steps(segments)
             }
 
             is ReviewPreview.Text -> emptyList<Line>() to preview.text
@@ -805,9 +806,9 @@ private fun rules(request: ApprovalRequest): String = request.alwaysRules.joinTo
 private fun steps(segments: List<CommandSegment>): String = segments.withIndex().joinToString("") { (index, segment) ->
     val joint = segment.joint?.let { "${it.operator} " }.orEmpty()
     val variables = segment.environment.entries.joinToString("") { (name, value) ->
-        "${commandLine(listOf("$name=$value"))} "
+        "${shellLine(listOf("$name=$value"))} "
     }
-    (if (index == 0) "\n\n" else "\n") + "${index + 1}. $joint$variables${commandLine(segment.argv)}"
+    (if (index == 0) "\n\n" else "\n") + "${index + 1}. $joint$variables${shellLine(segment.argv)}"
 }
 
 /** [user]'s name as an approver sees it, escaped. */
@@ -830,12 +831,6 @@ private fun readable(bytes: Long): String {
         unit = next
     }
     return if (unit == "B") "$bytes B" else String.format(Locale.ROOT, "%.1f %s", value, unit)
-}
-
-/** [argv] as one command line, each word that a shell would split or expand in single quotes. */
-private fun commandLine(argv: List<String>): String = argv.joinToString(" ") { word ->
-    val plain = word.isNotEmpty() && word.all { it.isLetterOrDigit() || it in PLAIN }
-    if (plain) word else "'${word.replace("'", "'\\''")}'"
 }
 
 /** The text key of what started a turn of [kind] that its requester did not send now, null for a message. */
@@ -906,8 +901,5 @@ private const val MAX_LABEL = 40
 
 /** The characters of a root's name that a button shows at least. */
 private const val MIN_NAME = 16
-
-/** The characters a shell takes as part of a word. */
-private const val PLAIN = "-_./=:,+@%"
 
 private val logger = LoggerFactory.getLogger(ApprovalDesk::class.java)

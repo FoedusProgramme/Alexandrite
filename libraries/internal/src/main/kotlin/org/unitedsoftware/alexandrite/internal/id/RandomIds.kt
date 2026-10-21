@@ -11,3 +11,9 @@ public fun newId(): String {
     random.nextBytes(bytes)
     return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 }
+
+/** A random id of 8 lower-case letters and digits, without those that read alike, for people to type. */
+public fun shortId(): String = String(CharArray(SHORT_LENGTH) { SHORT_CHARS[random.nextInt(SHORT_CHARS.length)] })
+
+private const val SHORT_CHARS = "abcdefghijkmnopqrstuvwxyz23456789"
+private const val SHORT_LENGTH = 8

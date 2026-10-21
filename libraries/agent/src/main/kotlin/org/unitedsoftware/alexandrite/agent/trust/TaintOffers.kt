@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.agent.control.ControlRunner
 import org.unitedsoftware.alexandrite.agent.delivery.delivered
 import org.unitedsoftware.alexandrite.agent.project.UntrustedFolder
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
+import org.unitedsoftware.alexandrite.internal.id.shortId
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
@@ -28,7 +29,6 @@ import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginScope
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
-import java.security.SecureRandom
 
 /**
  * Offers an operator to trust what tainted a conversation that nobody was asked about before: the call of an automated
@@ -48,7 +48,6 @@ internal class TaintOffers(
     Lifecycle {
     private val work = SupervisorJob(scope.coroutineContext[Job])
     private val scope = CoroutineScope(scope.coroutineContext + work)
-    private val random = SecureRandom()
 
     override suspend fun onClose() {
         work.cancel()
@@ -134,7 +133,7 @@ internal class TaintOffers(
             turn.chat.instance
         }
         val channel = instance?.let(channels::channel) ?: return null
-        val offer = TrustOffer(newId(), turn, ReviewText.escape(reason), roots.map { it.shown }, kind)
+        val offer = TrustOffer(shortId(), turn, ReviewText.escape(reason), roots.map { it.shown }, kind)
         logger.info("Trust offer {} of turn {} of {} is made", offer.id, turn.id, turn.key)
         return try {
             channel.offerTrust(offer).also { logger.info("Trust offer {} ends: {}", offer.id, described(it)) }
@@ -146,12 +145,8 @@ internal class TaintOffers(
         }
     }
 
-    private fun newId(): String = String(CharArray(ID_LENGTH) { ID_CHARS[random.nextInt(ID_CHARS.length)] })
-
     private companion object {
         const val UNTRUSTED_SENDER = "a message from someone whom the agent does not trust"
-        const val ID_CHARS = "abcdefghijkmnopqrstuvwxyz23456789"
-        const val ID_LENGTH = 8
 
         /** The most folders that one offer of project instructions names. */
         const val MAX_FOLDERS = 3

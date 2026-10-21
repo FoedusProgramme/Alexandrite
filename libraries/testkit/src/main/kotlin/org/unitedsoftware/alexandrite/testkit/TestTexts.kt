@@ -1,11 +1,11 @@
 package org.unitedsoftware.alexandrite.testkit
 
+import org.unitedsoftware.alexandrite.internal.resource.resourceFiles
 import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.runtime.i18n.ENGLISH
 import org.unitedsoftware.alexandrite.runtime.i18n.TEXTS_SUFFIX
 import org.unitedsoftware.alexandrite.runtime.i18n.placeholderNames
 import org.unitedsoftware.alexandrite.runtime.i18n.readTexts
-import org.unitedsoftware.alexandrite.runtime.i18n.resourceFiles
 import org.unitedsoftware.alexandrite.runtime.i18n.standaloneTexts
 import org.unitedsoftware.alexandrite.runtime.i18n.textsDirectory
 import org.unitedsoftware.alexandrite.runtime.i18n.textsPath

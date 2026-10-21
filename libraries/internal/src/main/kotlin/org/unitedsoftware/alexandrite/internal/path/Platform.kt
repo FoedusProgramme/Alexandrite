@@ -60,3 +60,25 @@ private val BATCH_EXTENSIONS = setOf(".bat", ".cmd")
 
 /** The characters that `cmd.exe` reads as its own syntax. */
 private const val CMD_SYNTAX = "%!\"^&|<>()\r\n"
+
+/** The family of an operating system, as the JVM's `os.name` names it. */
+public enum class OsFamily {
+    MAC,
+    LINUX,
+    WINDOWS,
+    OTHER,
+    ;
+
+    public companion object {
+        /** The family of the operating system named [osName]. */
+        public fun of(osName: String): OsFamily = when {
+            osName.startsWith("Mac", ignoreCase = true) || osName.startsWith("Darwin", ignoreCase = true) -> MAC
+            osName.startsWith("Linux", ignoreCase = true) -> LINUX
+            osName.startsWith("Windows", ignoreCase = true) -> WINDOWS
+            else -> OTHER
+        }
+
+        /** The family of the operating system the JVM runs on. */
+        public val HOST: OsFamily = of(System.getProperty("os.name").orEmpty())
+    }
+}

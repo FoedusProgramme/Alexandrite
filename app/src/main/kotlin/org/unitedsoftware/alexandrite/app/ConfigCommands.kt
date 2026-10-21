@@ -15,12 +15,14 @@ import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.control.ConfigChangeView
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
+import org.unitedsoftware.alexandrite.internal.path.hasPosixPermissions
 import org.unitedsoftware.alexandrite.provider.common.apiPathIn
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.config.HostConfigFile
 import org.unitedsoftware.alexandrite.runtime.config.referencedSecrets
 import org.unitedsoftware.alexandrite.runtime.config.splicedConfig
+import org.unitedsoftware.alexandrite.runtime.config.writtenConfig
 import org.unitedsoftware.alexandrite.runtime.configProblems
 import org.unitedsoftware.alexandrite.runtime.decodeSection
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
@@ -384,7 +386,7 @@ internal fun configEdit(cli: Cli, report: Report): Int {
 
 private fun editableCopy(file: Path, text: String): Path {
     val directory = file.toAbsolutePath().parent
-    val copy = if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
+    val copy = if (hasPosixPermissions(directory)) {
         val owner = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))
         Files.createTempFile(directory, ".${file.fileName}.", ".edit.json", owner)
     } else {

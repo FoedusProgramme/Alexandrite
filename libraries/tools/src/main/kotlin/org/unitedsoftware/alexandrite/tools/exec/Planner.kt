@@ -343,7 +343,7 @@ internal class Planner(
     private fun rule(name: String, executable: Path, word: String?): RuleSubject {
         val program = if (namesDirectory(name)) executable.toString() else name
         val tokens = listOfNotNull(program, word)
-        return RuleSubject("command.exec", tokens, tokens.joinToString(" "))
+        return RuleSubject(EXEC_TOOL, tokens, tokens.joinToString(" "))
     }
 }
 

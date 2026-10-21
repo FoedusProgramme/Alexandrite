@@ -4,7 +4,6 @@ import java.io.IOException
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.Locale
 
 /** An absolute path in the two forms that a check compares. */
 public class CanonicalPath internal constructor(
@@ -43,7 +42,7 @@ public class PathCanonicalizer(
     /** How the directories of an existing real path compare names. */
     private val nameCase: (Path) -> NameCase = NameCaseProbe()::nameCase,
     /** Whether `/System/Volumes/Data/…` names `/…` too, as macOS firmlinks make it. */
-    private val firmlinks: Boolean = IS_MAC,
+    private val firmlinks: Boolean = OsFamily.HOST == OsFamily.MAC,
     private val pid: Long = ProcessHandle.current().pid(),
 ) {
     public fun canonicalize(path: Path): CanonicalPath {
@@ -99,6 +98,5 @@ public class PathCanonicalizer(
 
     private companion object {
         const val MAX_LINK_DEPTH = 40
-        val IS_MAC = System.getProperty("os.name").orEmpty().lowercase(Locale.ROOT).contains("mac")
     }
 }

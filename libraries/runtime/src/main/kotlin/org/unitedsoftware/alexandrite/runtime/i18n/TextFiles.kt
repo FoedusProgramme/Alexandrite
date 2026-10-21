@@ -44,37 +44,6 @@ public fun readTexts(bytes: ByteArray): Map<String, String> {
 public fun placeholderNames(text: String): Set<String> =
     PLACEHOLDER.findAll(text).mapTo(sortedSetOf()) { it.groupValues[1] }
 
-/**
- * The paths, relative to [directory], of the files below [directory] in the class path entry (a directory or a jar)
- * that [url], the resource [name], comes from.
- */
-@InternalAlexandriteApi
-public fun resourceFiles(url: URL, name: String, directory: String): List<String> = when (url.protocol) {
-    "file" -> {
-        val entry = generateSequence(Path.of(url.toURI())) { it.parent }.elementAt(name.trim('/').split('/').size)
-        val base = entry.resolve(directory)
-        if (!Files.isDirectory(base)) {
-            emptyList()
-        } else {
-            Files.walk(base).use { paths ->
-                paths.filter { it.isRegularFile() }.map { base.relativize(it).joinToString("/") }.toList()
-            }
-        }
-    }
-
-    "jar" -> {
-        val connection = (url.openConnection() as JarURLConnection).apply { useCaches = false }
-        connection.jarFile.use { jar ->
-            jar.entries().asSequence().filterNot { it.isDirectory }.map { it.name }
-                .filter { it.startsWith("${directory.trim('/')}/") }
-                .map { it.removePrefix("${directory.trim('/')}/") }
-                .toList()
-        }
-    }
-
-    else -> throw IOException("Cannot list the resources beside $url: only directories and jars can be listed.")
-}.sorted()
-
 @InternalAlexandriteApi
 public const val TEXTS_SUFFIX: String = ".properties"
 

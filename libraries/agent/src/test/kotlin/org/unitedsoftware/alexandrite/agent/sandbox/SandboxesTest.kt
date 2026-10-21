@@ -77,8 +77,8 @@ class SandboxesTest {
     }
 
     @Test
-    fun `auto takes the platform's sandbox, and falls back to the host when it is missing`() {
-        val platform = if (System.getProperty("os.name").startsWith("Mac")) "seatbelt" else "bubblewrap"
+    fun `auto takes a sandbox that is available on this host, and falls back to the host when none is`() {
+        val platform = "jail"
         harness("""{"type": "auto"}""", RecordingEnvironment(platform)).execute {
             assertEquals(platform, sandboxes().sandbox(turn, null)?.environment?.name)
         }

@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.agent.directory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.internal.path.hasPosixPermissions
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -54,7 +55,7 @@ internal class Inbox(private val directories: ConversationDirectories, private v
     /** Writes [bytes] to the new file [target], false when something exists there already. */
     private fun write(target: Path, bytes: ByteArray): Boolean {
         val channel = try {
-            if (POSIX in target.fileSystem.supportedFileAttributeViews()) {
+            if (hasPosixPermissions(target)) {
                 Files.newByteChannel(target, CREATE, PosixFilePermissions.asFileAttribute(OWNER_FILE))
             } else {
                 Files.newByteChannel(target, CREATE)
@@ -78,7 +79,7 @@ internal class Inbox(private val directories: ConversationDirectories, private v
     private fun opened(inbox: Path): Boolean {
         if (Files.isDirectory(inbox, LinkOption.NOFOLLOW_LINKS)) return true
         try {
-            if (POSIX in inbox.fileSystem.supportedFileAttributeViews()) {
+            if (hasPosixPermissions(inbox)) {
                 Files.createDirectory(inbox, PosixFilePermissions.asFileAttribute(OWNER_DIRECTORY))
             } else {
                 Files.createDirectory(inbox)
@@ -91,7 +92,6 @@ internal class Inbox(private val directories: ConversationDirectories, private v
 
     private companion object {
         const val INBOX = "inbox"
-        const val POSIX = "posix"
         val OWNER_DIRECTORY = PosixFilePermissions.fromString("rwx------")
         val OWNER_FILE = PosixFilePermissions.fromString("rw-------")
         val CREATE = setOf(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)

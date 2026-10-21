@@ -10,7 +10,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.internal.sandbox.platformEnvironment
 import org.unitedsoftware.alexandrite.mcp.AlexandriteMcpIndex
 import org.unitedsoftware.alexandrite.mcp.fake.FakeStdioServers
 import org.unitedsoftware.alexandrite.sandbox.bubblewrap.AlexandriteSandboxBubblewrapIndex
@@ -62,8 +61,6 @@ class McpSandboxTest {
 
     @Test
     fun `a sandboxed server writes only in its directory and reaches only its listed hosts`() {
-        val type = platformEnvironment()
-        assumeTrue(type != null, "this platform has no sandbox")
         val root = directory.toRealPath()
         val cwd = root.resolve("server").createDirectories()
         val outside = root.resolve("outside").createDirectories()
@@ -80,7 +77,7 @@ class McpSandboxTest {
             .build()
         runBlocking {
             harness.run {
-                assumeTrue(getAll<ExecutionEnvironment>().single { it.name == type }.available(), "no $type here")
+                assumeTrue(getAll<ExecutionEnvironment>().any { it.available() }, "no sandbox here")
                 val source = getAll<ToolSource>().single { it.namespace == "mcp" }
                 withTimeout(30.seconds) {
                     while (source.tools.value.none { it.definition.name == "mcp.files.fetch" }) delay(20.milliseconds)

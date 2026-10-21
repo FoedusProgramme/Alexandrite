@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.agent.trust.CallTrust
 import org.unitedsoftware.alexandrite.agent.trust.Foreseen
 import org.unitedsoftware.alexandrite.agent.trust.Foresight
 import org.unitedsoftware.alexandrite.agent.trust.Root
+import org.unitedsoftware.alexandrite.internal.id.shortId
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
@@ -27,7 +28,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import java.nio.file.Path
-import java.security.SecureRandom
 
 /** Asks a person about the gated calls that nothing else lets run. */
 internal interface Approvals {
@@ -56,7 +56,6 @@ internal class ChannelApprovals(
     private val awaiting: AwaitingCalls,
     private val judge: Judge,
 ) : Approvals {
-    private val random = SecureRandom()
 
     override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
         val gate = call.call
@@ -83,7 +82,7 @@ internal class ChannelApprovals(
         }
         val shown = grantable.map { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) }
         val request = ApprovalRequest(
-            newId(),
+            shortId(),
             turn,
             gate.tool.definition.name,
             call.risk,
@@ -246,13 +245,6 @@ internal class ChannelApprovals(
             currentCoroutineContext().ensureActive()
             logger.warn("Cannot keep the record of a call that waits for approval: {}", e.toString())
         }
-    }
-
-    private fun newId(): String = String(CharArray(ID_LENGTH) { ID_CHARS[random.nextInt(ID_CHARS.length)] })
-
-    private companion object {
-        const val ID_CHARS = "abcdefghijkmnopqrstuvwxyz23456789"
-        const val ID_LENGTH = 8
     }
 }
 

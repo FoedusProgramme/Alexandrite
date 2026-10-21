@@ -105,6 +105,6 @@ internal class ConversationTaints(private val store: ConversationStore, private 
 }
 
 /** The characters of a reason that a mark keeps. */
-private const val MAX_REASON_CHARS = 300
+internal const val MAX_REASON_CHARS = 300
 
 private val logger = LoggerFactory.getLogger(TurnTaint::class.java)

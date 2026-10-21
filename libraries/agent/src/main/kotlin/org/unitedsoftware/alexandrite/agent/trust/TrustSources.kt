@@ -5,6 +5,7 @@ import kotlinx.coroutines.ensureActive
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.permission.CheckedCall
+import org.unitedsoftware.alexandrite.agent.permission.EXEC
 import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.permission.RuleEntry
 import org.unitedsoftware.alexandrite.agent.permission.session
@@ -13,6 +14,7 @@ import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.agent.tool.isWritten
 import org.unitedsoftware.alexandrite.agent.tool.writtenFile
 import org.unitedsoftware.alexandrite.internal.path.homeDirectory
+import org.unitedsoftware.alexandrite.internal.text.shellWord
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -166,8 +168,8 @@ internal class TrustSources(
     /** The trust rule of the program [program] as a command names it, null for one that runs any code it is given. */
     private fun program(program: String): Source? {
         if ('\'' in program || program.isEmpty()) return null
-        val word = if (program.all { it.isLetterOrDigit() || it in PLAIN }) program else "'$program'"
-        val rule = "$EXEC($word)"
+        val rule = "$EXEC(${shellWord(program)})"
+
         val entry = try {
             RuleEntry.parse(rule, homeDirectory(), trust = true)
         } catch (e: IllegalArgumentException) {
@@ -190,9 +192,7 @@ internal class TrustSources(
     }
 
     private companion object {
-        const val EXEC = "command.exec"
         const val MCP = "mcp"
-        const val PLAIN = "-_./+@%:,="
 
         /** The most roots that one question offers to trust. */
         const val MAX_ROOTS = 3

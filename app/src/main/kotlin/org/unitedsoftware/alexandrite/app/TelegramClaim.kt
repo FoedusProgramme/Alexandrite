@@ -8,18 +8,15 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import org.unitedsoftware.alexandrite.internal.pairing.holdsPairingCode
+import org.unitedsoftware.alexandrite.internal.pairing.newPairingCode
 import java.io.IOException
-import java.security.SecureRandom
 import java.util.Locale
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 internal const val TELEGRAM_API = "https://api.telegram.org"
-
-/** Crockford's Base32, which has no I, L, O or U to misread. */
-private const val CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
-private const val CODE_LENGTH = 8
 
 private val CLAIM_TIMEOUT = 10.minutes
 
@@ -30,11 +27,7 @@ private const val POLL_SECONDS = 10
 private const val FAILURES = 5
 private val RETRY = 2.seconds
 
-internal fun newClaimCode(): String {
-    val random = SecureRandom()
-    val code = (1..CODE_LENGTH).map { CODE_ALPHABET[random.nextInt(CODE_ALPHABET.length)] }.joinToString("")
-    return "${code.take(CODE_LENGTH / 2)}-${code.drop(CODE_LENGTH / 2)}"
-}
+internal fun newClaimCode(): String = newPairingCode()
 
 /** The Telegram user who sent the claim code from their direct chat with the bot, whose id is that chat's. */
 internal class Claimant(val id: Long, val name: String, val username: String?) {
@@ -188,11 +181,8 @@ private fun awaitCode(
     return null
 }
 
-/** Whether [text] holds [code], whatever its case, spaces and dashes. */
-private fun carries(text: String?, code: String): Boolean {
-    val letters = { value: String -> value.uppercase().filter(Char::isLetterOrDigit) }
-    return text != null && letters(code) in letters(text)
-}
+/** Whether [text] holds [code], however either is written. */
+private fun carries(text: String?, code: String): Boolean = text != null && holdsPairingCode(text, code)
 
 private fun sender(from: JsonObject): Claimant? {
     val id = (from["id"] as? JsonPrimitive)?.content?.toLongOrNull()?.takeIf { it > 0 } ?: return null

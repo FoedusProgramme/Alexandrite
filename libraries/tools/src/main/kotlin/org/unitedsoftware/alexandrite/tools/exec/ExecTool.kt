@@ -44,7 +44,7 @@ import kotlin.time.Duration.Companion.seconds
 @Contribute(Tool::class)
 internal class ExecTool(private val floor: HardFloor, private val config: ExecConfig) : ReviewedTool {
     override val definition: ToolDefinition = ToolDefinition(
-        name = "command.exec",
+        name = EXEC_TOOL,
         description = "Runs one program with its arguments, without a shell, and returns its exit code and its " +
             "output (stdout and stderr together; of a long output, the start and the end). Give either 'command', " +
             "one line split like a shell splits it (quotes and backslashes; a leading ~ is the home directory) but " +
@@ -452,3 +452,6 @@ private fun JsonObject.optional(name: String) = this[name]?.takeUnless { it == J
 private val OPERATOR_KINDS = setOf(TurnKind.MESSAGE, TurnKind.JOB, TurnKind.DELEGATED)
 
 private val MONITOR_FIELDS = setOf("filter", "batchSeconds", "intervalSeconds", "maxLifetimeSeconds")
+
+/** The name of the tool that runs programs. */
+internal const val EXEC_TOOL: String = "command.exec"

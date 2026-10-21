@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.internal.manual
 
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.internal.resource.resourceTexts
 import org.unitedsoftware.alexandrite.internal.text.snippet
 import java.io.IOException
 import java.net.JarURLConnection
@@ -129,7 +130,7 @@ public class Manual(pages: List<ManualPage>, public val problems: List<String> =
                     .filterKeys { it !in inherited }.values
                 for (root in roots) {
                     val files = try {
-                        files(root, directory)
+                        resourceTexts(root, directory)
                     } catch (e: IOException) {
                         problems += "the pages at $root cannot be read: $e"
                         continue
@@ -233,30 +234,6 @@ private fun distance(a: String, b: String, bound: Int): Int {
         previous = current
     }
     return previous[b.length]
-}
-
-/** The text of each file directly in [root], the resource [directory], by its name. */
-private fun files(root: URL, directory: String): List<Pair<String, String>> = when (root.protocol) {
-    "file" -> {
-        val base = Path.of(root.toURI())
-        Files.list(base).use { paths -> paths.filter { it.isRegularFile() }.toList() }
-            .map { "${it.fileName}" to Files.readString(it) }
-    }
-
-    "jar" -> {
-        val connection = (root.openConnection() as JarURLConnection).apply { useCaches = false }
-        val prefix = "$directory/"
-        connection.jarFile.use { jar ->
-            jar.entries().asSequence()
-                .filter { !it.isDirectory && it.name.startsWith(prefix) && '/' !in it.name.removePrefix(prefix) }
-                .map { entry ->
-                    entry.name.removePrefix(prefix) to jar.getInputStream(entry).use { String(it.readBytes()) }
-                }
-                .toList()
-        }
-    }
-
-    else -> throw IOException("only directories and jars can be listed")
 }
 
 private val logger = LoggerFactory.getLogger(Manual::class.java)

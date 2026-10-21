@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.agent.project
 
+import org.unitedsoftware.alexandrite.agent.permission.INSTRUCTION_FILES
+import org.unitedsoftware.alexandrite.agent.permission.SKILL_DIRECTORIES
 import org.unitedsoftware.alexandrite.agent.skill.skillFiles
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -92,7 +94,7 @@ internal class ProjectFolders(
         }
 
         private fun files(directory: Path): List<FoundInstructionFile> =
-            found.getOrPut(directory) { NAMES.mapNotNull { file(directory.resolve(it)) } }
+            found.getOrPut(directory) { INSTRUCTION_FILES.mapNotNull { file(directory.resolve(it)) } }
 
         /**
          * The instruction file at [path], null when there is none, it is refused or it is no regular file, or one with
@@ -124,17 +126,11 @@ internal fun hasProjectMarker(directory: Path): Boolean =
 
 /** What a project's root holds. */
 private val PROJECT_MARKERS = listOf(
-    GIT, ".hg", ".svn", "AGENTS.md", "CLAUDE.md", "build.gradle", "build.gradle.kts", "settings.gradle",
+    GIT, ".hg", ".svn", *INSTRUCTION_FILES.toTypedArray(), "build.gradle", "build.gradle.kts", "settings.gradle",
     "settings.gradle.kts", "pom.xml", "build.xml", "package.json", "deno.json", "pyproject.toml", "setup.py",
     "requirements.txt", "Cargo.toml", "go.mod", "Gemfile", "composer.json", "mix.exs", "Package.swift",
     "CMakeLists.txt", "Makefile", "meson.build", "flake.nix", "pubspec.yaml", "build.sbt", "project.clj",
 )
-
-/** Where a project keeps its skills, one directory per skill. */
-private val SKILL_DIRECTORIES = listOf(".agents/skills", ".claude/skills")
-
-/** The names of the instruction files, in the order they load. */
-private val NAMES = listOf("AGENTS.md", "CLAUDE.md")
 
 /** Directories of third-party code and build output. */
 private val DEPENDENCIES =

@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.sandbox.seatbelt
 
+import org.unitedsoftware.alexandrite.internal.path.OsFamily
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -17,8 +18,7 @@ internal class Seatbelt : ExecutionEnvironment {
 
     override val name: String = "seatbelt"
 
-    override fun available(): Boolean =
-        System.getProperty("os.name").orEmpty().startsWith("Mac") && Files.isExecutable(SANDBOX_EXEC)
+    override fun available(): Boolean = OsFamily.HOST == OsFamily.MAC && Files.isExecutable(SANDBOX_EXEC)
 
     override fun launch(command: ProcessBuilder, boundary: Boundary): Process {
         val profile = try {

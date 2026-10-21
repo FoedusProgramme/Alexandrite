@@ -222,7 +222,8 @@ private fun split(line: String, home: String?): List<String> {
 private fun isSubstitution(line: String, index: Int): Boolean =
     line[index] == '`' || (line[index] == '$' && line.getOrNull(index + 1) == '(')
 
-private const val EXEC = "command.exec"
+/** The tool whose rules name programs and command lines rather than arguments. */
+internal const val EXEC = "command.exec"
 
 /** Programs that run whatever code they are given, so that trusting them trusts any script. */
 private val RUNS_ANY_CODE = setOf(
