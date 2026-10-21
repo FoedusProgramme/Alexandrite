@@ -42,11 +42,40 @@ class AgentPluginTest {
             {"agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {"default": true}}}}}
         """.trimIndent()
 
+        val windowed = ScriptedModel.modelInfo().toBuilder().contextWindow(200_000).build()
+
         val lines = logged {
-            agentHarness(config) { channel().model(ScriptedModel()).tool(recordingTool("fs.read")) }.execute {}
+            agentHarness(config) {
+                channel().model(ScriptedModel(models = listOf(windowed))).tool(recordingTool("fs.read"))
+            }.execute {}
         }
 
         assertEquals(emptyList(), lines.filter { it.startsWith("WARN") })
+    }
+
+    @Test
+    fun `a model whose endpoint gives no context window is warned of once, naming the key that sets it`() {
+        val config = """
+            {"agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {"default": true}}}}}
+        """.trimIndent()
+        val model = ScriptedModel().reply { text("Hello") }
+
+        val lines = logged { logs ->
+            agentHarness(config) { channel().model(model) }.execute {
+                while (logs.isEmpty()) delay(10)
+                val admission = channel().receive("Hi") as Admission.Accepted
+                admission.ticket.outcome()
+            }
+        }
+
+        assertEquals(
+            listOf(
+                "WARN The context window of model scripted/test-model is unknown, so its conversations are kept " +
+                    "within an assumed 128000 tokens: set providers.<provider>.endpoints.scripted." +
+                    "models[\"test-model\"].contextWindow to the model's window",
+            ),
+            lines.filter { it.startsWith("WARN") },
+        )
     }
 
     @Test

@@ -509,6 +509,35 @@ class CompactionTurnsTest {
         assertEquals(1, compactions(9_900))
     }
 
+    @Test
+    fun `a model whose endpoint gives no context window has its conversation compacted within the assumed one`() {
+        val model = ScriptedModel()
+        model.reply(turns) { toolCall("fs.read", """{"path": "a"}""") }
+            .reply(turns) { toolCall("fs.read", """{"path": "b"}""") }
+            .reply(turns) { text("Read them.") }
+            .reply(turns) { text("Done.") }
+            .reply(summarizer) { text("Read a and b.") }
+        val config = """{"trigger": 20000, "target": 5000, "clearAt": "off", "keepTurns": 0}"""
+
+        agentHarness(
+            """{"previewIntervalMillis": 0, "agents": {"coder": {"model": "scripted/test-model", """ +
+                """"channels": {"test:main": {}}, "compaction": $config}}}""",
+            store,
+        ) { channel(operators = setOf("operator")).model(model).tool(read) }.execute {
+            ask("First.").ticket.outcome()
+            assertIs<TurnOutcome.Completed>(ask("Second.").ticket.outcome())
+            val status = get<ConversationControl>().context(channel().chat())
+
+            assertEquals(1, model.requests.count { it.summarizes })
+            assertEquals(1, stored().filterIsInstance<SummaryEntry>().size)
+            assertEquals(
+                Triple(ASSUMED_CONTEXT_WINDOW, 20_000L, true),
+                Triple(status.window, status.trigger, status.windowAssumed),
+            )
+        }
+        model.assertFinished()
+    }
+
     private companion object {
         const val WINDOW = 100_000
     }

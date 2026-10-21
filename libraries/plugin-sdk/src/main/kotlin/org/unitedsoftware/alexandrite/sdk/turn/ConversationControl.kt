@@ -89,7 +89,7 @@ public class ContextStatus(
     public val promptTokens: Long?,
     /** When [promptTokens] was counted. */
     public val measuredAt: Instant?,
-    /** Null when the model's window is unknown. */
+    /** The context window the conversation is kept within, null without a [model]. */
     public val window: Int?,
     /** The prompt tokens from which the conversation is compacted, null without a [window]. */
     public val trigger: Long?,
@@ -99,4 +99,6 @@ public class ContextStatus(
     public val compactedAt: Instant?,
     /** The stored entries that the conversation's summary stands in for. */
     public val summarized: Int,
+    /** Whether [window] is assumed, as the model's endpoint gives none. */
+    public val windowAssumed: Boolean = false,
 )

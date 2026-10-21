@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
+import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.RequestIds
 import org.unitedsoftware.alexandrite.sdk.model.Usage
@@ -29,19 +30,22 @@ internal class Compactor(
     private val summarizer: Summarizer,
     private val records: ContextRecords,
     private val hooks: TurnHooks,
+    private val windows: ContextWindows,
     private val clock: Clock,
 ) {
     /**
-     * The context of [turn]'s requests to a model with the context window [window], from [view] of its conversation,
-     * kept by [config] with summaries by [summaryModel].
+     * The context of [turn]'s requests to [model], listed as [info], from [view] of its conversation, kept by [config]
+     * with summaries by [summaryModel].
      */
     suspend fun open(
         turn: TurnInfo,
         config: CompactionConfig,
-        window: Int?,
+        model: ModelRef,
+        info: ModelInfo,
         summaryModel: ModelRef,
         view: ContextView,
-    ): TurnWindow = TurnWindow(turn, config, window, summaryModel, view, records.get(turn.conversation))
+    ): TurnWindow =
+        TurnWindow(turn, config, windows.of(model, info), summaryModel, view, records.get(turn.conversation))
 
     /**
      * Folds [fold] of [turn]'s conversation into a new summary of at most [maxTokens] tokens that [model] writes,
@@ -109,8 +113,7 @@ internal class Compactor(
     inner class TurnWindow internal constructor(
         private val turn: TurnInfo,
         private val config: CompactionConfig,
-        /** Null when unknown. */
-        private var window: Int?,
+        private var window: ContextWindow,
         private var summaryModel: ModelRef,
         view: ContextView,
         private var record: ContextRecord,
@@ -124,9 +127,12 @@ internal class Compactor(
         /** Whether a compaction failed since the prompt last fell below the trigger. */
         private var stalled = false
 
-        /** Fits the turn's later requests to a model with the context window [window], summarized by [summaryModel]. */
-        fun moveTo(window: Int?, summaryModel: ModelRef) {
-            this.window = window
+        /** The tokens of the window that the turn's requests are kept within. */
+        val tokens: Int get() = window.tokens
+
+        /** Fits the turn's later requests to [model], listed as [info], summarized by [summaryModel]. */
+        suspend fun moveTo(model: ModelRef, info: ModelInfo, summaryModel: ModelRef) {
+            this.window = windows.of(model, info)
             this.summaryModel = summaryModel
         }
 
@@ -138,7 +144,7 @@ internal class Compactor(
 
         /**
          * The request that [build] makes once old tool results are cleared or old entries folded where it grew past
-         * its thresholds, null when it does not fit into the window.
+         * its thresholds, null when it does not fit into a known window.
          */
         suspend fun fit(
             current: List<TranscriptEntry>,
@@ -147,8 +153,8 @@ internal class Compactor(
             store: suspend (SummaryEntry) -> SummaryEntry,
         ): Fit {
             var request = build()
-            val window = window ?: return Fit(request, null)
-            val limits = config.limits(window, request.options.maxOutputTokens)
+            val window = this.window
+            val limits = config.limits(window.tokens, request.options.maxOutputTokens)
             var size = size(request)
             if (limits.clearAt != null && size >= limits.clearAt && clear(current, limits.clearAtLeast)) {
                 request = build()
@@ -172,7 +178,7 @@ internal class Compactor(
                 request = build()
                 size = size(request)
             }
-            return Fit(request.within(window, size), compaction)
+            return Fit(if (window.assumed) request else request.within(window.tokens, size), compaction)
         }
 
         /** Records the prompt tokens that [usage] counted for [request]. */
@@ -183,7 +189,7 @@ internal class Compactor(
 
         private fun size(request: ModelRequest): Long = ceil(TokenEstimator.request(request) * density()).toLong()
 
-        private fun density(): Double = record.density(window) ?: 1.0
+        private fun density(): Double = record.density(window.known) ?: 1.0
 
         private fun covered(entry: TranscriptEntry): Boolean {
             val id = entry.record?.id ?: return false

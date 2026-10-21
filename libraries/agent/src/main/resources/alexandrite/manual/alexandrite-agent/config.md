@@ -42,6 +42,8 @@ Models are reached through endpoints, configured at `providers.<provider>.endpoi
 `headers`, `models`). A model is named `<endpoint>/<model>` everywhere, such as `deepseek/deepseek-chat`.
 `providers.<provider>.endpoints.<endpoint>.models.<model>` may set `contextWindow`, `maxOutputTokens` and `price` (US
 dollars per million tokens: `input`, `output`, `cached`).
+A configured `contextWindow` or `maxOutputTokens` wins over the one the endpoint lists, and a model whose window neither
+gives has its conversations compacted within an assumed 128000 tokens, which the log and `alexandrite doctor` warn of.
 
 ## The agent plugin's keys
 

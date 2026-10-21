@@ -91,7 +91,10 @@ class DeepSeekLiveTest {
             val completed = events.completed()
             println("Reply: ${completed.message.parts}, ${completed.finish}, ${completed.usage}")
             assertEquals(
-                listOf("Model '$model' takes no reasoning effort 'medium', so the request asks for 'high'."),
+                listOf(
+                    "Model '$model' does not accept the reasoning effort 'medium', so the request asks for 'high' " +
+                        "instead.",
+                ),
                 events.warnings(),
             )
             assertTrue(events.any { it is ModelEvent.ReasoningDelta })

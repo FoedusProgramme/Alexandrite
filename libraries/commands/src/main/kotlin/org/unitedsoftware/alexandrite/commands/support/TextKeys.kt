@@ -18,6 +18,8 @@ internal object TextKeys {
     const val CONTEXT_TITLE_NO_MODEL: String = "context.title_no_model"
     const val CONTEXT_USED: String = "context.used"
     const val CONTEXT_USED_NO_WINDOW: String = "context.used_no_window"
+    const val CONTEXT_USED_ASSUMED: String = "context.used_assumed"
+    const val CONTEXT_ASSUMED: String = "context.assumed"
     const val CONTEXT_UNMEASURED: String = "context.unmeasured"
     const val CONTEXT_LIMITS: String = "context.limits"
     const val CONTEXT_NO_WINDOW: String = "context.no_window"

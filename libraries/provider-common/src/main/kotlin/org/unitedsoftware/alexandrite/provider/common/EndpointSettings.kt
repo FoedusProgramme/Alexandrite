@@ -118,9 +118,9 @@ internal object TurnContextSerializer : KSerializer<TurnContextSetting> {
 @Serializable
 public class ModelConfig(
     public val displayName: String? = null,
-    /** Used when the backend reports none. */
+    /** Wins over the window that the backend lists. */
     public val contextWindow: Int? = null,
-    /** Used when the backend reports none. */
+    /** Wins over the limit that the backend lists. */
     public val maxOutputTokens: Int? = null,
     public val nativeTools: Boolean? = null,
     public val parallelToolCalls: Boolean? = null,

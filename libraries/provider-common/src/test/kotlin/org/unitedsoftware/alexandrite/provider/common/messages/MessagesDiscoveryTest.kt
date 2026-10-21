@@ -107,6 +107,16 @@ class MessagesDiscoveryTest {
     }
 
     @Test
+    fun `configured token limits win over the listed ones`() {
+        server.enqueue(fakeResponse { body(page(false, model("claude-big", thinker))) }, "/v1/models")
+
+        val big = models(mapOf("claude-big" to ModelConfig(contextWindow = 200000, maxOutputTokens = 64000)))
+            .getValue("claude-big")
+
+        assertEquals(200000 to 64000, big.contextWindow to big.maxOutputTokens)
+    }
+
+    @Test
     fun `a listing without capabilities claims nothing and the operator's facts win`() {
         server.enqueue(fakeResponse { body(page(false, model("vendor-model"))) }, "/v1/models")
         val configured = mapOf(

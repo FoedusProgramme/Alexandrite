@@ -85,20 +85,38 @@ class RetryPolicyTest {
         }
 
     @Test
-    fun `malformed output is retried at once, also after output started, until the retries run out`() = runTest {
-        val malformed = error(ModelErrorKind.MALFORMED_OUTPUT, retryAfter = 5.seconds, outputStarted = true)
-        val calls = mutableListOf<Long>()
+    fun `malformed output is retried at once until the retries run out, and only once after output started`() =
+        runTest {
+            val malformed = error(ModelErrorKind.MALFORMED_OUTPUT, retryAfter = 5.seconds)
+            for ((started, expected) in listOf(false to listOf(0L, 0L, 0L), true to listOf(0L, 0L))) {
+                val calls = mutableListOf<Long>()
 
-        assertFailsWith<ModelException> {
-            policy(retries = 2).retrying(turn) {
-                calls += testScheduler.currentTime
-                throw ModelException(malformed)
+                assertFailsWith<ModelException> {
+                    policy(retries = 2).retrying(turn) {
+                        calls += testScheduler.currentTime
+                        throw ModelException(malformed.rebuild { outputStarted(started) })
+                    }
+                }
+
+                assertEquals(expected, calls, "output started: $started")
             }
+            assertNull(policy().delayBefore(1, malformed.rebuild { retryable(false) }))
         }
 
-        assertEquals(listOf(0L, 0L, 0L), calls)
-        assertEquals(Duration.ZERO, policy().delayBefore(1, malformed.rebuild { outputStarted(false) }))
-        assertNull(policy().delayBefore(1, malformed.rebuild { retryable(false) }))
+    @Test
+    fun `a request with a large prompt is retried once, a smaller one as often as configured`() = runTest {
+        for ((tokens, expected) in listOf(LARGE_PROMPT_TOKENS to 2, LARGE_PROMPT_TOKENS - 1 to 4)) {
+            var calls = 0
+
+            assertFailsWith<ModelException> {
+                policy().retrying(turn, tokens) {
+                    calls++
+                    throw ModelException(error(ModelErrorKind.TIMEOUT))
+                }
+            }
+
+            assertEquals(expected, calls, "$tokens prompt tokens")
+        }
     }
 
     @Test

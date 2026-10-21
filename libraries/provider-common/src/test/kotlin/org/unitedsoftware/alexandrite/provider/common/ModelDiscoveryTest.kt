@@ -82,7 +82,7 @@ class ModelDiscoveryTest {
     }
 
     @Test
-    fun `the operator's facts win, except a context window the backend reports`() {
+    fun `the operator's facts win, its context window too`() {
         server.enqueue(fakeResponse { body(listing(model("chat-model", "max_model_len", 32768))) }, "/v1/models")
         val configured = mapOf(
             "chat-model" to ModelConfig(contextWindow = 8192, parallelToolCalls = false, inputMedia = setOf("image")),
@@ -92,7 +92,7 @@ class ModelDiscoveryTest {
         val models = models(models = configured)
 
         val chat = models.getValue("chat-model")
-        assertEquals(32768, chat.contextWindow)
+        assertEquals(8192, chat.contextWindow)
         assertFalse(chat.parallelToolCalls)
         assertEquals(setOf(MediaKind.IMAGE), chat.inputMedia)
         val extra = models.getValue("extra-model")

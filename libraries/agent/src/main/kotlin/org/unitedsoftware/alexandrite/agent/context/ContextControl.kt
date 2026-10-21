@@ -38,6 +38,7 @@ internal class ContextControl(
     private val endpoints: Endpoints,
     private val records: ContextRecords,
     private val compactor: Compactor,
+    private val windows: ContextWindows,
     private val clock: Clock,
 ) {
     /** Folds the conversation at [key] up to its newest kept turns into its summary, as [by] asked in [chat]. */
@@ -48,7 +49,7 @@ internal class ContextControl(
         val conversation = conversations.current(key).id
         val view = contextView(history.entries(conversation))
         val entries = view.entries.filter(::isSent)
-        val window = info(model)?.contextWindow
+        val window = windows.of(model, info(model)).known
         val record = records.get(conversation)
         val density = record.density(window) ?: 1.0
         val read = listOfNotNull(view.summary?.let(::summaryEntry)) + withCleared(entries, record.clearedIds)
@@ -81,23 +82,24 @@ internal class ContextControl(
         val conversation = conversations.current(key).id
         val model = states.model(key) ?: agent?.model
         val info = model?.let { info(it) }
-        val window = info?.contextWindow
+        val window = model?.let { windows.of(it, info) }
         val record = records.get(conversation)
         val stored = transcripts.entries(conversation)
         val view = contextView(stored)
         val summarized = stored.count(::isSent) - view.entries.count(::isSent)
         val reserve = agent?.let { info?.let { model -> outputReserve(it, model) } }
-        val limits = window?.let { agent?.config?.compaction?.limits(it, reserve) }
+        val limits = window?.let { agent?.config?.compaction?.limits(it.tokens, reserve) }
         return ContextStatus(
             conversation,
             model,
             record.promptTokens,
             record.measuredAt,
-            window,
+            window?.tokens,
             limits?.trigger,
             limits?.target,
             view.summary?.record?.createdAt,
             summarized,
+            window?.assumed == true,
         )
     }
 

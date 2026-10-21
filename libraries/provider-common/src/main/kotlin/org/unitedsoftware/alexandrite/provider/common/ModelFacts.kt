@@ -21,7 +21,7 @@ public class ModelFacts(
     public val price: ModelPrice? = null,
 )
 
-/** The model [id] as [configured], [listed] and [defaults] describe it, in that order, [listed] token limits first. */
+/** The model [id] as [configured], [listed] and [defaults] describe it, in that order. */
 internal fun modelInfo(
     id: String,
     dialect: Dialect,
@@ -34,8 +34,8 @@ internal fun modelInfo(
     val nativeTools = first { it.nativeTools } ?: false
     return ModelInfo.builder(id, dialect)
         .displayName(first { it.displayName })
-        .contextWindow(listed?.contextWindow ?: configured?.contextWindow)
-        .maxOutputTokens(listed?.maxOutputTokens ?: configured?.maxOutputTokens)
+        .contextWindow(configured?.contextWindow ?: listed?.contextWindow)
+        .maxOutputTokens(configured?.maxOutputTokens ?: listed?.maxOutputTokens)
         .nativeTools(nativeTools)
         .parallelToolCalls(nativeTools && first { it.parallelToolCalls } == true)
         .inputMedia(first { it.inputMedia }.orEmpty())

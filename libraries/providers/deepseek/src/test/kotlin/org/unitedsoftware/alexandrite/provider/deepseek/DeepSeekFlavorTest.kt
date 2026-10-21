@@ -104,7 +104,9 @@ class DeepSeekFlavorTest {
             assertEquals(if (level == null) "disabled" else "enabled", body.thinking(), "$effort")
             assertEquals(level, body.text("reasoning_effort"), "$effort")
             val mapped = level != null && level != effort.id
-            val warning = "Model 'chat-model' takes no reasoning effort '$effort', so the request asks for '$level'."
+            val warning =
+                "Model 'chat-model' does not accept the reasoning effort '$effort', so the request asks for " +
+                    "'$level' instead."
             assertEquals(listOfNotNull(warning.takeIf { mapped }), events.warnings(), "$effort")
         }
         val (_, plain) = send(request())
@@ -120,7 +122,9 @@ class DeepSeekFlavorTest {
 
         assertNull(body["thinking"] ?: body["reasoning_effort"])
         assertEquals(
-            listOf("Model 'chat-model' takes no reasoning effort 'low', so the request asks for none."),
+            listOf(
+                "Model 'chat-model' does not accept the reasoning effort 'low', so the request leaves the effort out.",
+            ),
             events.warnings(),
         )
     }

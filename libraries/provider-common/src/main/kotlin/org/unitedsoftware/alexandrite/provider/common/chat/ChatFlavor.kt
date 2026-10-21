@@ -67,7 +67,7 @@ public open class ChatReasoning {
     /** A reader of the next reasoning part that [origin] streams. */
     public open fun reader(origin: ModelRef): ChatReasoningReader = ChatReasoningReader()
 
-    /** The warning that [info]'s model takes no [effort], so the request asks for none. */
+    /** The warning that [info]'s model does not accept [effort], so the request leaves the effort out. */
     protected fun unsupported(effort: ReasoningEffort, info: ModelInfo): Warning = unsupportedEffort(effort, info)
 }
 

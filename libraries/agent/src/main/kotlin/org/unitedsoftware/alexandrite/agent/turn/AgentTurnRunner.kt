@@ -22,6 +22,7 @@ import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
 import org.unitedsoftware.alexandrite.agent.context.Compaction
 import org.unitedsoftware.alexandrite.agent.context.Compactor
+import org.unitedsoftware.alexandrite.agent.context.TokenEstimator
 import org.unitedsoftware.alexandrite.agent.context.contextView
 import org.unitedsoftware.alexandrite.agent.control.PendingCommands
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
@@ -345,7 +346,7 @@ internal class AgentTurnRunner(
             hooks.contextLoaded(turn, view.loaded)
             val sections = hooks.promptSections(turn, sections(turn, message))
             val summaryModel = agent.summaryModel ?: selected.ref
-            val window = compactor.open(turn, agent.config.compaction, selected.info.contextWindow, summaryModel, view)
+            val window = compactor.open(turn, agent.config.compaction, selected.ref, selected.info, summaryModel, view)
             val parts = RequestParts(selected, options, window, sections, definitions, context)
             val turnTools = TurnTools((offered + toolset.unoffered).associateBy { it.definition.name }, callable)
             val unstored = notes.mapNotNull { it.notice } + listOfNotNull(opening)
@@ -826,7 +827,7 @@ internal class AgentTurnRunner(
                 usage = usage?.plus(response.usage) ?: response.usage
                 spend(spentOn(response.usage))
                 parts.window.measured(request, response.usage)
-                emitUsageUpdated(usage, parts.model.info.contextWindow)
+                emitUsageUpdated(usage, parts.window.tokens)
                 hooks.llmResponse(turn, round, response).or { return stopped(it) }
                 val message = response.message
                 val calls = message.parts.filterIsInstance<ToolCallPart>()
@@ -983,7 +984,7 @@ internal class AgentTurnRunner(
             val plan = turnContextPlan(contextItems) { selected.endpoint.turnContextMode(next.model, options, it) }
             if (plan.tainted && !parts.context.tainted) taint.mark("untrusted turn context")
             val context = TurnContextPlan(parts.context.baked, plan.kept, parts.context.tainted || plan.tainted)
-            parts.window.moveTo(selected.info.contextWindow, agent.summaryModel ?: next)
+            parts.window.moveTo(next, selected.info, agent.summaryModel ?: next)
             val tools = TurnTools((toolset.offered + toolset.unoffered).associateBy { it.definition.name }, callable)
             return RequestParts(selected, options, parts.window, parts.sections, definitions, context) to tools
         }
@@ -991,7 +992,7 @@ internal class AgentTurnRunner(
         /** The response of [model] to [request], whose text the chat is shown as it comes. */
         private suspend fun call(model: SelectedModel, request: ModelRequest): ModelEvent.Completed {
             var attempt = 0
-            return retries.retrying(plan.id) {
+            return retries.retrying(plan.id, TokenEstimator.request(request)) {
                 attempt++
                 try {
                     collectResponse(model.endpoint, request) { event ->

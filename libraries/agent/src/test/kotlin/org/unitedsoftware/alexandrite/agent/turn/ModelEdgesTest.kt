@@ -199,8 +199,8 @@ class ModelEdgesTest {
     }
 
     @Test
-    fun `a turn whose responses keep breaking their output format fails with its own notice`() {
-        repeat(3) { model.reply { leak("Saving it.") } }
+    fun `a turn whose responses keep breaking their output format fails with its own notice after one retry`() {
+        repeat(2) { model.reply { leak("Saving it.") } }
 
         val lines = logged {
             harness("""{"retries": 2}""") { tool(write) }.execute {
@@ -213,13 +213,13 @@ class ModelEdgesTest {
                 val reply = channel().reply(admission.ticket.turn)
                 assertEquals(malformed to MessageKind.NOTICE, reply.completed?.text to reply.completed?.kind)
                 assertEquals(emptyList(), channel().sent)
-                assertEquals(3, model.requests.size)
+                assertEquals(2, model.requests.size)
                 assertEquals(0, write.calls.size)
                 assertEquals(listOf(NoticeEntry(null, malformed, NoticeKind.FAILED)), stored())
             }
         }
 
-        assertEquals(listOf("1", "2", "3"), detections(lines))
+        assertEquals(listOf("1", "2"), detections(lines))
     }
 
     // Finishes.

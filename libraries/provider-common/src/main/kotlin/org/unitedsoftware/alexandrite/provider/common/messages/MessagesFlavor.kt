@@ -182,7 +182,7 @@ public open class MessagesReasoning {
     public open fun reasoningTokens(usage: JsonObject): Long? =
         usage.obj("output_tokens_details")?.long("thinking_tokens")
 
-    /** The warning that [info]'s model takes no [effort], so the request asks for none. */
+    /** The warning that [info]'s model does not accept [effort], so the request leaves the effort out. */
     protected fun unsupported(effort: ReasoningEffort, info: ModelInfo): Warning = unsupportedEffort(effort, info)
 }
 

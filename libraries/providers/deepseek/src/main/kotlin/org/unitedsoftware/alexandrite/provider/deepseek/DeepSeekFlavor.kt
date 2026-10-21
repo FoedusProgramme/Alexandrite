@@ -98,7 +98,8 @@ internal object DeepSeekReasoning : ChatReasoning() {
         if (level == effort) return null
         return Warning(
             "unsupported_option",
-            "Model '${info.id}' takes no reasoning effort '$effort', so the request asks for '$level'.",
+            "Model '${info.id}' does not accept the reasoning effort '$effort', so the request asks for '$level' " +
+                "instead.",
         )
     }
 

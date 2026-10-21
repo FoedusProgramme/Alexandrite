@@ -18,7 +18,8 @@ places (`~/.config/alexandrite/alexandrite.json` on Linux).
 - `alexandrite start`, `stop`, `restart`, `status` — control the background service; `status` tells whether
   Alexandrite runs and its channel instances.
 - `alexandrite logs [-f] [-n <lines>]` — print the service's log, and follow it.
-- `alexandrite doctor` — check Java, the config, the endpoints, Telegram, the secrets, the disk and the service.
+- `alexandrite doctor` — check Java, the config, the endpoints and the context windows of the agents' models,
+  Telegram, the secrets, the disk and the service.
 - `alexandrite update [--version <release>]` — install the latest release, or the one named, checking it against the
   config before switching and restarting the service; the release before is kept, and a failed update switches back.
 - `alexandrite uninstall [--keep-data] [--yes]` — remove the service, the program and, unless kept, config and data.

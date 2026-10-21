@@ -32,7 +32,7 @@ class StreamCollectorTest {
     private val request = testModelRequest(testTurn(), 0, listOf(testUserEntry()))
 
     @Test
-    fun `what the endpoint warns about is logged, at WARN only the first time the same warning comes`() {
+    fun `what the endpoint warns about is logged once, however often the same warning comes`() {
         val model = ScriptedModel().reply { text("One.") }.reply { text("Two.") }
         val warning = Warning("unsupported_option", "Model test-model takes no reasoning effort; high is left out.")
         val warns = object : ModelEndpoint by model {
@@ -55,10 +55,7 @@ class StreamCollectorTest {
             }
         }
 
-        assertEquals(
-            listOf("WARN", "DEBUG"),
-            lines.filter { "unsupported_option" in it }.map { it.substringBefore(' ') },
-        )
+        assertEquals(listOf("WARN"), lines.filter { "unsupported_option" in it }.map { it.substringBefore(' ') })
     }
 
     @Test

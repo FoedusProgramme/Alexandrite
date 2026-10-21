@@ -57,7 +57,8 @@ internal class ContextCommands(
 
     private suspend fun show(invocation: CommandInvocation, context: CommandContext, replies: Replies) {
         val status = context.refusing { conversations.context(invocation.chat) } ?: return
-        val lines = listOf(title(status, replies), used(status, replies), limits(status, replies))
+        val assumed = replies.text(TextKeys.CONTEXT_ASSUMED, "window" to status.window).takeIf { status.windowAssumed }
+        val lines = listOfNotNull(title(status, replies), used(status, replies), limits(status, replies), assumed)
         context.reply((lines + summary(status, replies)).joinToString("\n"))
     }
 
@@ -71,7 +72,7 @@ internal class ContextCommands(
         val window = status.window
             ?: return replies.text(TextKeys.CONTEXT_USED_NO_WINDOW, "prompt" to prompt, "time" to time)
         return replies.text(
-            TextKeys.CONTEXT_USED,
+            if (status.windowAssumed) TextKeys.CONTEXT_USED_ASSUMED else TextKeys.CONTEXT_USED,
             "prompt" to prompt,
             "window" to window,
             "percent" to prompt * 100 / window,

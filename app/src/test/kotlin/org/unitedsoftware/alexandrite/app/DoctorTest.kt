@@ -139,6 +139,34 @@ class DoctorTest {
     }
 
     @Test
+    fun `an agent model whose endpoint lists no context window is warned of, unless the config gives one`() {
+        cli.config(
+            """
+                {
+                  "providers": {"openai-responses": {"endpoints": {"openai": {
+                    "baseUrl": "https://llm.example.com/v1", "models": {"tuned": {"contextWindow": 64000}}
+                  }}}},
+                  "agent": {"agents": {"main": {"models": ["openai/gpt-6.1", "openai/tuned", "openai/wide"]}}}
+                }
+            """.trimIndent(),
+        )
+        cli.machine.web["https://llm.example.com/v1/models"] = Fetched(
+            200,
+            """{"data": [{"id": "gpt-6.1"}, {"id": "tuned"}, {"id": "wide", "context_window": 400000}]}""",
+        )
+
+        val printed = cli("doctor")
+
+        assertEquals(
+            "warn  model openai/gpt-6.1: The endpoint lists no context window for this model, so its conversations " +
+                "are compacted against a cautious assumed window: set " +
+                "providers.openai-responses.endpoints.openai.models[\"gpt-6.1\"].contextWindow to its real window.",
+            line(printed, "model openai/gpt-6.1"),
+        )
+        assertEquals(1, printed.out.lines().count { it.drop(6).startsWith("model ") }, printed.out)
+    }
+
+    @Test
     fun `variables that nothing sets are named, and the config's problems listed`() {
         cli.environment = mapOf("DEEPSEEK_KEY" to "sk-deepseek")
         val unset = cli("doctor")
