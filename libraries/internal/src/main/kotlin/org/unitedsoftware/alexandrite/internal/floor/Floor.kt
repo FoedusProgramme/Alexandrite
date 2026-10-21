@@ -4,6 +4,7 @@ import org.unitedsoftware.alexandrite.internal.path.CanonicalPath
 import org.unitedsoftware.alexandrite.internal.path.NameCase
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
 import org.unitedsoftware.alexandrite.internal.path.PathForm
+import org.unitedsoftware.alexandrite.internal.path.Platform
 import org.unitedsoftware.alexandrite.internal.path.isAtOrUnder
 import org.unitedsoftware.alexandrite.internal.path.nameKey
 import java.io.File
@@ -237,9 +238,7 @@ private fun standardRoots(
         home?.let { addAll(CREDENTIAL_STORES.map { (name, kind) -> DenyRoot(home.resolve(name), kind) }) }
         addAll(movedStores(environment))
     }
-    // The device tree is a root where the host has one: on a host whose paths the host separates otherwise, `/dev`
-    // names no root of its own, so no check can canonicalize it and the floor cannot be built of it.
-    if (StandardPlaces.SYSTEM in standard && File.separatorChar == '/') add(DenyRoot(Path.of("/dev"), "devices"))
+    if (StandardPlaces.SYSTEM in standard && Platform.HOST == Platform.POSIX) add(DenyRoot(Path.of("/dev"), "devices"))
 }
 
 /** The credential stores at the absolute places that the variables of [environment] name. */

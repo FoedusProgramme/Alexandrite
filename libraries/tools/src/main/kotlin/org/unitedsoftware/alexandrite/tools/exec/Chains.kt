@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.tools.exec
 
+import org.unitedsoftware.alexandrite.internal.path.programName
 import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
 
 /** A step of a chain: the command [words], run after the step before it as [joint] says. */
@@ -36,7 +37,7 @@ internal class Chain(val steps: List<ChainStep>, val errexit: Boolean)
  * the wildcards `*` and `?`.
  */
 internal fun shellChain(argv: List<String>, home: String?): Chain? {
-    val program = baseName(argv.first())
+    val program = programName(argv.first())
     val (shell, arguments) = when {
         program in POSIX_SHELLS -> program to argv.drop(1)
         program == "busybox" && argv.getOrNull(1) == "sh" -> "sh" to argv.drop(2)

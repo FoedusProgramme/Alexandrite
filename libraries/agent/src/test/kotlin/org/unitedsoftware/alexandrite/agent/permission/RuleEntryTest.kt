@@ -198,6 +198,13 @@ class RuleEntryTest {
     }
 
     @Test
+    fun `a trust rule of a Windows shell trusts programs that run whatever code they are given`() {
+        for (shell in listOf("cmd", "powershell", "pwsh", "wsl")) {
+            assertTrue(RuleEntry.parse("command.exec($shell)", null, trust = true).anyCode, shell)
+        }
+    }
+
+    @Test
     fun `a trust rule may give another tool one host, which covers it and its subdomains`() {
         val docs = RuleEntry.parse("web.fetch(Docs.Example.org)", null, trust = true)
 

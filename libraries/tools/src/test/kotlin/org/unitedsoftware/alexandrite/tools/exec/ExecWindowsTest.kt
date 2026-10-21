@@ -5,17 +5,14 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.condition.EnabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
-import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
-import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
-import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -80,25 +77,33 @@ class ExecWindowsTest {
         }
     }
 
-    /**
-     * The floor of the host itself does not refuse a path under a deny root on Windows yet: its keys compare `\` as a
-     * name character, so nothing lies under anything (`libraries/internal/.../path/PathKeys.kt:isAtOrUnder`). That is a
-     * platform defect outside command.exec, so this test stands in a floor that refuses the place and checks that
-     * command.exec passes that refusal on as `blocked_floor`.
-     */
     @Test
-    fun `an argument that a floor refuses is refused still`() {
+    fun `an argument under a protected place is refused by the floor`() {
         val script = fs.write("bin/read.cmd", "@echo off\r\n")
         val secret = fs.secret.resolve("key.txt")
-        val refusing = ExecTool(DenyingFloor(fs.secret), ExecConfig())
 
-        val review = refusing.check(fs.context(), "argv" to listOf(script.toString(), secret.toString()))
+        val review = review(script.toString(), secret.toString())
 
         assertEquals(
             "'$secret' reaches a protected place (a place the test protects): command.exec does not run this call.",
             review.refusal,
             "$review",
         )
+    }
+
+    @Test
+    fun `a Windows shell is opaque however it is spelled, and its script text is no path to refuse`() {
+        for (argv in listOf(
+            listOf("powershell", "-NoProfile", "-Command", "Get-Item C:\\work\\*.md"),
+            listOf("PowerShell.exe", "-NoProfile", "-Command", "Get-Item C:\\work\\*.md"),
+            listOf("cmd", "/c", "dir C:\\work\\*.md"),
+            listOf("CMD.EXE", "/c", "echo hello"),
+        )) {
+            val review = review(*argv.toTypedArray())
+            assertNull(review.refusal, "$argv: ${review.refusal}")
+            assertNull(review.problem, "$argv: ${review.problem}")
+            assertTrue(assertIs<ReviewPreview.Command>(review.preview).opaque, "$argv")
+        }
     }
 
     @Test
@@ -134,21 +139,5 @@ class ExecWindowsTest {
             assertFalse(result.isError, "$program: ${result.text}")
             assertTrue(result.text.startsWith("Exit code: 0"), "$program: ${result.text}")
         }
-    }
-}
-
-/** A floor that refuses [root] and everything under it, and allows every other path as it is. */
-@OptIn(InternalAlexandriteApi::class)
-private class DenyingFloor(private val root: Path) : HardFloor {
-    override fun checkRead(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck = decide(path)
-
-    override fun checkWrite(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck = decide(path)
-
-    override fun checkTree(path: Path, agent: AgentId?, conversation: ConversationId?): FloorCheck = decide(path)
-
-    private fun decide(path: Path): FloorCheck = if (path.normalize().startsWith(root.normalize())) {
-        FloorCheck.Denied("a place the test protects")
-    } else {
-        FloorCheck.Allowed(path)
     }
 }

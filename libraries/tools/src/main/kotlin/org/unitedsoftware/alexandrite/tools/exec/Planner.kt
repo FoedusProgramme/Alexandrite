@@ -8,6 +8,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
+import org.unitedsoftware.alexandrite.internal.path.programName
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
@@ -15,7 +16,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.FloorCheck
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
-import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
@@ -52,8 +52,8 @@ internal class PlannedRun(
     /** The program as the call names it. */
     val name: String get() = argv.first()
 
-    /** The base name of [name]. */
-    val program: String get() = baseName(name)
+    /** [name] as this host compares program names. */
+    val program: String get() = programName(name)
 }
 
 /** A step of a planned call: [run], or a change of directory to [cwd] when that is null. */
@@ -219,9 +219,9 @@ internal class Planner(
                 },
             )
         val executable = allowed(floor.checkRead(resolved, agent, conversation)) { "The program $name lies in $it" }
-        val program = baseName(name)
+        val program = programName(name)
         val arguments = argv.drop(1)
-        val real = baseName(executable.fileName.toString())
+        val real = programName(executable.fileName.toString())
         val opaque = isOpaque(program, arguments) || (!isMultiCall(real) && isOpaque(real, arguments))
         val system = resolved.parent in SYSTEM_DIRECTORIES
         val listed = !opaque && system && program in VETTED_READ_ONLY && environment.isEmpty()
@@ -236,11 +236,12 @@ internal class Planner(
                 if (Files.exists(canonical, LinkOption.NOFOLLOW_LINKS)) reached.add(canonical)
             }
         } else {
+            val refuseUnnamed = !opaque
             for (candidate in parsed.operands) {
-                checkUnparsed(candidate, directory, glued = false)
-                for (piece in pathPieces(candidate)) checkUnparsed(piece, directory, glued = true)
+                checkUnparsed(candidate, directory, glued = false, refuseUnnamed)
+                for (piece in pathPieces(candidate)) checkUnparsed(piece, directory, glued = true, refuseUnnamed)
             }
-            for (candidate in gluedValues(argv)) checkUnparsed(candidate, directory, glued = true)
+            for (candidate in gluedValues(argv)) checkUnparsed(candidate, directory, glued = true, refuseUnnamed)
         }
         return PlannedRun(
             argv = argv,
@@ -301,8 +302,8 @@ internal class Planner(
     }
 
     /** Checks [candidate] as a tree, or as a plain write when it is a [glued] value naming the root. */
-    private fun checkUnparsed(candidate: String, directory: Path, glued: Boolean) {
-        val path = candidatePath(candidate, directory) ?: return
+    private fun checkUnparsed(candidate: String, directory: Path, glued: Boolean, refuseUnnamed: Boolean) {
+        val path = candidatePath(candidate, directory, refuseUnnamed) ?: return
         val root = glued && candidate.all { it == '/' }
         val check = if (root) {
             floor.checkWrite(
@@ -374,9 +375,7 @@ private fun gluedValues(argv: List<String>): List<String> = buildList {
     }
 }
 
-/**
- * The path-looking pieces an unparsed operand embeds: after its first `=`, and a `:`-separated side.
- */
+/** The path-looking pieces an unparsed operand embeds: after its first `=`, and a `:`-separated side. */
 private fun pathPieces(candidate: String): List<String> = buildList {
     val equals = candidate.indexOf('=')
     if (equals >= 0) candidate.substring(equals + 1).takeUnless(::isAddress)?.let(::add)
@@ -389,29 +388,27 @@ private fun pathPieces(candidate: String): List<String> = buildList {
     }
 }
 
-/** Whether [text] is an address rather than a place: a URL, or the `user@host:path` that git is given. */
+/** Whether [text] is an address: a URL, or the `user@host:path` that git is given. */
 private fun isAddress(text: String): Boolean = URL_SCHEME.containsMatchIn(text) || SCP_ADDRESS.matches(text)
 
-/** Whether [text] names a place rather than a plain word: it holds a separator or starts with `~` or `.`. */
-private fun looksLikePath(text: String): Boolean =
-    '/' in text || (File.separatorChar == '\\' && '\\' in text) || text.startsWith('~') || text.startsWith('.')
+/** Whether [text] looks like a path: it holds a separator or starts with `~` or `.`. */
+private fun looksLikePath(text: String): Boolean = namesDirectory(text) || text.startsWith('~') || text.startsWith('.')
 
 private val URL_SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")
 private val SCP_ADDRESS = Regex("^[^/\\\\:]+@[^/\\\\:]+:.+")
 
 /**
- * [candidate] as a path: a leading `~` as the home directory, relative to [directory]; null when it is no path of this
- * host at all, such as an address or a word that holds a character no file name of the host may hold.
+ * [candidate] as a path: a leading `~` as the home directory, relative to [directory]; null for an address or a word
+ * that the host cannot name.
  *
- * A word that names no place has nothing in it that the floor could check, as a shell script has not. A word that
- * does look like a path, and that the host cannot name, is refused instead: the floor cannot see through it.
+ * Throws a blocked [ToolRefusal] for a word that looks like a path and that the host cannot name, when [refuseUnnamed].
  */
-private fun candidatePath(candidate: String, directory: Path): Path? {
+private fun candidatePath(candidate: String, directory: Path, refuseUnnamed: Boolean = true): Path? {
     if (isAddress(candidate)) return null
     return try {
         directory.resolve(expandHome(candidate)).normalize()
     } catch (e: InvalidPathException) {
-        if (!looksLikePath(candidate)) return null
+        if (!refuseUnnamed || !looksLikePath(candidate)) return null
         throw ToolRefusal.blocked(
             "'$candidate' is no valid path, so the floor cannot check it: command.exec does not run this call.",
         )

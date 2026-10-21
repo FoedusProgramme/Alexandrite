@@ -67,15 +67,6 @@ class ProgramsWindowsTest {
     }
 
     @Test
-    fun `a base name loses the directory part and the extension that runs it`() {
-        assertEquals("cmd", baseName("C:\\Windows\\System32\\cmd.exe"))
-        assertEquals("python", baseName("python.exe"))
-        assertEquals("hello", baseName("hello.cmd"))
-        assertEquals("notes.txt", baseName("notes.txt"))
-        assertEquals("hello", baseName("dir/hello"))
-    }
-
-    @Test
     fun `a child gets the Windows variables that name its system, its files and its temporary ones`() {
         val parent = mapOf(
             "Path" to "C:\\bin",

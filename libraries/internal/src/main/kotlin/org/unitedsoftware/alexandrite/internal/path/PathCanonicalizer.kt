@@ -20,7 +20,7 @@ public class CanonicalPath internal constructor(
     internal fun keys(ignoreCase: Boolean, forms: Collection<PathForm> = PathForm.entries): List<String> =
         forms.map { unalias(nameKey(path(it).toString(), ignoreCase)) }.distinct()
 
-    /** [form] as it names an entry: verbatim, or case-folded when [ignoreCase], with the keys of [nameKey]. */
+    /** [form] as it names an entry, case-folded when [ignoreCase]. */
     internal fun entryKey(form: PathForm, ignoreCase: Boolean): String =
         unalias(nameKey(path(form).toString(), ignoreCase))
 
