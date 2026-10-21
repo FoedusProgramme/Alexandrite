@@ -2,6 +2,9 @@ package org.unitedsoftware.alexandrite.agent.delivery
 
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
+import org.unitedsoftware.alexandrite.agent.control.NoteOrder
+import org.unitedsoftware.alexandrite.agent.control.PendingNote
+import org.unitedsoftware.alexandrite.agent.control.PendingNotes
 import org.unitedsoftware.alexandrite.agent.control.PendingRecords
 import org.unitedsoftware.alexandrite.agent.control.afterShown
 import org.unitedsoftware.alexandrite.agent.prompt.Escaper
@@ -9,15 +12,18 @@ import org.unitedsoftware.alexandrite.agent.prompt.SENT_HEADER
 import org.unitedsoftware.alexandrite.agent.prompt.lines
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
+import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
+import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -32,10 +38,11 @@ internal const val SENT_SOURCE: String = "alexandrite.sent"
  * conversation's last turn, not yet shown to the model there.
  */
 @Singleton
-@Contribute(ConversationSeals::class)
-internal class SentMessages(records: Records, private val conversations: ConversationStore) :
+@Contribute(ConversationSeals::class, PendingNotes::class)
+internal class SentMessages(records: Records, private val conversations: ConversationStore, private val clock: Clock) :
     Lifecycle,
-    ConversationSeals {
+    ConversationSeals,
+    PendingNotes {
     private val pending = PendingRecords(records.collection<SentRecord>(COLLECTION), "sent messages") {
         it.messages.isEmpty()
     }
@@ -49,6 +56,13 @@ internal class SentMessages(records: Records, private val conversations: Convers
         pending.change(conversation) { current ->
             SentRecord((current?.messages.orEmpty() + message.cut()).takeLast(MAX_MESSAGES))
         }
+    }
+
+    override val order: Int = NoteOrder.SENT
+
+    override suspend fun pending(turn: TurnInfo, definitions: List<ToolDefinition>): PendingNote? {
+        val comparison = pending(turn.conversation, turn.zone ?: clock.zone) ?: return null
+        return PendingNote(comparison.notice, comparison.taint) { clear(turn.conversation, comparison) }
     }
 
     /** The messages sent to [conversation]'s chat, told in [zone], null when there are none or they cannot be read. */

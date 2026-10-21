@@ -24,19 +24,17 @@ import org.unitedsoftware.alexandrite.agent.context.Compaction
 import org.unitedsoftware.alexandrite.agent.context.Compactor
 import org.unitedsoftware.alexandrite.agent.context.TokenEstimator
 import org.unitedsoftware.alexandrite.agent.context.contextView
-import org.unitedsoftware.alexandrite.agent.control.PendingCommands
+import org.unitedsoftware.alexandrite.agent.control.PendingNote
+import org.unitedsoftware.alexandrite.agent.control.PendingNotes
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.control.effectiveZone
-import org.unitedsoftware.alexandrite.agent.delegation.DELEGATE_TOOL
 import org.unitedsoftware.alexandrite.agent.delegation.Delegation
-import org.unitedsoftware.alexandrite.agent.delegation.MAX_DEPTH
 import org.unitedsoftware.alexandrite.agent.delegation.delegationEntry
 import org.unitedsoftware.alexandrite.agent.delegation.delegator
 import org.unitedsoftware.alexandrite.agent.delivery.ChatReplies
 import org.unitedsoftware.alexandrite.agent.delivery.Notices
 import org.unitedsoftware.alexandrite.agent.delivery.ReplyStream
 import org.unitedsoftware.alexandrite.agent.delivery.Routes
-import org.unitedsoftware.alexandrite.agent.delivery.SentMessages
 import org.unitedsoftware.alexandrite.agent.delivery.delivered
 import org.unitedsoftware.alexandrite.agent.delivery.notice
 import org.unitedsoftware.alexandrite.agent.delivery.replyMessage
@@ -80,12 +78,12 @@ import org.unitedsoftware.alexandrite.agent.prompt.turnContextPlan
 import org.unitedsoftware.alexandrite.agent.routing.ChatTopology
 import org.unitedsoftware.alexandrite.agent.tool.CANCELLED_RESULT
 import org.unitedsoftware.alexandrite.agent.tool.DelegatingTurn
-import org.unitedsoftware.alexandrite.agent.tool.OfferedTools
 import org.unitedsoftware.alexandrite.agent.tool.RenderedTool
 import org.unitedsoftware.alexandrite.agent.tool.RunChain
 import org.unitedsoftware.alexandrite.agent.tool.ToolExecutor
 import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
+import org.unitedsoftware.alexandrite.agent.tool.Toolset
 import org.unitedsoftware.alexandrite.agent.tool.TurnCalls
 import org.unitedsoftware.alexandrite.agent.tool.relativized
 import org.unitedsoftware.alexandrite.agent.tool.textResult
@@ -199,12 +197,10 @@ internal class AgentTurnRunner(
     private val prompt: PromptAssembler,
     private val tools: ToolRegistry,
     private val workspaces: Workspaces,
-    private val offeredTools: OfferedTools,
-    private val pendingCommands: PendingCommands,
+    notes: List<PendingNotes>,
     private val executor: ToolExecutor,
     private val jobs: Jobs,
     private val interruptedJobs: InterruptedJobs,
-    private val sentMessages: SentMessages,
     private val chatReplies: ChatReplies,
     private val mandates: Mandates,
     private val projects: ProjectInstructions,
@@ -218,6 +214,8 @@ internal class AgentTurnRunner(
     private val clock: Clock,
     private val budgets: Budgets,
 ) : TurnRunner {
+    private val notes = notes.sortedBy { it.order }
+
     override suspend fun run(
         plan: TurnPlan,
         followUps: FollowUps,
@@ -335,8 +333,7 @@ internal class AgentTurnRunner(
             val offered = toolset.offered
             val definitions = offered.map { (it as? RenderedTool)?.definitionFor(turn) ?: it.definition }
             val narrowed = hooks.turnStart(turn, message, definitions).or { return stopped(it) }.map { it.name }
-            val callable = (narrowed + toolset.callableUnoffered)
-                .filterTo(mutableSetOf()) { tools.permits(agent.id, turn.actorIsOperator || operatorSet(turn), it) }
+            val callable = tools.callable(turn, narrowed + toolset.callableUnoffered)
             this.callable = callable
             val text = hooks.turnInput(turn, message, input.text).or { return stopped(it) }
             val context = turnContext(turn, text, selected, options)
@@ -509,18 +506,7 @@ internal class AgentTurnRunner(
         /** The tools of the turn, which for a sub-agent run are those of its profile that the turn above may call. */
         private fun toolsOf(selected: SelectedModel): Toolset {
             val all = tools.offered(agent.id, selected.ref, selected.info.nativeTools)
-            val delegation = delegation ?: return Toolset(all, emptyList(), emptySet())
-            val profile = delegation.profile
-            val allow = profile.toolsAllow.map(ToolGlob::of)
-            val deny = profile.toolsDeny.map(ToolGlob::of)
-            val chosen = all.filter { tool ->
-                val name = tool.definition.name
-                name in delegation.parent.callable && allow.any { it.matches(name) } && deny.none { it.matches(name) }
-            }
-            val last = delegation.lineage.depth >= MAX_DEPTH
-            val offered = chosen.filterNot { last && it.definition.name == DELEGATE_TOOL }
-            val withheld = (chosen - offered.toSet()).mapTo(mutableSetOf()) { it.definition.name }
-            return Toolset(offered, all - offered.toSet(), withheld)
+            return delegation?.tools(all) ?: Toolset(all, emptyList(), emptySet())
         }
 
         /** The system prompt sections of [turn], which answers [message] and offers the tools [offered]. */
@@ -738,26 +724,13 @@ internal class AgentTurnRunner(
         }
 
         /**
-         * What waits to be told at the start of [turn] of a conversation the turn shares, offered [definitions]: the
-         * change of its tools, the commands run, the jobs interrupted and the messages sent to its chat since its last
-         * turn, which mark it tainted where they carry untrusted content.
+         * What waits to be told at the start of [turn] of a conversation the turn shares, offered [definitions], which
+         * marks it tainted where it carries untrusted content.
          */
         private suspend fun pendingNotes(turn: TurnInfo, definitions: List<ToolDefinition>): List<PendingNote> {
-            val conversation = turn.conversation
-            val comparison = offeredTools.compare(conversation, definitions)
-            val commands = pendingCommands.pending(conversation)
-            val interrupted = interruptedJobs.pending(conversation)
-            val sent = sentMessages.pending(conversation, turn.zone ?: clock.zone)
-            sent?.taint?.let { taint.mark(it) }
-            if (commands?.commands?.any { !it.trusted } == true) {
-                taint.mark("a command of someone whom the agent does not trust")
-            }
-            return listOfNotNull(
-                comparison?.let { PendingNote(it.notice) { offeredTools.record(conversation, it) } },
-                commands?.let { PendingNote(it.notice) { pendingCommands.clear(conversation, it) } },
-                interrupted?.let { PendingNote(it.notice) { interruptedJobs.clear(conversation, it) } },
-                sent?.let { PendingNote(it.notice) { sentMessages.clear(conversation, it) } },
-            )
+            val found = notes.mapNotNull { it.pending(turn, definitions) }
+            found.forEach { note -> note.taint?.let { taint.mark(it) } }
+            return found
         }
 
         /** The unstored entry of [message] in [turn], whose words read [text], with the turn context [baked]. */
@@ -1050,12 +1023,12 @@ internal class AgentTurnRunner(
                         launch {
                             slots.withPermit {
                                 val acting = acting(turn)
-                                val callable = if (acting === turn) {
+                                val callable = if (acting ===
+                                    turn
+                                ) {
                                     tools.callable
                                 } else {
-                                    tools.callable.filterTo(mutableSetOf()) {
-                                        registry.permits(agent.id, acting.actorIsOperator || operatorSet(acting), it)
-                                    }
+                                    registry.callable(acting, tools.callable)
                                 }
                                 val end = executor.execute(
                                     acting,
@@ -1683,9 +1656,6 @@ private class RequestParts(
 /** The tools that a turn's calls may name, by name, and the names of those it may call. */
 private class TurnTools(val offered: Map<String, Tool>, val callable: Set<String>)
 
-/** The tools a turn [offered] the model, and the [unoffered] ones that its calls may still name. */
-private class Toolset(val offered: List<Tool>, val unoffered: List<Tool>, val callableUnoffered: Set<String>)
-
 /** The message that the turn answers, null for a turn that a plugin started. */
 private val TurnSource.message: IncomingMessage?
     get() = (this as? TurnSource.FromMessage)?.message
@@ -1729,12 +1699,6 @@ private const val MAX_NAMED_FOLDERS = 10
 
 private val logger = LoggerFactory.getLogger(AgentTurnRunner::class.java)
 
-/**
- * Whether [turn] may call every tool an operator's turn may, though it has no actor: a heartbeat, which the operator's
- * config sets up and whose gated calls are refused, as it has nobody to ask.
- */
-private fun operatorSet(turn: TurnInfo): Boolean = turn.kind == TurnKind.HEARTBEAT && turn.actor == null
-
 /** The failures after which nothing more reaches a chat. */
 private val UNREACHABLE = setOf(DeliveryFailure.FORBIDDEN, DeliveryFailure.CHAT_GONE)
 
@@ -1752,6 +1716,3 @@ private sealed interface Selection {
 
 /** The kinds of turn that may end saying nothing: a job's that has nothing to add, a heartbeat's. */
 private val SILENT_KINDS = setOf(TurnKind.JOB, TurnKind.HEARTBEAT)
-
-/** A note that waits for a conversation's next turn: the model reads [notice], and [told] records that it did. */
-private class PendingNote(val notice: UserEntry?, val told: suspend () -> Unit)

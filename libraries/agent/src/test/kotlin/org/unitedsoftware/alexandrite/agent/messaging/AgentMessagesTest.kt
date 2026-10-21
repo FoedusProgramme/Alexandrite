@@ -406,8 +406,9 @@ class AgentMessagesTest {
             assertTrue(control.cancel(chat, null, AgentId("reviewer")))
             model.awaitRequests(10)
             val replies = model.requests.drop(7).filter { it.instructions.any { part -> part.text == "SENDER" } }
-            assertContains(replies.first().history.last().toString(), "The agent was stopped before it replied.")
-            assertContains(replies.last().history.last().toString(), "Reviewed again.")
+            val told = replies.map { it.history.last().toString() }
+            assertTrue(told.any { "The agent was stopped before it replied." in it }, "$told")
+            assertTrue(told.any { "Reviewed again." in it }, "$told")
             assertEquals(1, control.jobs(chat).size)
             assertEquals(false, control.cancel(chat, null, AgentId("reviewer")))
 

@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginOrigins
@@ -156,6 +157,15 @@ internal class ToolRegistry(
     /** Whether a turn of [agent] may call [tool]: an [operator]'s any, anyone else's those of `tools.forGuests`. */
     fun permits(agent: AgentId, operator: Boolean, tool: String): Boolean =
         operator || forGuests[agent].orEmpty().any { it.matches(tool) }
+
+    /**
+     * The tools of [names] that [turn] may call: all for an operator's turn and for a heartbeat, which the operator's
+     * config sets up and whose gated calls are refused, as it has nobody to ask; else those of `tools.forGuests`.
+     */
+    fun callable(turn: TurnInfo, names: Collection<String>): Set<String> {
+        val operator = turn.actorIsOperator || (turn.kind == TurnKind.HEARTBEAT && turn.actor == null)
+        return names.filterTo(mutableSetOf()) { permits(turn.agent, operator, it) }
+    }
 }
 
 /** An agent's `tools.allow` and `tools.deny`. */

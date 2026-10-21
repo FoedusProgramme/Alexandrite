@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.agent.prompt.lines
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -17,6 +18,7 @@ import org.unitedsoftware.alexandrite.sdk.store.ConversationState
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
+import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
@@ -29,10 +31,11 @@ internal class ReplyRecord(val text: String, val forModel: Boolean)
 
 /** The commands that ran in each conversation since its last turn, not yet shown to the model. */
 @Singleton
-@Contribute(ConversationSeals::class)
+@Contribute(ConversationSeals::class, PendingNotes::class)
 internal class PendingCommands(records: Records, private val conversations: ConversationStore) :
     Lifecycle,
-    ConversationSeals {
+    ConversationSeals,
+    PendingNotes {
     private val pending = PendingRecords(records.collection<PendingCommandsRecord>(COLLECTION), "commands") {
         it.commands.isEmpty()
     }
@@ -59,6 +62,14 @@ internal class PendingCommands(records: Records, private val conversations: Conv
             if (conversations.conversation(conversation)?.state != ConversationState.ACTIVE) return@change current
             PendingCommandsRecord((current?.commands.orEmpty() + entry).takeLast(MAX_COMMANDS))
         }
+    }
+
+    override val order: Int = NoteOrder.COMMANDS
+
+    override suspend fun pending(turn: TurnInfo, definitions: List<ToolDefinition>): PendingNote? {
+        val comparison = pending(turn.conversation) ?: return null
+        val taint = UNTRUSTED.takeIf { comparison.commands.any { !it.trusted } }
+        return PendingNote(comparison.notice, taint) { clear(turn.conversation, comparison) }
     }
 
     /** The commands pending for [conversation], null when there are none or they cannot be read. */
@@ -155,3 +166,6 @@ internal data class PendingCommandRecord(
 
 /** What a reply hidden from the model is recorded as. */
 internal const val HIDDEN_REPLY: String = "[a reply hidden from the model]"
+
+/** Why a command of someone whom the agent does not trust taints the next turn. */
+private const val UNTRUSTED = "a command of someone whom the agent does not trust"

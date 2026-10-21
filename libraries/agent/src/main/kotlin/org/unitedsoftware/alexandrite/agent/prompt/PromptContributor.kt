@@ -1,9 +1,11 @@
 package org.unitedsoftware.alexandrite.agent.prompt
 
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.sdk.di.ContributedSpi
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
 
 /** A part of the agent that tells the model of itself in the system prompt of the turns that can use it. */
+@ContributedSpi
 internal interface PromptContributor {
     /** Where its section sits after the agent's own instructions, lower first. */
     val order: Int

@@ -21,7 +21,7 @@ internal class ManualPrompt : PromptContributor {
 
 internal val MANUAL: PromptSection = PromptSection(
     MANUAL_SECTION,
-    "# Manual\n\nFor questions about Alexandrite itself, such as its commands, settings, permissions, taint and trust, " +
-        "MCP servers, persona and skills, read its manual with $MANUAL_TOOL before answering.",
+    "# Manual\n\nFor questions about Alexandrite itself, such as its commands, settings, permissions, taint and " +
+        "trust, MCP servers, persona and skills, read its manual with $MANUAL_TOOL before answering.",
     stable = true,
 )

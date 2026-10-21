@@ -2,24 +2,30 @@ package org.unitedsoftware.alexandrite.agent.job
 
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
+import org.unitedsoftware.alexandrite.agent.control.NoteOrder
+import org.unitedsoftware.alexandrite.agent.control.PendingNote
+import org.unitedsoftware.alexandrite.agent.control.PendingNotes
 import org.unitedsoftware.alexandrite.agent.control.PendingRecords
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.ConversationStore
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
+import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 
 /** The jobs and agent messages of each active conversation that a restart interrupted, not yet shown to the model. */
 @Singleton
-@Contribute(ConversationSeals::class)
+@Contribute(ConversationSeals::class, PendingNotes::class)
 internal class InterruptedJobs(records: Records, private val conversations: ConversationStore) :
     Lifecycle,
-    ConversationSeals {
+    ConversationSeals,
+    PendingNotes {
     private val pending = PendingRecords(records.collection<InterruptedRecord>(COLLECTION), "interrupted jobs") {
         it.jobs.isEmpty() && it.messages.isEmpty()
     }
@@ -49,6 +55,13 @@ internal class InterruptedJobs(records: Records, private val conversations: Conv
                 )
             }
         }
+    }
+
+    override val order: Int = NoteOrder.INTERRUPTED
+
+    override suspend fun pending(turn: TurnInfo, definitions: List<ToolDefinition>): PendingNote? {
+        val comparison = pending(turn.conversation) ?: return null
+        return PendingNote(comparison.notice, null) { clear(turn.conversation, comparison) }
     }
 
     /** What was interrupted in [conversation], null when nothing was or it cannot be read. */
