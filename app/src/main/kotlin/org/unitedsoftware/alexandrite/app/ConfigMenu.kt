@@ -645,7 +645,7 @@ private class ConfigMenu(private val cli: Cli) {
 
     private fun otherKey() {
         val key = ui.ask(t("menu.other.key"), null) {
-            if (it.isBlank() || it.trim().split('.').any(String::isEmpty)) t("usage.no_key", "key" to it) else null
+            keyProblem(it.trim())?.let { reason -> t("usage.no_key", "key" to it, "reason" to reason) }
         }?.trim() ?: return
         val current = (cli.rawConfig() ?: return).at(key)
         ui.say(

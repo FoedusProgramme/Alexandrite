@@ -5,7 +5,7 @@ import kotlinx.serialization.json.JsonElement
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.runtime.HostApi
 
-/** The host's whole config file as an operator changes it, with paths from the file's root. */
+/** The host's whole config file as an operator changes it, with [ConfigPath] paths from the file's root. */
 @HostApi
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface HostConfig {
@@ -36,7 +36,7 @@ public interface HostConfig {
     }
 }
 
-/** The changes of one [HostConfig.edit], applied in order, at paths that join the keys of nested objects by dots. */
+/** The changes of one [HostConfig.edit], applied in order, at paths as [ConfigPath] writes them. */
 @SubclassOptInRequired(InternalAlexandriteApi::class)
 public interface ConfigEdit {
     /** The value at [path] as the file writes it after this edit's changes so far, null when there is none. */

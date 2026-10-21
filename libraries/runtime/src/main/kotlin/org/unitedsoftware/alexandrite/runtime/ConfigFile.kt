@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.runtime.config.BYTE_ORDER_MARK
 import org.unitedsoftware.alexandrite.runtime.config.jsonStringEnd
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSource
 import org.unitedsoftware.alexandrite.sdk.config.JsonConfigSource
 import java.io.IOException
@@ -82,7 +83,7 @@ public object ConfigFile {
             var key = ""
             var item = 0
 
-            fun child(): String = if (isObject) join(path, key) else "$path[$item]"
+            fun child(): String = if (isObject) ConfigPath.join(path, key) else "$path[$item]"
         }
         val levels = ArrayDeque<Level>()
         var index = 0
@@ -102,7 +103,7 @@ public object ConfigFile {
                     val level = levels.lastOrNull()
                     if (level != null && level.expectsKey) {
                         val key = Json.decodeFromString<String>(text.substring(index, end))
-                        if (!level.keys.add(key)) return join(level.path, key)
+                        if (!level.keys.add(key)) return ConfigPath.join(level.path, key)
                         level.key = key
                         level.expectsKey = false
                     }
@@ -115,8 +116,6 @@ public object ConfigFile {
         return null
     }
 
-    private fun join(path: String, key: String): String = if (path.isEmpty()) key else "$path.$key"
-
     /**
      * [root] with its references replaced, where [problem] makes the error for the unset variable at a path, or for a
      * malformed reference there when the variable is null.
@@ -125,15 +124,20 @@ public object ConfigFile {
         root: JsonObject,
         environment: Map<String, String>,
         problem: (path: String, variable: String?) -> RuntimeException,
-    ): JsonObject = JsonObject(root.mapValues { (key, value) -> value.resolved(key, environment, problem) })
+    ): JsonObject =
+        JsonObject(root.mapValues { (key, value) -> value.resolved(ConfigPath.join("", key), environment, problem) })
 
     private fun JsonElement.resolved(
         path: String,
         environment: Map<String, String>,
         problem: (String, String?) -> RuntimeException,
     ): JsonElement = when (this) {
-        is JsonObject -> JsonObject(mapValues { (key, value) -> value.resolved("$path.$key", environment, problem) })
+        is JsonObject -> JsonObject(
+            mapValues { (key, value) -> value.resolved(ConfigPath.join(path, key), environment, problem) },
+        )
+
         is JsonArray -> JsonArray(mapIndexed { index, value -> value.resolved("$path[$index]", environment, problem) })
+
         is JsonPrimitive -> if (isString) JsonPrimitive(content.resolved(path, environment, problem)) else this
     }
 

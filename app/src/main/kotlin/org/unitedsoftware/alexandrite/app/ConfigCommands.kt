@@ -25,6 +25,7 @@ import org.unitedsoftware.alexandrite.runtime.configProblems
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import java.io.IOException
 import java.nio.file.Files
@@ -53,8 +54,16 @@ internal fun valueOf(text: String): JsonElement {
 }
 
 internal fun requireKey(key: String): String {
-    if (key.split('.').any(String::isEmpty)) throw UsageException("usage.no_key", "key" to key)
+    keyProblem(key)?.let { throw UsageException("usage.no_key", "key" to key, "reason" to it) }
     return key
+}
+
+/** What is malformed in the config path [key], null when nothing is. */
+internal fun keyProblem(key: String): String? = try {
+    ConfigPath.parse(key)
+    null
+} catch (e: IllegalArgumentException) {
+    e.message?.removeSuffix(".")
 }
 
 /** Tells the person how a written change came out, and returns the exit code. */
@@ -78,7 +87,7 @@ internal fun writeChanges(cli: Cli, changes: List<ConfigChangeView>): Written? {
     val spliced = previous?.let {
         try {
             changes.filterNot { it.remove }.fold(it) { text, change ->
-                splicedConfig(text, change.path.split('.'), change.value)
+                splicedConfig(text, ConfigPath.parse(change.path), change.value)
             }
         } catch (e: IllegalArgumentException) {
             null

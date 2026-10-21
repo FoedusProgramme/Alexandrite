@@ -139,6 +139,37 @@ class ConfigControlTest {
     }
 
     @Test
+    fun `the running app changes a key with dots by its path in brackets, and hints at them for a split one`() {
+        val path = "providers.lmstudio.endpoints.local.models[\"gpt-6.1-sol\"].contextWindow"
+        val printed = mutableListOf<Printed>()
+
+        app {
+            printed += cli("config", "set", path, "200000")
+            printed += cli("config", "set", "providers.lmstudio.endpoints.local.models.gpt-6.1-sol.contextWindow", "1")
+            printed += cli("config", "unset", "providers.lmstudio.endpoints.local.models.gpt-6.1-sol")
+            printed += cli("config", "unset", "providers.lmstudio.endpoints.local.models['gpt-6.1-sol']")
+        }
+
+        val (set, split, missed, unset) = printed
+        assertEquals(
+            Printed(
+                0,
+                "Changed $path in ${cli.configFile.toAbsolutePath()}.\n" +
+                    "Alexandrite applies it once it starts again: run alexandrite restart.\n",
+                "",
+            ),
+            set,
+        )
+        val hint = "Keys with dots go in brackets: providers.lmstudio.endpoints.local.models[\"gpt-6.1-sol\"]"
+        assertEquals(1, split.code)
+        assertContains(split.err, "$hint.contextWindow.")
+        assertEquals(1, missed.code)
+        assertContains(missed.err, "$hint.")
+        assertEquals(0, unset.code, unset.err)
+        assertFalse("gpt-6" in cli.config())
+    }
+
+    @Test
     fun `a change of the floor takes effect in the running app at once, and needs no restart`() {
         val printed = mutableListOf<Printed>()
         val shared = directory.resolve("shared").toAbsolutePath()

@@ -61,7 +61,15 @@ class ConfigToolsTest {
     }
 
     @Serializable
-    class Vault(val name: String = "", val token: Secret? = null, val key: Secret? = null)
+    class Vault(
+        val name: String = "",
+        val token: Secret? = null,
+        val key: Secret? = null,
+        val models: Map<String, Model> = emptyMap(),
+    )
+
+    @Serializable
+    class Model(val contextWindow: Int? = null)
 
     private val vault = object : PluginIndex {
         override val info = PluginInfo("vault", "Vault", "1.0", "", AlexandriteSdk.API_VERSION, emptyList(), "t.Vault")
@@ -279,6 +287,51 @@ class ConfigToolsTest {
             val refused = results()[1]
             assertEquals(ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS), refused.outcome)
             assertContains(refused.text(), "too long for a person to review whole")
+        }
+    }
+
+    @Test
+    fun `a key with dots is changed and read by its path in brackets, and a split one is refused with the hint`() {
+        val path = "plugins.vault.models[\"gpt-6.1-sol\"].contextWindow"
+        val quoted = path.replace("\"", "\\\"")
+        model.reply { toolCall("config.set", set(quoted, "200000")) }.reply { text("Ok.") }
+            .reply { toolCall("config.set", set("plugins.vault.models.gpt-6.1-sol.contextWindow", "1000")) }
+            .reply { text("Ok.") }
+            .reply { toolCall("config.unset", """{"path": "plugins.vault.models['gpt-6.1-sol']"}""") }
+            .reply { text("Ok.") }
+
+        harness().execute {
+            setMode(PermissionMode.BYPASS)
+            ask()
+            val get = checkNotNull(get<ToolRegistry>().tool("config.get"))
+            val shown = get.execute(JsonObject(mapOf("path" to JsonPrimitive(path))), testToolContext())
+            repeat(2) { ask() }
+
+            val restart = "Takes effect once an operator restarts Alexandrite"
+            assertEquals("Changed $path. $restart: $path.", results()[0].text())
+            assertEquals("$path = 200000", (shown.content.single() as TextPart).text)
+            assertEquals(ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS), results()[1].outcome)
+            assertContains(results()[1].text(), "Keys with dots go in brackets: $path.")
+            val model = "plugins.vault.models[\"gpt-6.1-sol\"]"
+            assertEquals("Changed $model. $restart: $model.", results()[2].text())
+            assertEquals(false, "gpt-6" in Files.readString(configFile))
+        }
+    }
+
+    @Test
+    fun `a path in brackets that reaches the floor asks a person as the dotted one does`() {
+        model.reply { toolCall("config.set", set("agent['floor'].ask", "[]")) }.reply { text("Ok.") }
+            .reply { toolCall("config.set", set("agent.floor[0]", "[]")) }.reply { text("Ok.") }
+
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
+            setMode(PermissionMode.BYPASS)
+            repeat(2) { ask() }
+
+            val floor = "the change reaches agent.floor, the places of the hard floor, which only a person may change"
+            assertEquals(listOf(floor), channel().approvals.map { it.reason })
+            assertEquals(ToolOutcome.NotRun(NotRunReason.INVALID_ARGUMENTS), results()[1].outcome)
+            assertContains(results()[1].text(), "Malformed config path 'agent.floor[0]'")
         }
     }
 }

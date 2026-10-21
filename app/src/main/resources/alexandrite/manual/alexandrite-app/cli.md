@@ -51,6 +51,16 @@ keys of the config:
 - `alexandrite secret set <NAME>`, `secret list`, `secret unset <NAME>` — keep secrets in `secrets.env` beside the
   config file, referred to as `${env:NAME}`.
 
+A key is the config's path: keys joined by dots, such as `agent.agents.main.model`. A key that holds a dot, such as a
+model id, goes in brackets and quotes (`"…"` or `'…'`, with `\"` and `\\` escaped), and the whole path in single quotes
+for the shell:
+
+```
+alexandrite config set 'providers.openai-responses.endpoints.main.models["gpt-6.1-sol"].contextWindow' 200000
+```
+
+Paths in messages are written the same way, so they can be pasted back.
+
 A change goes through the running Alexandrite, which checks it as a start would and says what needs a restart;
 `--restart` restarts the service once it is written. With none running the command writes the file itself.
 

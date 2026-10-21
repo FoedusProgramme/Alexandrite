@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.app.control.NoDaemonException
 import org.unitedsoftware.alexandrite.app.control.askDaemon
 import org.unitedsoftware.alexandrite.app.control.controlSocket
 import org.unitedsoftware.alexandrite.app.tui.Style
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import java.io.IOException
 import java.io.PrintStream
 import java.nio.file.Files
@@ -136,9 +137,9 @@ internal fun writtenConfig(text: String): JsonObject? = try {
     null
 }
 
-/** The value at the dotted [path] of this object, null when there is none. */
+/** The value at the config [path] of this object, null when there is none. */
 internal fun JsonObject.at(path: String): JsonElement? =
-    path.split('.').fold(this as JsonElement?) { element, key -> (element as? JsonObject)?.get(key) }
+    ConfigPath.parse(path).fold(this as JsonElement?) { element, key -> (element as? JsonObject)?.get(key) }
 
 /** The object at [path], empty when there is none. */
 internal fun JsonObject.objectAt(path: String): JsonObject = at(path) as? JsonObject ?: JsonObject(emptyMap())

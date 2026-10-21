@@ -207,6 +207,20 @@ class ConfigMenuTest {
     }
 
     @Test
+    fun `another key with dots goes in brackets, and a malformed one is asked again`() {
+        cli.config("""{"app": {"zone": "UTC"}}""")
+        val path = "providers.lmstudio.endpoints.local.models[\"gpt-6.1-sol\"].contextWindow"
+        val console = menu(
+            choose(7) + typed("providers.lmstudio.endpoints.local.models[gpt-6.1-sol]") + Key.Enter + Key.Clear +
+                typed(path) + Key.Enter + typed("200000") + Key.Enter + done,
+        )
+
+        assertTrue(console.frames.any { frame -> frame.any { "is no config key (Malformed config path" in it } })
+        assertContains(console.screen.lines(), "✓  Changed $path in ${cli.configFile}.")
+        assertEquals("200000", "${file().at(path)}")
+    }
+
+    @Test
     fun `another key set in the running app says whether it took effect at once or needs a restart`() {
         cli.config("""{"app": {"zone": "UTC"}}""")
         val shared = directory.resolve("shared").toAbsolutePath()

@@ -113,7 +113,9 @@ class ArgumentsTest {
             listOf("config", "move") to "Unknown command config move: config takes get, set, unset, edit, check, path.",
             listOf("config", "set", "app.zone") to "config set needs a key and a value.",
             listOf("config", "set", "app..zone", "1") to
-                "'app..zone' is no config key: write keys joined by dots, such as agent.agents.main.model.",
+                "'app..zone' is no config key (Malformed config path 'app..zone': a key is missing at 5): write " +
+                "keys joined by dots, such as agent.agents.main.model, and a key with a dot in brackets and quotes, " +
+                "such as models[\"gpt-4.1\"].",
             listOf("config", "get", "--verbose") to "Unknown option --verbose.",
             listOf("status", "--json", "now") to "status takes no argument.",
             listOf("logs", "-n", "none") to "-n needs a positive number.",

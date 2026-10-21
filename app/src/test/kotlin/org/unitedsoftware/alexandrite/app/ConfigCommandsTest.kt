@@ -117,6 +117,49 @@ class ConfigCommandsTest {
     }
 
     @Test
+    fun `a key with dots is set, read and unset by its path in brackets`() {
+        val path = "providers.deepseek.endpoints.deepseek.models[\"gpt-6.1-sol\"].contextWindow"
+
+        val set = cli("config", "set", path, "200000")
+        val single = cli("config", "get", "providers.deepseek.endpoints.deepseek.models['gpt-6.1-sol'].contextWindow")
+        val written = cli.config()
+        val unset = cli("config", "unset", "providers.deepseek.endpoints.deepseek.models[\"gpt-6.1-sol\"]")
+
+        assertEquals(
+            Printed(0, "Changed $path in ${cli.configFile}.\nAlexandrite applies it when it starts.\n", ""),
+            set,
+        )
+        assertContains(written, "\"models\": {\"gpt-6.1-sol\": {\"contextWindow\": 200000}}")
+        assertEquals(Printed(0, "200000\n", ""), single)
+        assertEquals(0, unset.code, unset.err)
+        assertFalse("gpt-6" in cli.config())
+    }
+
+    @Test
+    fun `a key with dots split at its dots is refused with the path in brackets as the hint`() {
+        val printed =
+            cli("config", "set", "providers.deepseek.endpoints.deepseek.models.gpt-6.1-sol.contextWindow", "1")
+
+        assertEquals(1, printed.code)
+        assertContains(
+            printed.err,
+            "Keys with dots go in brackets: " +
+                "providers.deepseek.endpoints.deepseek.models[\"gpt-6.1-sol\"].contextWindow.",
+        )
+        assertEquals(original, cli.config())
+    }
+
+    @Test
+    fun `a malformed key is a usage error that says what is wrong`() {
+        val printed = cli("config", "set", "providers.deepseek.endpoints.deepseek.models[gpt-4.1]", "1")
+
+        assertEquals(ExitCode.USAGE, printed.code)
+        assertContains(printed.err, "the key in the bracket at 45 needs quotes")
+        assertContains(printed.err, "models[\"gpt-4.1\"]")
+        assertEquals(original, cli.config())
+    }
+
+    @Test
     fun `get prints a string as it is, anything else and the whole file as JSON`() {
         assertEquals(Printed(0, "UTC\n", ""), cli("config", "get", "app.zone"))
         assertEquals(Printed(0, "\"UTC\"\n", ""), cli("config", "get", "app.zone", "--json"))

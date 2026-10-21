@@ -19,6 +19,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEdit
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -45,7 +46,7 @@ internal class ConfigGetTool(private val config: HostConfig, private val paths: 
             "agent.agents.main.models, or the whole file without a path. Secrets show as \${env:NAME} references or " +
             "as ${HostConfig.HIDDEN_SECRET}, never as their values.",
         parameters = schema {
-            property("path", "string", "The dot-separated keys of the value, such as agent.floor. Default the file.")
+            property("path", "string", "The value's path, such as agent.floor. $PATH_FORM Default the file.")
         },
         risk = ToolRisk.READ_ONLY,
         activity = ToolActivity.READ,
@@ -75,7 +76,7 @@ internal class ConfigSetTool(private val config: HostConfig, private val paths: 
             "nothing changes. A secret is written as an \${env:NAME} reference, never as its value. Says which " +
             "changes took effect at once and which need a restart, which an operator does.",
         parameters = schema("path", "value") {
-            property("path", "string", "The dot-separated keys of the value, such as agent.agents.main.models.")
+            property("path", "string", "The value's path, such as agent.agents.main.models. $PATH_FORM")
             putJsonObject("value") {
                 put("description", "The new value as JSON: a string, number, boolean, list or object.")
             }
@@ -113,7 +114,7 @@ internal class ConfigUnsetTool(private val config: HostConfig, private val paths
             "the checks of a start, or nothing changes. Says whether the change took effect at once or needs a " +
             "restart, which an operator does.",
         parameters = schema("path") {
-            property("path", "string", "The dot-separated keys of the value, such as agent.agents.main.workspace.")
+            property("path", "string", "The value's path, such as agent.agents.main.workspace. $PATH_FORM")
         },
         risk = ToolRisk.EXTERNAL_ACTION,
         activity = ToolActivity.EDIT,
@@ -207,11 +208,11 @@ private suspend fun changed(
 
 /** Whether removing [path], or setting it to [value], changes `agent.floor`. */
 private suspend fun touchesFloor(config: HostConfig, path: String, value: JsonElement?): Boolean {
-    val keys = path.split('.')
+    val keys = ConfigPath.parse(path)
     if (keys.size >= FLOOR.size && keys.take(FLOOR.size) == FLOOR) return true
     if (FLOOR.take(keys.size) != keys) return false
     val written = FLOOR.drop(keys.size).fold(value) { element, key -> (element as? JsonObject)?.get(key) }
-    return written != config.get(FLOOR.joinToString("."))
+    return written != config.get(ConfigPath.format(FLOOR))
 }
 
 /** Which of [changes] took effect at once and which need a restart. */
@@ -238,10 +239,14 @@ private fun optionalPath(arguments: JsonObject): String? {
 }
 
 private fun requiredPath(arguments: JsonObject): String =
-    optionalPath(arguments) ?: throw Refused("Give 'path', the dot-separated keys of the value.")
+    optionalPath(arguments) ?: throw Refused("Give 'path', the path of the value.")
 
 private fun checkedPath(path: String): String {
-    if (path.split('.').any(String::isEmpty)) throw Refused("'$path' is no path of dot-separated keys.")
+    try {
+        ConfigPath.parse(path)
+    } catch (e: IllegalArgumentException) {
+        throw Refused("${e.message} $PATH_FORM")
+    }
     return path
 }
 
@@ -271,6 +276,10 @@ private fun schema(vararg required: String, properties: JsonObjectBuilder.() -> 
 }
 
 private val FLOOR = listOf("agent", "floor")
+
+private const val PATH_FORM =
+    "Keys join by dots, and a key with a dot goes in brackets and quotes, such as " +
+        "providers.openai-responses.endpoints.main.models[\"gpt-4.1\"].contextWindow."
 
 private const val FLOOR_CHANGE =
     "the change reaches agent.floor, the places of the hard floor, which only a person may change"

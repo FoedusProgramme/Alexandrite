@@ -8,7 +8,8 @@ One JSON file, `alexandrite.json`, configures the host and every plugin, each pl
 `agent`, `tools`, `mcp`, `channels.telegram`, `providers.<provider>` (such as `providers.deepseek`),
 `automations.schedule`, `automations.heartbeat`, and `plugins.<id>` for a plugin that is not built in. A plugin's
 `enabled` key, such as `mcp.enabled`, switches it off with `false`. A key is written as its path of dot-separated
-names, such as `agent.agents.main.models`.
+names, such as `agent.agents.main.models`. A name that holds a dot, such as a model id, goes in brackets and quotes:
+`providers.openai-responses.endpoints.main.models["gpt-6.1-sol"].contextWindow`.
 
 ## Reading and changing it
 

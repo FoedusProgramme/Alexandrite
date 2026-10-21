@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 
 /**
  * [text], a valid JSON config file, with [value] at [path] and every other character kept.
@@ -221,7 +222,7 @@ internal class ConfigText(val text: String) {
     private fun Span.text(): String = text.substring(start, end)
 
     private fun noObject(path: List<String>, index: Int): ConfigPathException =
-        ConfigPathException("'${path.take(index + 1).joinToString(".")}' holds no object.")
+        ConfigPathException("'${ConfigPath.format(path.take(index + 1))}' holds no object.")
 
     private companion object {
         const val DEFAULT_INDENT = "  "

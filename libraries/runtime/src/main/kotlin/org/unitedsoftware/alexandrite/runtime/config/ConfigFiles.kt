@@ -28,8 +28,8 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChannelType
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
-import org.unitedsoftware.alexandrite.sdk.config.JsonConfigSource
 import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.di.container.Scope
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
@@ -113,30 +113,31 @@ internal fun checkSecrets(
     written: JsonObject,
     changes: List<ConfigChange>,
 ) {
-    val root = index.configRoot
-    val source = JsonConfigSource(written)
+    val root = index.configRoot.split('.')
     val instances = if (channelType == null) {
         emptyList()
     } else {
-        source.tree("$root.${PluginIds.INSTANCES_KEY}")?.keys.orEmpty().map { "${PluginIds.INSTANCES_KEY}.$it" }
+        (written.at(root + PluginIds.INSTANCES_KEY) as? JsonObject)?.keys.orEmpty()
+            .map { listOf(PluginIds.INSTANCES_KEY, it) }
     }
-    val secrets = mutableListOf<Pair<String, JsonElement>>()
+    val secrets = mutableListOf<Pair<SecretPlace, JsonElement>>()
     for (section in index.configSections()) {
-        val bases = if (section.scope == Scope.CHANNEL_INSTANCE) instances else listOf("")
+        val bases = if (section.scope == Scope.CHANNEL_INSTANCE) instances else listOf(emptyList())
         for (base in bases) {
-            val path = listOf(base, section.path).filter(String::isNotEmpty).joinToString(".")
-            val tree = source.tree(listOf(root, path).filter(String::isNotEmpty).joinToString(".")) ?: continue
-            withSecrets(section.deserializer.descriptor, tree, path) { at, value -> value.also { secrets += at to it } }
+            val keys = root + base + section.path.split('.').filter(String::isNotEmpty)
+            val tree = written.at(keys) ?: continue
+            withSecrets(section.deserializer.descriptor, tree, SecretPlace(keys)) { at, value ->
+                value.also { secrets += at to it }
+            }
         }
     }
-    val set = changes.filter { it.value != null }.map { it.path.joinToString(".") }
-    val leaked = secrets.firstOrNull { (path, value) ->
-        !isReference(value) &&
-            set.any { it.isEmpty() || path == it || path.startsWith("$it.") || path.startsWith("$it[") }
+    val set = changes.filter { it.value != null }.map { root + it.path }
+    val leaked = secrets.firstOrNull { (place, value) ->
+        !isReference(value) && set.any { place.keys.take(it.size) == it }
     } ?: return
     throw refused(
         ConfigEditRefusal.SECRET,
-        "The change would write a secret at '$root.${leaked.first}' into the config file. Secrets stay out of " +
+        "The change would write a secret at '${leaked.first.path}' into the config file. Secrets stay out of " +
             "the file: write an \${env:NAME} reference instead, whose value `alexandrite secret set NAME` keeps.",
     )
 }
@@ -160,22 +161,19 @@ public fun referencedSecrets(
 ): String {
     val written = jsonObject(text) ?: return text
     val kept = HashMap<String, JsonElement>()
-    replacedSecrets(plugins.members, jsonObject(previous) ?: JsonObject(emptyMap())) { path, value ->
-        value.also { kept[path] = it }
+    replacedSecrets(plugins.members, jsonObject(previous) ?: JsonObject(emptyMap())) { place, value ->
+        value.also { kept[place.path] = it }
     }
-    val moved = mutableSetOf<String>()
-    val referenced = replacedSecrets(plugins.members, written) { path, value ->
-        if (value !is JsonPrimitive || isReference(value) || kept[path] == value) {
+    val moved = mutableSetOf<List<String>>()
+    val referenced = replacedSecrets(plugins.members, written) { place, value ->
+        if (value !is JsonPrimitive || isReference(value) || kept[place.path] == value) {
             value
         } else {
-            moved += path.substringBefore('[')
-            JsonPrimitive("\${env:${name(path, value.content)}}")
+            moved += place.keys
+            JsonPrimitive("\${env:${name(place.path, value.content)}}")
         }
     }
-    return moved.fold(text) { spliced, path ->
-        val keys = path.split('.')
-        splicedConfig(spliced, keys, checkNotNull(referenced.at(keys)))
-    }
+    return moved.fold(text) { spliced, keys -> splicedConfig(spliced, keys, checkNotNull(referenced.at(keys))) }
 }
 
 private fun jsonObject(text: String): JsonObject? = try {
@@ -188,7 +186,7 @@ private fun jsonObject(text: String): JsonObject? = try {
 private fun replacedSecrets(
     members: List<PluginSet.Member>,
     written: JsonObject,
-    secret: (path: String, value: JsonElement) -> JsonElement,
+    secret: (place: SecretPlace, value: JsonElement) -> JsonElement,
 ): JsonObject {
     var replaced = written
     for (member in members) {
@@ -209,7 +207,7 @@ private fun replacedSecrets(
                 replaced =
                     replaced.with(
                         keys,
-                        withSecrets(section.deserializer.descriptor, tree, keys.joinToString("."), secret),
+                        withSecrets(section.deserializer.descriptor, tree, SecretPlace(keys), secret),
                     )
             }
         }
@@ -217,44 +215,53 @@ private fun replacedSecrets(
     return replaced
 }
 
-/** [element] as [descriptor] decodes it at [path], each [Secret] in it replaced by what [secret] makes of it. */
+/** Where a secret sits: the keys of the objects on the way to it, and the [path] that names it. */
+private class SecretPlace(
+    val keys: List<String>,
+    val path: String = ConfigPath.format(keys),
+    private val listed: Boolean = false,
+) {
+    fun child(key: String): SecretPlace =
+        SecretPlace(if (listed) keys else keys + key, ConfigPath.join(path, key), listed)
+
+    fun item(index: Int): SecretPlace = SecretPlace(keys, "$path[$index]", listed = true)
+}
+
+/** [element] as [descriptor] decodes it at [place], each [Secret] in it replaced by what [secret] makes of it. */
 private fun withSecrets(
     descriptor: SerialDescriptor,
     element: JsonElement,
-    path: String,
-    secret: (path: String, value: JsonElement) -> JsonElement,
-): JsonElement {
-    fun child(key: String) = if (path.isEmpty()) key else "$path.$key"
-    return when {
-        descriptor.serialName.removeSuffix("?") == SECRET_NAME -> secret(path, element)
+    place: SecretPlace,
+    secret: (place: SecretPlace, value: JsonElement) -> JsonElement,
+): JsonElement = when {
+    descriptor.serialName.removeSuffix("?") == SECRET_NAME -> secret(place, element)
 
-        descriptor.isInline -> withSecrets(descriptor.getElementDescriptor(0), element, path, secret)
+    descriptor.isInline -> withSecrets(descriptor.getElementDescriptor(0), element, place, secret)
 
-        element is JsonObject && descriptor.kind == StructureKind.CLASS -> JsonObject(
-            element.mapValues { (key, value) ->
-                val index = descriptor.getElementIndex(key)
-                if (index == CompositeDecoder.UNKNOWN_NAME) {
-                    value
-                } else {
-                    withSecrets(descriptor.getElementDescriptor(index), value, child(key), secret)
-                }
-            },
-        )
+    element is JsonObject && descriptor.kind == StructureKind.CLASS -> JsonObject(
+        element.mapValues { (key, value) ->
+            val index = descriptor.getElementIndex(key)
+            if (index == CompositeDecoder.UNKNOWN_NAME) {
+                value
+            } else {
+                withSecrets(descriptor.getElementDescriptor(index), value, place.child(key), secret)
+            }
+        },
+    )
 
-        element is JsonObject && descriptor.kind == StructureKind.MAP -> JsonObject(
-            element.mapValues { (key, value) ->
-                withSecrets(descriptor.getElementDescriptor(1), value, child(key), secret)
-            },
-        )
+    element is JsonObject && descriptor.kind == StructureKind.MAP -> JsonObject(
+        element.mapValues { (key, value) ->
+            withSecrets(descriptor.getElementDescriptor(1), value, place.child(key), secret)
+        },
+    )
 
-        element is JsonArray && descriptor.kind == StructureKind.LIST -> JsonArray(
-            element.mapIndexed { index, value ->
-                withSecrets(descriptor.getElementDescriptor(0), value, "$path[$index]", secret)
-            },
-        )
+    element is JsonArray && descriptor.kind == StructureKind.LIST -> JsonArray(
+        element.mapIndexed { index, value ->
+            withSecrets(descriptor.getElementDescriptor(0), value, place.item(index), secret)
+        },
+    )
 
-        else -> element
-    }
+    else -> element
 }
 
 /** This object with [value] at [keys], whose objects on the way exist. */
