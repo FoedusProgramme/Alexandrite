@@ -3,10 +3,14 @@ package org.unitedsoftware.alexandrite.tools.fs
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.hash.hex
 import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
+import org.unitedsoftware.alexandrite.internal.media.imageDimensions
+import org.unitedsoftware.alexandrite.internal.media.imageType
+import org.unitedsoftware.alexandrite.internal.media.normalizedImage
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.internal.tool.countArgument
 import org.unitedsoftware.alexandrite.internal.tool.requiredString
+import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -18,9 +22,16 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
+import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaPart
+import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import java.io.InputStream
+import java.io.SequenceInputStream
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
 import java.security.DigestInputStream
+import java.security.MessageDigest
 
 @Singleton
 @Contribute(Tool::class)
@@ -29,8 +40,9 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
         name = "fs.read",
         description = "Reads a UTF-8 text file and returns its lines, each after its line number and a tab. " +
             "Returns at most $MAX_LINES lines from line 'offset' on, each cut after $MAX_LINE_CHARS characters, and " +
-            "says where to go on when more follow. Refuses directories (list them with fs.glob), binary files and " +
-            "protected places.",
+            "says where to go on when more follow. An image (png, jpeg, gif, webp, bmp, tiff, heic or heif, by its " +
+            "bytes) is returned as an image instead of text. Refuses directories (list them with fs.glob), other " +
+            "binary files and protected places.",
         parameters = schema("path") {
             property("path", "string", "The file: an absolute path, or one relative to your workspace (~ is home).")
             property("offset", "integer", "The number of the first line to return, from 1. Default 1.")
@@ -59,17 +71,67 @@ internal class ReadTool(private val floor: HardFloor, private val ledger: ReadLe
             context.touched(file)
             val digest = sha256Digest()
             DigestInputStream(openRegularFile(file, floor.protectsAnything), digest).use { input ->
-                val text = try {
-                    rendered(TextLines(input, MAX_LINE_CHARS, MAX_READ_BYTES), path, offset, limit)
-                } catch (e: NotText) {
-                    throw ToolRefusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
+                val prefix = input.readNBytes(IMAGE_SNIFF_BYTES)
+                val mediaType = imageType(prefix)
+                if (mediaType != null) {
+                    imageResult(path, file, attributes, mediaType, prefix, input, digest, conversation)
+                } else {
+                    val combined = SequenceInputStream(prefix.inputStream(), input)
+                    val text = try {
+                        rendered(TextLines(combined, MAX_LINE_CHARS, MAX_READ_BYTES), path, offset, limit)
+                    } catch (e: NotText) {
+                        throw ToolRefusal("$path is no UTF-8 text (it looks binary): fs.read reads text files only.")
+                    }
+                    if (attributes.size() <= MAX_WRITE_BYTES && drained(combined)) {
+                        ledger.record(conversation, file, HASH_PREFIX + hex(digest.digest()))
+                    }
+                    ToolResult(text)
                 }
-                if (attributes.size() <= MAX_WRITE_BYTES && drained(input)) {
-                    ledger.record(conversation, file, HASH_PREFIX + hex(digest.digest()))
-                }
-                ToolResult(text)
             }
         }
+    }
+
+    /**
+     * [path]'s content as an image of [mediaType], read the rest of [input] from past [prefix], [digest] already
+     * covering what either held.
+     */
+    private fun imageResult(
+        path: Path,
+        file: Path,
+        attributes: BasicFileAttributes,
+        mediaType: String,
+        prefix: ByteArray,
+        input: InputStream,
+        digest: MessageDigest,
+        conversation: ConversationId,
+    ): ToolResult {
+        if (attributes.size() > MAX_READ_BYTES) {
+            return ToolResult(
+                "$path is an image ($mediaType, ${attributes.size()} bytes): it is more than the " +
+                    "${MAX_READ_BYTES / MIB} MiB fs.read reads, so it cannot be shown.",
+            )
+        }
+        val bytes = prefix + input.readBytes()
+        val dimensions = imageDimensions(bytes)
+        val shown = if (dimensions == null) "" else ", ${dimensions.first}x${dimensions.second}"
+        val normalized = normalizedImage(bytes)
+            ?: return ToolResult("$path is an image ($mediaType, ${bytes.size} bytes$shown) that fs.read cannot show.")
+        if (attributes.size() <= MAX_WRITE_BYTES) {
+            ledger.record(conversation, file, HASH_PREFIX + hex(digest.digest()))
+        }
+        return ToolResult(
+            listOf(
+                TextPart("$path is an image ($mediaType, ${bytes.size} bytes$shown)."),
+                MediaPart(
+                    MediaKind.IMAGE,
+                    normalized.mediaType,
+                    InlineMedia(normalized.bytes),
+                    path.fileName?.toString(),
+                    normalized.width.takeIf { it > 0 },
+                    normalized.height.takeIf { it > 0 },
+                ),
+            ),
+        )
     }
 
     /** Whether [input] ends within [MAX_WRITE_BYTES] more bytes, which it reads. */
@@ -143,3 +205,6 @@ private const val DRAIN_BUFFER_BYTES = 64 * 1024
 
 /** The bytes of a file that `fs.read` reads at most. */
 internal const val MAX_READ_BYTES: Long = 64L * MIB
+
+/** The leading bytes of a file that `fs.read` sniffs for an image's magic bytes. */
+private const val IMAGE_SNIFF_BYTES = 32

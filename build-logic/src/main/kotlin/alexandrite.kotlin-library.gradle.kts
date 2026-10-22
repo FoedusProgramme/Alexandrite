@@ -84,6 +84,7 @@ dependencies {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    systemProperty("java.awt.headless", "true")
 }
 
 spotless {

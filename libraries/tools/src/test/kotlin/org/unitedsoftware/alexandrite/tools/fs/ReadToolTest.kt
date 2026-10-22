@@ -4,23 +4,37 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.condition.DisabledOnOs
 import org.junit.jupiter.api.condition.OS
 import org.junit.jupiter.api.io.TempDir
+import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaPart
+import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import javax.imageio.ImageIO
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class ReadToolTest {
     @TempDir
     lateinit var directory: Path
 
     private lateinit var fs: FsFixture
+    private lateinit var ledger: ReadLedger
     private lateinit var tool: ReadTool
 
     @BeforeEach
     fun setUp() {
         fs = FsFixture(directory)
-        tool = ReadTool(fs.floor, ReadLedger())
+        ledger = ReadLedger()
+        tool = ReadTool(fs.floor, ledger)
     }
 
     @Test
@@ -176,4 +190,81 @@ class ReadToolTest {
         assertRefused("Nothing exists at ${home.toRealPath().resolve(missing)}.", inHome)
         assertRefused("$home is a directory: list it with fs.glob.", homeItself)
     }
+
+    @Test
+    fun `an image within the limits is returned as a media part, next to a short text part`() {
+        val png = pngBytes(20, 10)
+        val file = fs.bytes("repo/photo.png", png)
+        val context = fs.context()
+
+        val result = tool.call(context, "path" to file)
+
+        assertFalse(result.isError)
+        val text = assertIs<TextPart>(result.content[0])
+        assertTrue("image/png" in text.text && "${png.size} bytes" in text.text && "20x10" in text.text, text.text)
+        val media = assertIs<MediaPart>(result.content[1])
+        assertEquals(MediaKind.IMAGE, media.kind)
+        assertEquals("image/png", media.mediaType)
+        assertContentEquals(png, (media.source as InlineMedia).bytes())
+        assertEquals("photo.png" to (20 to 10), media.name to (media.width to media.height))
+        assertEquals(listOf(file), context.touchedPaths)
+    }
+
+    @Test
+    fun `a bmp is shown as a media part of its normalized type, not as bmp`() {
+        val file = fs.bytes("repo/photo.bmp", bmpBytes(10, 6))
+        val context = fs.context()
+
+        val media = assertIs<MediaPart>(tool.call(context, "path" to file).content[1])
+
+        assertTrue(media.mediaType == "image/png" || media.mediaType == "image/jpeg")
+        assertEquals(10 to 6, media.width to media.height)
+    }
+
+    @Test
+    fun `an image this version cannot decode is shown as text, and is not recorded for a later write`() {
+        val file = fs.bytes("repo/photo.heic", fakeHeicBytes())
+        val context = fs.context()
+
+        val result = tool.call(context, "path" to file)
+
+        assertFalse(result.isError)
+        val text = assertIs<TextPart>(result.content.single())
+        assertTrue("image/heic" in text.text && "cannot show" in text.text, text.text)
+        assertNull(ledger.hash(ConversationId("test"), file))
+    }
+
+    @Test
+    fun `a protected image is refused, not shown`() {
+        val file = fs.bytes("secret/photo.png", pngBytes(4, 4))
+
+        assertRefused(
+            "$file is protected (a place the test protects): no file tool may read it.",
+            tool.call(fs.context(), "path" to file),
+        )
+    }
+}
+
+private fun pngBytes(width: Int, height: Int): ByteArray {
+    val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+    for (y in 0 until height) for (x in 0 until width) image.setRGB(x, y, 0xFF00FF)
+    val output = ByteArrayOutputStream()
+    ImageIO.write(image, "png", output)
+    return output.toByteArray()
+}
+
+private fun bmpBytes(width: Int, height: Int): ByteArray {
+    val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+    for (y in 0 until height) for (x in 0 until width) image.setRGB(x, y, 0x00FF00)
+    val output = ByteArrayOutputStream()
+    ImageIO.write(image, "bmp", output)
+    return output.toByteArray()
+}
+
+/** An ISOBMFF `ftyp` box of the `heic` brand with no HEIC data behind it, which no reader in this JVM claims. */
+private fun fakeHeicBytes(): ByteArray {
+    val bytes = ByteArray(20)
+    "ftyp".toByteArray(Charsets.US_ASCII).copyInto(bytes, 4)
+    "heic".toByteArray(Charsets.US_ASCII).copyInto(bytes, 8)
+    return bytes
 }
