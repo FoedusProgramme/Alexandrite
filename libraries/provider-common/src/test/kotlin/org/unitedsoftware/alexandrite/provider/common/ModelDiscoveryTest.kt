@@ -101,6 +101,16 @@ class ModelDiscoveryTest {
     }
 
     @Test
+    fun `a configured kind the wire API never carries is bound away`() {
+        server.enqueue(fakeResponse { body(listing(model("chat-model"))) }, "/v1/models")
+        val configured = mapOf("chat-model" to ModelConfig(inputMedia = setOf("image", "audio")))
+
+        val models = models(models = configured)
+
+        assertEquals(setOf(MediaKind.IMAGE), models.getValue("chat-model").inputMedia)
+    }
+
+    @Test
     fun `a configured price wins over the one the backend lists, and a model priced by neither has none`() {
         val listing = object : ModelListing() {
             override fun facts(model: JsonObject): ModelFacts = ModelFacts(

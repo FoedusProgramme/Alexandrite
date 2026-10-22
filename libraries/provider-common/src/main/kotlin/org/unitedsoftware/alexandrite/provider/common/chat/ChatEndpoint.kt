@@ -22,6 +22,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 
 /**
  * An endpoint that speaks Chat Completions in [flavor] at `{baseUrl}/chat/completions`, which describes each model by
@@ -34,7 +35,7 @@ public class ChatEndpoint(
     private val chat: ChatApiSettings = ChatApiSettings(),
 ) : ModelEndpoint,
     AutoCloseable {
-    private val core = EndpointCore(id, settings, flavor.listing, flavor.dialect)
+    private val core = EndpointCore(id, settings, flavor.listing, flavor.dialect, SENDS)
 
     override suspend fun models(): List<ModelInfo> = core.models()
 
@@ -97,3 +98,6 @@ public class ChatEndpoint(
         }
     }
 }
+
+/** The media kinds that the chat completions API carries here. */
+private val SENDS = setOf(MediaKind.IMAGE)

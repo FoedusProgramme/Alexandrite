@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.internal.http.HttpFailureKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import java.net.URI
 
 /** The models of the endpoint [id], each described by the config, the last listing [models] read and [listing]. */
@@ -17,6 +18,7 @@ internal class ModelCatalog(
     private val settings: EndpointSettings,
     private val listing: ModelListing,
     private val dialect: Dialect,
+    private val sends: Set<MediaKind>,
     private val connection: EndpointConnection,
 ) {
     @Volatile
@@ -30,7 +32,7 @@ internal class ModelCatalog(
     }
 
     fun describe(model: String): ModelInfo =
-        modelInfo(model, dialect, settings.models[model]?.facts(model), listed[model], listing.defaults)
+        modelInfo(model, dialect, settings.models[model]?.facts(model), listed[model], listing.defaults, sends)
 
     /** The models the backend lists, null when it has no listing or never listed one and the config names models. */
     private suspend fun discover(): List<ModelFacts>? {

@@ -20,6 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
 
@@ -60,6 +61,7 @@ public class MessagesEndpoint(
         settings,
         flavor.listing,
         flavor.dialect,
+        SENDS,
         mapOf("anthropic-version" to flavor.version),
         WIRE,
     )
@@ -130,3 +132,6 @@ public class MessagesEndpoint(
         public val WIRE: WireHeaders = WireHeaders("x-api-key", setOf("anthropic-version", "anthropic-beta"))
     }
 }
+
+/** The media kinds that the Messages API carries here. */
+private val SENDS = setOf(MediaKind.IMAGE)
