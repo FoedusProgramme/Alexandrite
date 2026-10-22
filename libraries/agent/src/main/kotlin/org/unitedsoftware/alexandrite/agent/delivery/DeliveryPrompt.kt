@@ -2,8 +2,8 @@ package org.unitedsoftware.alexandrite.agent.delivery
 
 import org.unitedsoftware.alexandrite.agent.prompt.PromptContributor
 import org.unitedsoftware.alexandrite.agent.prompt.PromptOrder
+import org.unitedsoftware.alexandrite.agent.prompt.PromptTurn
 import org.unitedsoftware.alexandrite.agent.prompt.SENT_HEADER
-import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
@@ -16,8 +16,7 @@ internal const val DELIVERY_SECTION: String = "alexandrite.delivery"
 internal class DeliveryPrompt : PromptContributor {
     override val order: Int = PromptOrder.DELIVERY
 
-    override fun section(turn: TurnInfo, offered: Set<String>): PromptSection? =
-        DELIVERY.takeIf { SEND_TOOL in offered }
+    override fun section(turn: PromptTurn): PromptSection? = DELIVERY.takeIf { SEND_TOOL in turn.offered }
 }
 
 internal val DELIVERY: PromptSection = PromptSection(

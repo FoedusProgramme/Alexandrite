@@ -11,6 +11,7 @@ import org.unitedsoftware.alexandrite.agent.directory.CONVERSATION_DIRECTORY_SEC
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.job.JobRecord
 import org.unitedsoftware.alexandrite.agent.job.JobRecords
+import org.unitedsoftware.alexandrite.agent.media.MEDIA_SECTION
 import org.unitedsoftware.alexandrite.agent.permission.Refusals
 import org.unitedsoftware.alexandrite.agent.project.PROJECT_SECTION
 import org.unitedsoftware.alexandrite.agent.prompt.BASE_SECTION
@@ -250,6 +251,7 @@ class DelegationTurnsTest {
                     WORKSPACE_SECTION,
                     CONVERSATION_DIRECTORY_SECTION,
                     PROJECT_SECTION,
+                    MEDIA_SECTION,
                 ),
                 runs[0].instructions.map { it.id },
             )

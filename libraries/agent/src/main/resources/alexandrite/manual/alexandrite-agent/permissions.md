@@ -72,7 +72,7 @@ decides.
 
 ## The judge
 
-In `auto`, a side model judges each gated call that no rule allows: `agent.agents.<id>.permission.judge`
+In `auto`, a side model judges each gated call that no rule allows: `agent.agents.<id>.roles.judge`
 (`<endpoint>/<model>`, the agent's own model when unset), waiting `judgeTimeoutSeconds` (20). It sees only the call,
 what the operator wrote in the turn and the taint, and answers allow, deny or ask; ask goes to a person. It never allows
 writes to the config, secrets, persona or skills, and an opaque program of a tainted conversation goes straight to a

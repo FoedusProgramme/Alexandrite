@@ -11,6 +11,7 @@ import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.time.ZoneId
 
@@ -36,15 +37,27 @@ internal class Agent(
 
     val mode: PermissionMode? = config.permission.mode?.let(PermissionMode::of)
 
-    /** Null when the agent has no model, or its permission section names one of an unknown endpoint: a person rules. */
-    val judgeModel: ModelRef? = config.permission.judge?.let(ModelRef::parse)?.takeIf(known)
-        ?: model.takeIf { config.permission.judge == null }
+    /** Null when the agent has no model, or its judge role names one of an unknown endpoint: a person rules. */
+    val judgeModel: ModelRef? = config.roles.judge?.let(ModelRef::parse)?.takeIf(known)
+        ?: model.takeIf { config.roles.judge == null }
 
-    /** The model of the agent's side questions, such as those about web pages. */
-    val sideModel: ModelRef? = judgeModel ?: model
+    /** The model that answers questions about web pages, null when there is none. */
+    val webModel: ModelRef? = config.roles.web?.let(ModelRef::parse)?.takeIf(known) ?: judgeModel ?: model
 
     /** The model that writes the agent's summaries, null for the model of the turn. */
-    val summaryModel: ModelRef? = config.compaction.model?.let(ModelRef::parse)?.takeIf(known)
+    val summaryModel: ModelRef? = config.roles.summary?.let(ModelRef::parse)?.takeIf(known)
+
+    /** The models that read media of each kind for a turn whose model does not take it, by kind. */
+    val readers: Map<MediaKind, ModelRef> = MediaKind.entries.mapNotNull { kind ->
+        config.roles.reader(kind)?.let(ModelRef::parse)?.takeIf(known)?.let { kind to it }
+    }.toMap()
+
+    /** How the agent's turns take media of [kind]. */
+    fun handling(kind: MediaKind): MediaHandling = config.media.handling(kind)
+
+    /** Every model the agent names: its own and those of its roles. */
+    val allModels: List<ModelRef> =
+        (models + listOfNotNull(judgeModel, webModel, summaryModel) + readers.values).distinct()
 
     val linkedChats: List<List<ChatAddress>> = config.linkedChats.map { group -> group.map(ChatAddress::parse) }
 }
@@ -107,11 +120,9 @@ private fun resolved(id: AgentId, config: AgentConfig, channels: ChannelDirector
             else -> warn(key, model, "the agent goes on without $model")
         }
     }
-    config.permission.judge?.let(ModelRef::parse)?.takeUnless(known)?.let {
-        warn("permission.judge", it, "a person rules on the calls the judge would rule on")
-    }
-    config.compaction.model?.let(ModelRef::parse)?.takeUnless(known)?.let {
-        warn("compaction.model", it, "the turn's model writes the summaries")
+    for ((role, value) in config.roles.set()) {
+        val model = ModelRef.parse(value).takeUnless(known) ?: continue
+        warn("roles.$role", model, ROLE_FALLBACKS.getValue(role))
     }
     val attachments = config.channels.mapNotNull { (key, attachment) ->
         val instance = ChannelInstanceId.parse(key)
@@ -151,3 +162,14 @@ private fun resolved(id: AgentId, config: AgentConfig, channels: ChannelDirector
 }
 
 private val logger = LoggerFactory.getLogger(AgentDirectory::class.java)
+
+/** What an agent does without each role's model when its endpoint is unknown. */
+private val ROLE_FALLBACKS = mapOf(
+    "judge" to "a person rules on the calls the judge would rule on",
+    "summary" to "the turn's model writes the summaries",
+    "web" to "the judge answers questions about web pages",
+    "image" to "images reach only a turn whose model takes them",
+    "audio" to "audio reaches only a turn whose model takes it",
+    "video" to "video reaches only a turn whose model takes it",
+    "file" to "files reach only a turn whose model takes them",
+)

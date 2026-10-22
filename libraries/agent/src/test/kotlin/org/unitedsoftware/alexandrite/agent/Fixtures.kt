@@ -56,6 +56,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.EntryId
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.testkit.MemoryStore
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
 import java.nio.file.Path
 import java.time.Clock
 import java.time.Instant
@@ -63,6 +65,7 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import javax.imageio.ImageIO
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -252,6 +255,20 @@ internal fun inbox(dataRoot: Path, config: String = "{}"): Inbox {
         ),
     )
 }
+
+/** A tiny, real [format] image, [width] by [height] pixels. */
+fun tinyImage(width: Int = 2, height: Int = 2, format: String = "png"): ByteArray {
+    val image = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
+    val output = ByteArrayOutputStream()
+    ImageIO.write(image, format, output)
+    return output.toByteArray()
+}
+
+/** A tiny, real PNG image, [width] by [height] pixels. */
+fun tinyPng(width: Int = 2, height: Int = 2): ByteArray = tinyImage(width, height, "png")
+
+/** A tiny, real GIF image, [width] by [height] pixels. */
+fun tinyGif(width: Int = 2, height: Int = 2): ByteArray = tinyImage(width, height, "gif")
 
 fun hostPaths(configFile: Path?, dataRoot: Path = Path.of("/data")): HostPaths = object : HostPaths {
     override val dataRoot = dataRoot

@@ -2,7 +2,7 @@ package org.unitedsoftware.alexandrite.agent.directory
 
 import org.unitedsoftware.alexandrite.agent.prompt.PromptContributor
 import org.unitedsoftware.alexandrite.agent.prompt.PromptOrder
-import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.agent.prompt.PromptTurn
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
@@ -16,8 +16,8 @@ internal const val CONVERSATION_DIRECTORY_SECTION: String = "conversation_direct
 internal class ConversationDirectoryPrompt(private val directories: ConversationDirectories) : PromptContributor {
     override val order: Int = PromptOrder.CONVERSATION_DIRECTORY
 
-    override fun section(turn: TurnInfo, offered: Set<String>): PromptSection? =
-        if (offered.isEmpty()) null else conversationDirectorySection(directories.path(turn))
+    override fun section(turn: PromptTurn): PromptSection? =
+        if (turn.offered.isEmpty()) null else conversationDirectorySection(directories.path(turn.info))
 }
 
 /** Where this conversation keeps its own files, at [directory]. */

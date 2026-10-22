@@ -2,7 +2,7 @@ package org.unitedsoftware.alexandrite.agent.workspace
 
 import org.unitedsoftware.alexandrite.agent.prompt.PromptContributor
 import org.unitedsoftware.alexandrite.agent.prompt.PromptOrder
-import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.agent.prompt.PromptTurn
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
@@ -16,8 +16,8 @@ internal const val WORKSPACE_SECTION: String = "workspace"
 internal class WorkspacePrompt(private val workspaces: Workspaces) : PromptContributor {
     override val order: Int = PromptOrder.WORKSPACE
 
-    override fun section(turn: TurnInfo, offered: Set<String>): PromptSection? =
-        workspaces.paths[turn.agent]?.takeIf { offered.isNotEmpty() }?.let(::workspaceSection)
+    override fun section(turn: PromptTurn): PromptSection? =
+        workspaces.paths[turn.info.agent]?.takeIf { turn.offered.isNotEmpty() }?.let(::workspaceSection)
 }
 
 /** Where an agent keeps its own files, at [workspace]. */

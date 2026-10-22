@@ -44,6 +44,10 @@ internal class AgentConfig(
     val tools: ToolSelection = ToolSelection(),
     val permission: PermissionConfig = PermissionConfig(),
     val compaction: CompactionConfig = CompactionConfig(),
+    /** The models of the agent's side work, by role. */
+    val roles: RolesConfig = RolesConfig(),
+    /** How the agent's turns take media of each kind. */
+    val media: MediaConfig = MediaConfig(),
     /** The agent's own directory. */
     val workspace: String? = null,
     /** The channel instances the agent serves, by `<type>:<name>`. */
@@ -92,8 +96,6 @@ internal class PermissionConfig(
     val deny: List<String> = emptyList(),
     /** The calls whose output does not taint the conversation, written like [allow] or as a glob of tool names. */
     val trust: List<String> = emptyList(),
-    /** `<endpoint>/<model>` of the judge in auto mode, the agent's model when null. */
-    val judge: String? = null,
     val judgeTimeoutSeconds: Int = 20,
     /** The most escaped characters that the judge is shown of a call, and of the operator's words. */
     val judgeMaxChars: Int = 32_000,

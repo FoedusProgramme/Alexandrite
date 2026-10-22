@@ -158,7 +158,10 @@ class FirstAnswerTest {
 
             val request = model.requests.single()
             val conversation = store.conversations.current(coder).id
-            assertEquals(listOf("alexandrite.base", "agent.instructions.1"), request.instructions.map { it.id })
+            assertEquals(
+                listOf("alexandrite.base", "agent.instructions.1", "alexandrite.media"),
+                request.instructions.map { it.id },
+            )
             assertEquals(
                 listOf(UserEntry(null, listOf(framing(), TextPart("Hi")), (stored()[0] as UserEntry).origin)),
                 request.history,

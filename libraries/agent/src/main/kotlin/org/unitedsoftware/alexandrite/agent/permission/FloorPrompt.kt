@@ -3,7 +3,7 @@ package org.unitedsoftware.alexandrite.agent.permission
 import org.unitedsoftware.alexandrite.agent.config.FloorConfig
 import org.unitedsoftware.alexandrite.agent.prompt.PromptContributor
 import org.unitedsoftware.alexandrite.agent.prompt.PromptOrder
-import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.agent.prompt.PromptTurn
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
@@ -16,8 +16,8 @@ internal const val FLOOR_SECTION: String = "alexandrite.floor"
 internal class FloorPrompt(private val floor: AgentFloor) : PromptContributor {
     override val order: Int = PromptOrder.FLOOR
 
-    override fun section(turn: TurnInfo, offered: Set<String>): PromptSection? =
-        if (offered.isEmpty()) null else floorSection(floor.entries)
+    override fun section(turn: PromptTurn): PromptSection? =
+        if (turn.offered.isEmpty()) null else floorSection(floor.entries)
 }
 
 /** The places that the hard [floor] protects, null when it protects none. */

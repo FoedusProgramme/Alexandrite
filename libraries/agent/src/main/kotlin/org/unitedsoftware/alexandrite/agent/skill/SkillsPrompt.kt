@@ -2,8 +2,8 @@ package org.unitedsoftware.alexandrite.agent.skill
 
 import org.unitedsoftware.alexandrite.agent.prompt.PromptContributor
 import org.unitedsoftware.alexandrite.agent.prompt.PromptOrder
+import org.unitedsoftware.alexandrite.agent.prompt.PromptTurn
 import org.unitedsoftware.alexandrite.agent.prompt.oneLine
-import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
@@ -16,8 +16,8 @@ internal const val SKILLS_SECTION: String = "skills"
 internal class SkillsPrompt(private val skills: Skills) : PromptContributor {
     override val order: Int = PromptOrder.SKILLS
 
-    override fun section(turn: TurnInfo, offered: Set<String>): PromptSection? =
-        if (SKILL_LOAD_TOOL in offered) skillsSection(skills.global(turn.agent).values) else null
+    override fun section(turn: PromptTurn): PromptSection? =
+        if (SKILL_LOAD_TOOL in turn.offered) skillsSection(skills.global(turn.info.agent).values) else null
 }
 
 /** The skills section of an agent offered `skill.load`, listing [skills], its plugins' and the host's. */

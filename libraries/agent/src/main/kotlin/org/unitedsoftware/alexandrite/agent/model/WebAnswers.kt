@@ -17,8 +17,7 @@ import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
 internal class WebAnswers(private val endpoints: Endpoints, private val directory: AgentDirectory) : WebModels {
     override suspend fun answer(question: PageQuestion): String {
         val turn = question.turn
-        val ref = question.model
-            ?: requireNotNull(directory.agent(turn.agent)?.sideModel) { "No web side model configured." }
+        val ref = requireNotNull(directory.agent(turn.agent)?.webModel) { "No web side model configured." }
         val selected = requireNotNull(endpoints.select(ref)) { "Web side model is unavailable." }
         val ids = RequestIds(turn.conversation, turn.id, 0)
         val instructions = listOf(PromptSection(SOURCE, WEB_RUBRIC, stable = true))

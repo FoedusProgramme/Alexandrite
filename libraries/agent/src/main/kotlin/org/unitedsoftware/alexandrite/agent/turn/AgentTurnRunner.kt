@@ -50,6 +50,9 @@ import org.unitedsoftware.alexandrite.agent.job.InterruptedJobs
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.job.described
 import org.unitedsoftware.alexandrite.agent.job.jobEntry
+import org.unitedsoftware.alexandrite.agent.media.MediaPlan
+import org.unitedsoftware.alexandrite.agent.media.MediaReader
+import org.unitedsoftware.alexandrite.agent.media.MediaRouting
 import org.unitedsoftware.alexandrite.agent.messaging.MessageBudget
 import org.unitedsoftware.alexandrite.agent.model.Endpoints
 import org.unitedsoftware.alexandrite.agent.model.RetryPolicy
@@ -71,6 +74,7 @@ import org.unitedsoftware.alexandrite.agent.project.ProjectInstructions
 import org.unitedsoftware.alexandrite.agent.project.UntrustedFolder
 import org.unitedsoftware.alexandrite.agent.project.entries
 import org.unitedsoftware.alexandrite.agent.prompt.PromptAssembler
+import org.unitedsoftware.alexandrite.agent.prompt.PromptTurn
 import org.unitedsoftware.alexandrite.agent.prompt.TurnContextPlan
 import org.unitedsoftware.alexandrite.agent.prompt.initiatedEntry
 import org.unitedsoftware.alexandrite.agent.prompt.messageEntry
@@ -129,6 +133,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelError
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
 import org.unitedsoftware.alexandrite.sdk.model.ModelException
+import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelOptions
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
@@ -151,7 +156,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
-import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
@@ -185,6 +189,8 @@ internal class AgentTurnRunner(
     private val conversations: ConversationStore,
     private val transcripts: TranscriptStore,
     private val mediaStore: MediaStore,
+    private val mediaReader: MediaReader,
+    private val routing: MediaRouting,
     private val inbox: Inbox,
     private val channels: ChannelDirectory,
     private val endpoints: Endpoints,
@@ -258,10 +264,10 @@ internal class AgentTurnRunner(
         private var sink: ReplySink? = null
         private var capabilities: ChannelCapabilities? = null
         private var previews: ReplyStream? = null
-        private val media = TurnMedia(plan.id, mediaStore, agentSettings.maxMediaBytes, inbox)
+        private val media = TurnMedia(plan.id, mediaStore, agentSettings.maxMediaBytes, inbox, mediaReader)
 
-        /** Whether the turn's model views images. */
-        private var images = false
+        /** How the turn's model takes each kind of media. */
+        private var mediaPlan = MediaPlan(emptyMap())
         private var recorded = false
         private lateinit var taint: TurnTaint
 
@@ -324,7 +330,7 @@ internal class AgentTurnRunner(
 
                 Selection.Unknown -> movedOn(UNKNOWN_MODEL) ?: return unknownModel()
             }
-            images = MediaKind.IMAGE in selected.info.inputMedia
+            mediaPlan = routing.plan(agent.id, selected.info)
             val options = requestOptions(agent, selected.info, reasoning)
             val toolset = toolsOf(selected)
             val offered = toolset.offered
@@ -339,7 +345,7 @@ internal class AgentTurnRunner(
             val view = contextView(inherited + history.entries(turn.conversation))
             tracked.history = view.loaded
             hooks.contextLoaded(turn, view.loaded)
-            val sections = hooks.promptSections(turn, sections(turn, message, narrowed.toSet()))
+            val sections = hooks.promptSections(turn, sections(turn, message, narrowed.toSet(), selected.info))
             val summaryModel = agent.summaryModel ?: selected.ref
             val window = compactor.open(turn, agent.config.compaction, selected.ref, selected.info, summaryModel, view)
             val parts = RequestParts(selected, options, window, sections, definitions, context)
@@ -512,9 +518,11 @@ internal class AgentTurnRunner(
             turn: TurnInfo,
             message: IncomingMessage?,
             offered: Set<String>,
+            model: ModelInfo,
         ): List<PromptSection> {
-            val delegation = delegation ?: return prompt.sections(turn, offered, message?.chatInfo?.kind)
-            return prompt.delegated(turn, offered, delegation.profile, delegation.delegator)
+            val prompted = PromptTurn(turn, offered, model)
+            val delegation = delegation ?: return prompt.sections(prompted, message?.chatInfo?.kind)
+            return prompt.delegated(prompted, delegation.profile, delegation.delegator)
         }
 
         /**
@@ -617,7 +625,7 @@ internal class AgentTurnRunner(
         private suspend fun jobOpening(turn: TurnInfo, job: EndedJob, text: String): UserEntry {
             job.untrusted?.let { taint.mark(it) }
             reads.reason(turn, job.job.call.name, job.touched)?.let { taint.mark(it) }
-            val stored = media.stored(job.result)
+            val stored = media.stored(turn, job.result, mediaPlan)
             val carried = job.result.content.zip(stored.content).mapNotNull { (part, kept) ->
                 (kept as? UserPart)?.takeIf { part is MediaPart }
             }
@@ -744,7 +752,7 @@ internal class AgentTurnRunner(
                 text,
                 turn.zone ?: clock.zone,
                 linked,
-                baked + media.put(turn, message, images),
+                baked + media.put(turn, message, mediaPlan),
             )
         }
 
@@ -900,7 +908,7 @@ internal class AgentTurnRunner(
         ): ModelRequest {
             val turn = checkNotNull(turn)
             val (entries, turnStart) = parts.window.history(appending.withLock { stored.toList() } + pending)
-            val history = crossedTo(parts.model.ref, media.inline(entries))
+            val history = crossedTo(parts.model.ref, media.inline(entries, mediaPlan))
             val ids = RequestIds(turn.conversation, turn.id, round)
             return ModelRequest.builder(parts.model.ref, history, turnStart, ids)
                 .instructions(parts.sections)
@@ -950,19 +958,23 @@ internal class AgentTurnRunner(
             val selected = movedOn(error.kind.toString()) ?: return null
             val next = model
             previews?.discard()
-            images = MediaKind.IMAGE in selected.info.inputMedia
+            mediaPlan = routing.plan(agent.id, selected.info)
             val turn = checkNotNull(turn)
             val options = requestOptions(agent, selected.info, reasoning)
             val toolset = toolsOf(selected)
             val names = parts.tools.mapTo(HashSet()) { it.name }
             val definitions = toolset.offered.map { (it as? RenderedTool)?.definitionFor(turn) ?: it.definition }
                 .filter { it.name in names }
-            val plan = turnContextPlan(contextItems) { selected.endpoint.turnContextMode(next.model, options, it) }
-            if (plan.tainted && !parts.context.tainted) taint.mark("untrusted turn context")
-            val context = TurnContextPlan(parts.context.baked, plan.kept, parts.context.tainted || plan.tainted)
+            val contextPlan = turnContextPlan(contextItems) {
+                selected.endpoint.turnContextMode(next.model, options, it)
+            }
+            if (contextPlan.tainted && !parts.context.tainted) taint.mark("untrusted turn context")
+            val context =
+                TurnContextPlan(parts.context.baked, contextPlan.kept, parts.context.tainted || contextPlan.tainted)
             parts.window.moveTo(next, selected.info, agent.summaryModel ?: next)
             val tools = TurnTools((toolset.offered + toolset.unoffered).associateBy { it.definition.name }, callable)
-            return RequestParts(selected, options, parts.window, parts.sections, definitions, context) to tools
+            val sections = hooks.promptSections(turn, sections(turn, plan.input.message, names, selected.info))
+            return RequestParts(selected, options, parts.window, sections, definitions, context) to tools
         }
 
         /** The response of [model] to [request], whose text the chat is shown as it comes. */
@@ -1040,7 +1052,8 @@ internal class AgentTurnRunner(
                                 skills += end.loads
                                 val result = withContext(NonCancellable) {
                                     appending.withLock {
-                                        appendLocked(listOf(media.stored(found.noted(end.result)))).single()
+                                        appendLocked(listOf(media.stored(turn, found.noted(end.result), mediaPlan)))
+                                            .single()
                                     }
                                 }
                                 end.notice?.let { notify(NoticeKind.HOOK_ABORTED, it) }

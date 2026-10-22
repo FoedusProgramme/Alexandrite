@@ -63,7 +63,8 @@ class JudgeTurnsTest {
                   "model": "scripted/test-model",
                   "channels": {"test:main": {}},
                   "tools": {"forGuests": ["fs.write"]},
-                  "permission": {"mode": "auto", "judge": "judge/test-model"$permission}
+                  "permission": {"mode": "auto"$permission},
+                  "roles": {"judge": "judge/test-model"}
                 }
               }
             }

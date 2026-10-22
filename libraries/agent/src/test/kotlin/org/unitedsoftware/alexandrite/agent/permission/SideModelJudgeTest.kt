@@ -63,12 +63,21 @@ class SideModelJudgeTest {
     private val write = recordingTool("fs.write", ToolRisk.WORKSPACE_WRITE)
     private val exec = recordingTool("command.exec", ToolRisk.EXEC)
 
-    /** A judge of agent `main` over [endpoints], with [permission] in the agent's permission section. */
-    private fun judge(permission: String = "", vararg endpoints: ModelEndpoint = arrayOf(model)): SideModelJudge {
+    /** A judge of agent `main` over [endpoints], with [permission] in its permission section and [roles] in roles. */
+    private fun judge(
+        permission: String = "",
+        vararg endpoints: ModelEndpoint = arrayOf(model),
+        roles: String = "",
+    ): SideModelJudge {
         val config = """
             {
               "agents": {
-                "main": {"description": "Main.", "model": "scripted/test-model", "permission": {$permission}}
+                "main": {
+                  "description": "Main.",
+                  "model": "scripted/test-model",
+                  "permission": {$permission},
+                  "roles": {$roles}
+                }
               }
             }
         """.trimIndent()
@@ -184,7 +193,7 @@ class SideModelJudgeTest {
         model.fail(ModelErrorKind.SERVER_ERROR)
 
         val failed = judge().judge(call())
-        val unlisted = judge(""""judge": "scripted/other-model"""").judge(call())
+        val unlisted = judge(roles = """"judge": "scripted/other-model"""").judge(call())
 
         assertEquals(
             listOf("the judge's model failed (server_error)", "the judge's model failed (model_not_found)"),
@@ -233,8 +242,8 @@ class SideModelJudgeTest {
         val other = ScriptedModel(EndpointId("judge")).reply { text("""{"verdict":"allow"}""") }
         answers("""{"verdict":"allow"}""")
 
-        judge(""""judge": "judge/test-model"""", model, other).judge(call())
-        judge("", model, other).judge(call())
+        judge(endpoints = arrayOf(model, other), roles = """"judge": "judge/test-model"""").judge(call())
+        judge(endpoints = arrayOf(model, other)).judge(call())
 
         assertEquals(
             listOf(ModelRef.parse("judge/test-model"), ModelRef.parse("scripted/test-model")),

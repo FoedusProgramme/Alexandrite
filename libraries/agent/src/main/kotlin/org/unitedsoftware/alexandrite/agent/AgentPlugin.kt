@@ -64,7 +64,7 @@ internal class AgentPlugin(
      */
     private suspend fun checkModels() {
         for (agent in directory.agents) {
-            for (model in (agent.models + listOfNotNull(agent.judgeModel, agent.summaryModel)).distinct()) {
+            for (model in agent.allModels) {
                 check(agent, model)
             }
         }

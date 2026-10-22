@@ -5,9 +5,10 @@ How web.fetch and web.search work, which hosts they reach, how to let them reach
 ## web.fetch
 
 web.fetch fetches one public http or https page and has a side model answer your `prompt` from its text; only the
-answer comes back. The side model is `tools.web.model` (`<endpoint>/<model>`), else the agent's judge model. A fetch
-takes at most `tools.web.timeoutSeconds` (30), reads at most `tools.web.maxBytes` of the response and gives the side
-model at most `tools.web.maxTextChars` characters of its text. Redirects are followed, each hop checked again.
+answer comes back. The side model is the agent's `agent.agents.<id>.roles.web`, else its judge model, else its own
+model. A fetch takes at most `tools.web.timeoutSeconds` (30), reads at most `tools.web.maxBytes` of the response and
+gives the side model at most `tools.web.maxTextChars` characters of its text. Redirects are followed, each hop checked
+again.
 
 It refuses private and local addresses (loopback, private ranges, link-local and the like). To let it reach a host on
 the local network anyway, an operator lists the host's exact name or IP literal, without scheme or port, in

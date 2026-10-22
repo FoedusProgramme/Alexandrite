@@ -121,10 +121,6 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
         val problem = RuleEntry.problem(entry, trust = true)
         require(problem == null) { "$path.permission.trust[$index] $problem" }
     }
-    require(agent.permission.judge == null || ModelRef.parseOrNull(agent.permission.judge) != null) {
-        "$path.permission.judge is no model reference: write <endpoint>/<model>, such as " +
-            "\"anthropic/claude-haiku-5-5\""
-    }
     require(agent.permission.judgeTimeoutSeconds > 0) { "$path.permission.judgeTimeoutSeconds must be positive" }
     require(agent.permission.judgeMaxChars > 0) { "$path.permission.judgeMaxChars must be positive" }
     require(agent.permission.taintedNetworkReads in NETWORK_READS) {
@@ -139,6 +135,20 @@ private fun checkAgent(path: String, id: String, agent: AgentConfig) {
     require(agent.toolTimeoutSeconds > 0) { "$path.toolTimeoutSeconds must be positive" }
     require(agent.foregroundSeconds > 0) { "$path.foregroundSeconds must be positive" }
     checkCompaction("$path.compaction", agent.compaction)
+    for ((role, model) in agent.roles.set()) {
+        require(ModelRef.parseOrNull(model) != null) {
+            "$path.roles.$role is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-haiku-5-5\""
+        }
+    }
+    for ((kind, value) in agent.media.entries()) {
+        val handling = MediaHandling.of(value)
+        require(handling != null) {
+            "$path.media.$kind must be one of ${MediaHandling.entries.joinToString { it.id }}"
+        }
+        require(handling != MediaHandling.DELEGATE || agent.roles.set().containsKey(kind)) {
+            "$path.media.$kind is delegate, which needs a reader: set $path.roles.$kind"
+        }
+    }
     checkBudget("$path.budget.daily", agent.budget.daily)
     checkBudget("$path.budget.monthly", agent.budget.monthly)
     checkGlobs("$path.tools.allow", agent.tools.allow)
@@ -238,9 +248,6 @@ private fun checkCompaction(path: String, compaction: CompactionConfig) {
     require(compaction.keepToolRounds >= 0) { "$path.keepToolRounds may not be negative" }
     require(compaction.keepTurns >= 0) { "$path.keepTurns may not be negative" }
     require(compaction.maxSummaryTokens > 0) { "$path.maxSummaryTokens must be positive" }
-    require(compaction.model == null || ModelRef.parseOrNull(compaction.model) != null) {
-        "$path.model is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-sonnet-5-5\""
-    }
 }
 
 private fun checkBudget(path: String, limit: BudgetLimit?) {

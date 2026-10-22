@@ -18,7 +18,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
-import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.web.PageQuestion
 import org.unitedsoftware.alexandrite.sdk.web.WebModels
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
@@ -65,8 +64,7 @@ internal class FetchTool(private val config: WebConfig, private val fetch: WebPa
         context.untrusted("web.fetch reads untrusted web content")
         withTimeout(definition.timeout!!) {
             val page = fetch.fetch(url)
-            val question =
-                PageQuestion(context.turn, page.url.toString(), page.text, prompt, config.model?.let(ModelRef::parse))
+            val question = PageQuestion(context.turn, page.url.toString(), page.text, prompt)
             ToolResult(sideModel { models.answer(question) })
         }
     }

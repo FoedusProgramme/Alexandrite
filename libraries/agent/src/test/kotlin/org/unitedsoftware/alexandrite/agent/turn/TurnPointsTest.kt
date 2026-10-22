@@ -92,18 +92,18 @@ class TurnPointsTest {
             val added = listOf(PromptSection("alexandrite.extra", "More.", false), note)
             HookDecision.Replace(payload.withSections(rewritten + added))
         }
-        lateinit var base: PromptSection
+        lateinit var original: List<PromptSection>
 
         val lines = logged {
             agentHarness(config, MemoryStore()) { channel().model(model).hook(context).hook(sections) }.execute {
                 (channel().receive("Hi") as Admission.Accepted).ticket.outcome()
-                base = sections.seen.single().sections.single()
+                original = sections.seen.single().sections
             }
         }
 
         val request = model.requests.single()
         assertEquals(listOf(memory), request.turnContext)
-        assertEquals(listOf(base, note), request.instructions)
+        assertEquals(original + note, request.instructions)
         assertEquals(2, lines.count { it.startsWith("WARN A ") && "reserved" in it })
     }
 

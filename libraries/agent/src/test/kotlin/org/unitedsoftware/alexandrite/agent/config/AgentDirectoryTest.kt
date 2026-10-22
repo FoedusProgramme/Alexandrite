@@ -172,8 +172,7 @@ class AgentDirectoryTest {
                 "reviewer": {
                   "description": "Reviews.",
                   "models": ["scripted/a", "local/b", "scripted/c"],
-                  "permission": {"judge": "local/judge"},
-                  "compaction": {"model": "local/summary"}
+                  "roles": {"judge": "local/judge", "summary": "local/summary"}
                 }
               }
             }
@@ -186,22 +185,22 @@ class AgentDirectoryTest {
 
         assertEquals(listOf("scripted/a", "scripted/c"), agent.models.map { "$it" })
         assertNull(agent.judgeModel)
-        assertEquals("scripted/a", "${agent.sideModel}")
+        assertEquals("scripted/a", "${agent.webModel}")
         assertNull(agent.summaryModel)
         val prefix = "WARN agent.agents.reviewer"
         val unknown = "names the endpoint 'local', which no model provider contributes (endpoints: scripted)"
         assertEquals(
             listOf(
                 "$prefix.models[1] $unknown: the agent goes on without local/b",
-                "$prefix.permission.judge $unknown: a person rules on the calls the judge would rule on",
-                "$prefix.compaction.model $unknown: the turn's model writes the summaries",
+                "$prefix.roles.judge $unknown: a person rules on the calls the judge would rule on",
+                "$prefix.roles.summary $unknown: the turn's model writes the summaries",
             ),
             lines.filter { "'local'" in it },
         )
     }
 
     @Test
-    fun `the judge's model is the agent's own unless its permission section names one`() {
+    fun `the judge's model is the agent's own unless its roles section names one`() {
         val config = """
             {
               "agents": {
@@ -209,7 +208,7 @@ class AgentDirectoryTest {
                 "reviewer": {
                   "description": "Reviews.",
                   "model": "scripted/test-model",
-                  "permission": {"judge": "side/small"}
+                  "roles": {"judge": "side/small"}
                 },
                 "loner": {"description": "Alone."}
               }

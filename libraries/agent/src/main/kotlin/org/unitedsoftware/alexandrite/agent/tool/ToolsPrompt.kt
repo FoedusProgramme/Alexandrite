@@ -2,7 +2,7 @@ package org.unitedsoftware.alexandrite.agent.tool
 
 import org.unitedsoftware.alexandrite.agent.prompt.PromptContributor
 import org.unitedsoftware.alexandrite.agent.prompt.PromptOrder
-import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.agent.prompt.PromptTurn
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
@@ -15,7 +15,7 @@ internal const val TOOLS_SECTION: String = "alexandrite.tools"
 internal class ToolsPrompt : PromptContributor {
     override val order: Int = PromptOrder.TOOLS
 
-    override fun section(turn: TurnInfo, offered: Set<String>): PromptSection? = TOOLS.takeIf { offered.isNotEmpty() }
+    override fun section(turn: PromptTurn): PromptSection? = TOOLS.takeIf { turn.offered.isNotEmpty() }
 }
 
 internal val TOOLS: PromptSection = PromptSection(

@@ -34,15 +34,13 @@ public class WebQuery(public val text: String, public val limit: Int) {
 @Poko
 public class WebSearchResult(public val title: String, public val url: String, public val snippet: String)
 
-/** A [question] about the text of the page at [url], for a side model to answer from that text alone. */
+/** A [question] about the text of the page at [url], for the turn's agent's web model to answer from that text alone. */
 @Poko
 public class PageQuestion(
     public val turn: TurnInfo,
     public val url: String,
     public val page: String,
     public val question: String,
-    /** The model that answers, null for the turn's agent's judge model. */
-    public val model: ModelRef? = null,
 )
 
 /** What the web tools ask of the turn's models. */

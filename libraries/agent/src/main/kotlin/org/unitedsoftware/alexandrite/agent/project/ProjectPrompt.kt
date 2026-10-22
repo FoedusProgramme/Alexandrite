@@ -3,7 +3,7 @@ package org.unitedsoftware.alexandrite.agent.project
 import org.unitedsoftware.alexandrite.agent.prompt.PROJECT_HEADER
 import org.unitedsoftware.alexandrite.agent.prompt.PromptContributor
 import org.unitedsoftware.alexandrite.agent.prompt.PromptOrder
-import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.agent.prompt.PromptTurn
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
@@ -16,7 +16,7 @@ internal const val PROJECT_SECTION: String = "alexandrite.project"
 internal class ProjectPrompt : PromptContributor {
     override val order: Int = PromptOrder.PROJECT
 
-    override fun section(turn: TurnInfo, offered: Set<String>): PromptSection? = PROJECT.takeIf { offered.isNotEmpty() }
+    override fun section(turn: PromptTurn): PromptSection? = PROJECT.takeIf { turn.offered.isNotEmpty() }
 }
 
 internal val PROJECT: PromptSection = PromptSection(

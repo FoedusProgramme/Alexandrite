@@ -89,7 +89,7 @@ class ConfigToolsTest {
             "coder": {
               "model": "scripted/test-model",
               "channels": {"test:main": {}},
-              "permission": {"judge": "judge/test-model"}
+              "roles": {"judge": "judge/test-model"}
             }
           }
         }

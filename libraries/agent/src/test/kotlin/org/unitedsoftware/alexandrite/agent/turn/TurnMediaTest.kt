@@ -3,17 +3,26 @@ package org.unitedsoftware.alexandrite.agent.turn
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.inbox
+import org.unitedsoftware.alexandrite.agent.media.MediaPlan
+import org.unitedsoftware.alexandrite.agent.media.MediaReadException
+import org.unitedsoftware.alexandrite.agent.media.MediaReader
+import org.unitedsoftware.alexandrite.agent.media.MediaReading
+import org.unitedsoftware.alexandrite.agent.media.MediaRoute
+import org.unitedsoftware.alexandrite.agent.tinyGif
+import org.unitedsoftware.alexandrite.agent.tinyPng
 import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
 import org.unitedsoftware.alexandrite.sdk.channel.MediaAttachment
 import org.unitedsoftware.alexandrite.sdk.channel.MediaContent
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.store.MediaStore
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaPart
+import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.StoredMedia
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
@@ -27,6 +36,7 @@ import org.unitedsoftware.alexandrite.testkit.testUserEntry
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.io.path.readBytes
 import kotlin.io.path.writeBytes
@@ -41,10 +51,12 @@ class TurnMediaTest {
     private val inbox: Path get() = data.resolve("conversations/main/test/inbox")
     private val memory = MemoryStore()
     private val store = Media(memory.media)
+    private val reader = FakeReader()
+    private val readerModel = ModelRef.parse("scripted/reader")
     private val png = "png!".encodeToByteArray()
 
     private fun media(maxBytes: Long = 8, config: String = "{}") =
-        TurnMedia(TurnId("t-1"), store, maxBytes, inbox(data, config))
+        TurnMedia(TurnId("t-1"), store, maxBytes, inbox(data, config), reader)
 
     private fun attachment(
         kind: MediaKind = MediaKind.IMAGE,
@@ -68,51 +80,104 @@ class TurnMediaTest {
         (listOf("[alexandrite:media]") + lines + "[/alexandrite:media]").joinToString("\n"),
     )
 
-    private fun put(media: TurnMedia, images: Boolean, vararg attachments: MediaAttachment): List<UserPart> =
-        blocking { media.put(testTurn(), message(attachments.toList()), images) }
+    private fun plan(vararg routes: Pair<MediaKind, MediaRoute>): MediaPlan = MediaPlan(routes.toMap())
+
+    private fun put(media: TurnMedia, plan: MediaPlan, vararg attachments: MediaAttachment): List<UserPart> =
+        blocking { media.put(testTurn(), message(attachments.toList()), plan) }
 
     @Test
-    fun `an image keeps its size and is carried inline for a model that views images, without reading it back`() {
-        val image = MediaAttachment.builder(MediaKind.IMAGE, "image/png") {
-            png
-        }.name("a.png").width(2).height(3).build()
-        val media = media()
+    fun `an image taken natively is carried inline, keeping its size, without reading it back`() {
+        val bytes = tinyPng(2, 3)
+        val image = MediaAttachment.builder(MediaKind.IMAGE, "image/png") { bytes }.name("a.png").build()
+        val media = media(maxBytes = 200)
+        val native = plan(MediaKind.IMAGE to MediaRoute.Native)
 
-        val parts = put(media, images = true, image)
+        val parts = put(media, native, image)
         val stored = (parts.first() as MediaPart).source as StoredMedia
         val entry = testUserEntry().let { UserEntry(null, it.parts + parts.first(), it.origin) }
-        val inline = blocking { media.inline(listOf(entry)) }
+        val inline = blocking { media.inline(listOf(entry), native) }
 
         assertEquals(MediaPart(MediaKind.IMAGE, "image/png", stored, "a.png", 2, 3), parts.first())
-        val carried = MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(png), "a.png", 2, 3)
+        val carried = MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(bytes), "a.png", 2, 3)
         assertEquals(carried, (inline.single() as UserEntry).parts.last())
         assertEquals(emptyList(), store.reads)
+        assertEquals(emptyList(), reader.reads)
     }
 
     @Test
-    fun `a model that views no images, other kinds and image types models do not view get no inline part`() {
-        val blind = put(media(maxBytes = 64), images = false, attachment(name = "cat.png"))
+    fun `a route that only saves gets no inline part, while native carries other kinds too`() {
+        val blind = put(
+            media(maxBytes = 64),
+            plan(MediaKind.IMAGE to MediaRoute.Saved("you cannot view images")),
+            attachment(name = "cat.png"),
+        )
         val seeing = put(
             media(maxBytes = 64),
-            images = true,
+            plan(MediaKind.AUDIO to MediaRoute.Native),
             attachment(MediaKind.AUDIO, "audio/ogg") { "ogg".encodeToByteArray() },
-            attachment(MediaKind.IMAGE, "image/heic", name = "pic.heic"),
         )
 
         assertEquals(
             listOf(
                 note(
-                    "Saved to ${inbox.resolve("cat.png")}: image \"cat.png\" (image/png, 4 bytes); you cannot view " +
-                        "images, so it is not shown to you",
-                ),
-                note(
-                    "Saved to ${inbox.resolve("audio-40-1.ogg")}: audio (audio/ogg, 3 bytes)",
-                    "Saved to ${inbox.resolve("pic.heic")}: image \"pic.heic\" (image/heic, 4 bytes); not shown to " +
-                        "you, as models view no image/heic",
+                    "Saved to ${inbox.resolve("cat.png")}: image \"cat.png\" (image/png, 4 bytes); not shown: you " +
+                        "cannot view images",
                 ),
             ),
-            blind + seeing,
+            blind,
         )
+        assertEquals(MediaKind.AUDIO, (seeing.first() as MediaPart).kind)
+        assertEquals(
+            note("Saved to ${inbox.resolve("audio-40-1.ogg")}: audio (audio/ogg, 3 bytes); shown to you"),
+            seeing.last(),
+        )
+    }
+
+    @Test
+    fun `an image that cannot be decoded is only saved, even where the route is a reader's`() {
+        val parts = put(
+            media(maxBytes = 64),
+            plan(MediaKind.IMAGE to MediaRoute.Read(readerModel)),
+            attachment(name = "broken.png"),
+        )
+
+        assertEquals(
+            note(
+                "Saved to ${inbox.resolve("broken.png")}: image \"broken.png\" (image/png, 4 bytes); not shown: " +
+                    "the image could not be decoded",
+            ),
+            parts.single(),
+        )
+        assertEquals(emptyList(), reader.reads)
+    }
+
+    @Test
+    fun `a reader read is noted by its model, and the reader's failure saves the file instead`() {
+        reader.failing(MediaKind.AUDIO, "the reader takes no audio")
+        val read = plan(
+            MediaKind.IMAGE to MediaRoute.Read(readerModel),
+            MediaKind.AUDIO to MediaRoute.Read(readerModel),
+        )
+
+        val catBytes = tinyPng()
+        val parts = put(
+            media(maxBytes = 100),
+            read,
+            attachment(name = "cat.png") { catBytes },
+            attachment(MediaKind.AUDIO, "audio/ogg") { "ogg".encodeToByteArray() },
+        )
+
+        assertEquals(listOf(MediaKind.IMAGE, MediaKind.AUDIO), parts.dropLast(1).map { (it as MediaPart).kind })
+        assertEquals(
+            note(
+                "Saved to ${inbox.resolve("cat.png")}: image \"cat.png\" (image/png, ${catBytes.size} bytes); " +
+                    "read for you by $readerModel (its reading follows in the message)",
+                "Saved to ${inbox.resolve("audio-40-2.ogg")}: audio (audio/ogg, 3 bytes); not shown: the " +
+                    "reader takes no audio",
+            ),
+            parts.last(),
+        )
+        assertEquals(listOf(MediaKind.IMAGE, MediaKind.AUDIO), reader.reads.map { it.kind })
     }
 
     @Test
@@ -122,10 +187,10 @@ class TurnMediaTest {
 
         val parts = put(
             media(maxBytes = 64),
-            images = false,
+            MediaPlan(emptyMap()),
             attachment(MediaKind.FILE, "application/pdf", name = "../../etc/report.pdf"),
             attachment(MediaKind.FILE, "application/pdf", name = "report.pdf"),
-            attachment(MediaKind.FILE, "text/plain", name = ".\u202Ehidden:notes\u0000.txt"),
+            attachment(MediaKind.FILE, "text/plain", name = ".‮hidden:notes\u0000.txt"),
             attachment(MediaKind.FILE, "application/gzip", name = "x".repeat(150) + ".tar.gz"),
             attachment(MediaKind.IMAGE, "image/jpeg"),
             attachment(MediaKind.FILE, "application/x-unknown", name = "..."),
@@ -145,7 +210,8 @@ class TurnMediaTest {
         )
         assertEquals(listOf<Byte>(9), inbox.resolve("report.pdf").readBytes().toList())
         assertEquals(
-            "Saved to ${inbox.resolve("report-2.pdf")}: file \"../../etc/report.pdf\" (application/pdf, 4 bytes)",
+            "Saved to ${inbox.resolve("report-2.pdf")}: file \"../../etc/report.pdf\" (application/pdf, 4 bytes); " +
+                "not shown: no model takes file media",
             (parts.single() as ContextPart).text.lines()[1],
         )
     }
@@ -153,34 +219,38 @@ class TurnMediaTest {
     @Test
     fun `an attachment too large, unavailable, unreadable, over the quota or refused by the store is noted as such`() {
         store.refusing = "image/gif"
-        val media = media(config = """{"conversationDirectory": {"maxBytes": 6}}""")
+        val gif = tinyGif()
+        val media = media(maxBytes = 50, config = """{"conversationDirectory": {"maxBytes": 42}}""")
+        val native = plan(MediaKind.IMAGE to MediaRoute.Native)
 
         val parts = put(
             media,
-            images = true,
-            attachment(MediaKind.VIDEO, "video/mp4", size = 9, name = "clip.mp4") { error("Never read.") },
+            native,
+            attachment(MediaKind.VIDEO, "video/mp4", size = 60, name = "clip.mp4") { error("Never read.") },
             MediaAttachment.builder(MediaKind.FILE, "application/zip", null)
                 .size(21_000_000)
                 .unavailable("larger than the 20 MB that a bot may download")
                 .fromQuote(true)
                 .build(),
             attachment(MediaKind.AUDIO, "audio/ogg") { throw IOException("Gone.") },
-            attachment(MediaKind.FILE, "text/plain", name = "big\nfile.txt") { ByteArray(9) },
-            attachment(MediaKind.IMAGE, "image/gif", name = "a.gif"),
+            attachment(MediaKind.FILE, "text/plain", name = "big\nfile.txt") { ByteArray(51) },
+            attachment(MediaKind.IMAGE, "image/gif", name = "a.gif") { gif },
             attachment(MediaKind.FILE, "text/plain", name = "b.txt") { ByteArray(5) },
         )
 
         assertEquals(
             note(
-                "Not saved: video \"clip.mp4\" (video/mp4, 9 bytes): larger than the 8 bytes a message may carry",
+                "Not saved: video \"clip.mp4\" (video/mp4, 60 bytes): larger than the 50 bytes a message may carry",
                 "Not saved: file (application/zip, 21000000 bytes), from the quoted message: larger than the 20 MB " +
                     "that a bot may download",
                 "Not saved: audio (audio/ogg): it could not be loaded",
-                "Not saved: file \"big file.txt\" (text/plain, 9 bytes): larger than the 8 bytes a message may carry",
-                "Saved to ${inbox.resolve("a.gif")}: image \"a.gif\" (image/gif, 4 bytes); not shown to you, as it " +
+                "Not saved: file \"big file.txt\" (text/plain, 51 bytes): larger than the 50 bytes a message may " +
+                    "carry",
+                "Saved to ${inbox.resolve("a.gif")}: image \"a.gif\" (image/gif, ${gif.size} bytes); not shown: it " +
                     "could not be stored",
-                "Not saved: file \"b.txt\" (text/plain, 5 bytes): the conversation directory already holds 4 " +
-                    "byte(s); this write would take it past its 6 byte quota",
+                "Not saved: file \"b.txt\" (text/plain, 5 bytes): the conversation directory already holds " +
+                    "${gif.size} byte(s); this write would take it past its 42 byte quota; not shown: no model " +
+                    "takes file media",
             ),
             parts.single(),
         )
@@ -194,9 +264,10 @@ class TurnMediaTest {
         val result =
             ToolResultEntry(null, ToolCallId("c1"), "fs.read", listOf(TextPart("Read."), part), ToolOutcome.Succeeded)
         val media = media()
+        val native = plan(MediaKind.IMAGE to MediaRoute.Native)
 
-        val first = blocking { media.inline(listOf(user, result)) }
-        val second = blocking { media.inline(listOf(user, result)) }
+        val first = blocking { media.inline(listOf(user, result), native) }
+        val second = blocking { media.inline(listOf(user, result), native) }
 
         val inline = MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(png))
         assertEquals(listOf(UserEntry(null, user.parts.dropLast(1) + inline, user.origin)), first.take(1))
@@ -209,14 +280,84 @@ class TurnMediaTest {
     fun `media the store no longer has are named in their place`() {
         val gone = MediaPart(MediaKind.IMAGE, "image/png", StoredMedia(MediaId("gone")))
         val user = testUserEntry().let { UserEntry(null, it.parts + gone, it.origin) }
+        val native = plan(MediaKind.IMAGE to MediaRoute.Native)
 
-        val inline = blocking { media().inline(listOf(user)) }
+        val inline = blocking { media().inline(listOf(user), native) }
 
         assertEquals(
             listOf(TextPart("hello"), TextPart("(image of type image/png, no longer stored)")),
             (inline.single() as UserEntry).parts,
         )
     }
+
+    @Test
+    fun `a read route renders the cached reading, else a marker, and a saved route a marker naming its reason`() {
+        val read = MediaPart(MediaKind.IMAGE, "image/png", StoredMedia(MediaId("read")))
+        val unread = MediaPart(MediaKind.AUDIO, "audio/ogg", StoredMedia(MediaId("unread")), name = "clip.ogg")
+        val saved = MediaPart(MediaKind.VIDEO, "video/mp4", StoredMedia(MediaId("saved")))
+        blocking { reader.read(testTurn(), read, readerModel) }
+        val user = testUserEntry().let { UserEntry(null, it.parts + listOf(read, unread, saved), it.origin) }
+        val routed = plan(
+            MediaKind.IMAGE to MediaRoute.Read(readerModel),
+            MediaKind.AUDIO to MediaRoute.Read(readerModel),
+            MediaKind.VIDEO to MediaRoute.Saved("the model takes no video"),
+        )
+
+        val inline = blocking { media().inline(listOf(user), routed) }
+
+        assertEquals(
+            listOf(
+                TextPart(
+                    "[alexandrite:media-reading]\nimage, as $readerModel read it:\n<image read>\n" +
+                        "[/alexandrite:media-reading]",
+                ),
+                TextPart("(audio \"clip.ogg\": not read for this model)"),
+                TextPart("(video not shown: the model takes no video)"),
+            ),
+            (inline.single() as UserEntry).parts.drop(1),
+        )
+    }
+
+    @Test
+    fun `a tool result's media of a read route is read now, warming the cache`() {
+        val result = ToolResultEntry(
+            null,
+            ToolCallId("c1"),
+            "fs.read",
+            listOf(MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(tinyPng()))),
+            ToolOutcome.Succeeded,
+        )
+        val read = plan(MediaKind.IMAGE to MediaRoute.Read(readerModel))
+
+        blocking { media(maxBytes = 100).stored(testTurn(), result, read) }
+
+        assertEquals(listOf(MediaKind.IMAGE), reader.reads.map { it.kind })
+    }
+}
+
+/** A [MediaReader] that remembers the parts it was asked to read, failing the kinds [failing] names instead. */
+private class FakeReader : MediaReader {
+    val reads: MutableList<MediaPart> = CopyOnWriteArrayList()
+    private val cache = ConcurrentHashMap<String, MediaReading>()
+    private val failing = ConcurrentHashMap<MediaKind, MediaReadException>()
+
+    fun failing(kind: MediaKind, reason: String) {
+        failing[kind] = MediaReadException(ModelRef.parse("scripted/reader"), reason)
+    }
+
+    override suspend fun read(turn: TurnInfo, media: MediaPart, model: ModelRef, question: String?): MediaReading {
+        reads += media
+        failing[media.kind]?.let { throw it }
+        val reading = MediaReading("<${media.kind} read>", model)
+        cache[key(media, model, question)] = reading
+        return reading
+    }
+
+    override suspend fun cached(media: MediaPart, model: ModelRef, question: String?): MediaReading? =
+        cache[key(media, model, question)]
+
+    private fun key(media: MediaPart, model: ModelRef, question: String?): String =
+        "${(media.source as? StoredMedia)?.id ?: media.name ?: media.kind}|$model|$question"
 }
 
 /** The media of [store], which records the reads and refuses media of the type [refusing]. */

@@ -2,7 +2,7 @@ package org.unitedsoftware.alexandrite.agent.manual
 
 import org.unitedsoftware.alexandrite.agent.prompt.PromptContributor
 import org.unitedsoftware.alexandrite.agent.prompt.PromptOrder
-import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
+import org.unitedsoftware.alexandrite.agent.prompt.PromptTurn
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
@@ -15,8 +15,7 @@ internal const val MANUAL_SECTION: String = "alexandrite.manual"
 internal class ManualPrompt : PromptContributor {
     override val order: Int = PromptOrder.MANUAL
 
-    override fun section(turn: TurnInfo, offered: Set<String>): PromptSection? =
-        MANUAL.takeIf { MANUAL_TOOL in offered }
+    override fun section(turn: PromptTurn): PromptSection? = MANUAL.takeIf { MANUAL_TOOL in turn.offered }
 }
 
 internal val MANUAL: PromptSection = PromptSection(
