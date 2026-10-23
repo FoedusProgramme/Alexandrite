@@ -215,18 +215,19 @@ internal class UpdateWatch(
         } else {
             ""
         }
-        return "Alexandrite $release is available; this host runs $version. Its release notes: " +
+        return "Alexandrite $release is available; this host runs $version. Its release notes, for the admins: " +
             "${releasePage(base, release)}. The operator updates with the command `alexandrite update` on the host." +
             "$itself $TELL"
     }
 
     private fun updatedPrompt(from: String): String =
-        "Alexandrite updated itself from $from to $version, as app.updates.install asks. Its release notes: " +
-            "${releasePage(base, version)}. $TELL"
+        "Alexandrite updated itself from $from to $version, as app.updates.install asks. Its release notes, for " +
+            "the admins: ${releasePage(base, version)}. $TELL"
 
     private companion object {
         const val TELL = "Tell the admins briefly when it suits, with chat.send to \"home\" or to a chat from " +
-            "chat.list. This turn belongs to no chat, and your reply reaches nobody."
+            "chat.list, and pass the link on without opening it: what a page says makes your conversation untrusted, " +
+            "and a person must then approve the message. This turn belongs to no chat, and your reply reaches nobody."
     }
 }
 
