@@ -69,7 +69,7 @@ internal class TelegramChannel(
     override suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer = when {
         deliveries.stopped -> ApprovalAnswer.Unavailable("the bot is stopping")
 
-        request.turn.chat.instance != instance.id ->
+        request.turn.chat.instance != instance.id && request.turn.chat.instance != ChatAddress.AGENTS ->
             ApprovalAnswer.Unavailable("the chat ${request.turn.chat} belongs to another channel instance")
 
         else -> approvals.ask(request)

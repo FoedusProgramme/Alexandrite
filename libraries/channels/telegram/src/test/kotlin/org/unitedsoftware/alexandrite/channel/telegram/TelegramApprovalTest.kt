@@ -8,8 +8,11 @@ import org.unitedsoftware.alexandrite.channel.telegram.fake.FakeBotMessage
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.QuoteTrust
+import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 import org.unitedsoftware.alexandrite.sdk.turn.Submission
@@ -71,6 +74,29 @@ class TelegramApprovalTest {
             )
             assertEquals(QuoteTrust(live = true, content = true), quote?.trust)
             assertEquals(true, quote?.senderIsBot)
+        }
+    }
+
+    @Test
+    fun `a heartbeat's request, of no chat, reaches the admins and takes their answer`() {
+        val beat = testTurn(TurnKind.HEARTBEAT, ChatAddress.ofAgent(AgentId("coder")))
+        val request = ApprovalRequest.builder(
+            "b7q2",
+            beat,
+            "chat.send",
+            ToolRisk.EXTERNAL_ACTION,
+            "{}",
+            "a test",
+        ).build()
+
+        telegram.run {
+            val answer = coroutineScope {
+                val asking = async(Dispatchers.Default) { telegramChannel().askApproval(request) }
+                fake.press(telegram.ada, asked(), "Allow")
+                asking.await()
+            }
+
+            assertEquals(ApprovalAnswer.Allowed(ada), answer)
         }
     }
 

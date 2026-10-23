@@ -5,6 +5,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.trust.CallTrust
 import org.unitedsoftware.alexandrite.agent.trust.Foreseen
@@ -16,7 +17,6 @@ import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
-import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
@@ -46,11 +46,15 @@ internal class Question(
     val unasked: ClearanceKind?,
 )
 
-/** Asks through the channel of the call's chat, and takes an answer from an operator only. */
+/**
+ * Asks through the channel of the call's chat, or of its agent's first attachment for a turn of no chat, and takes an
+ * answer from an operator only.
+ */
 @Singleton
 @Binds(Approvals::class)
 internal class ChannelApprovals(
     private val channels: ChannelDirectory,
+    private val directory: AgentDirectory,
     private val rules: CallRules,
     private val foresight: Foresight,
     private val awaiting: AwaitingCalls,
@@ -99,11 +103,10 @@ internal class ChannelApprovals(
             .untrusted(question?.let { ReviewText.escape(it.foreseen.reason) })
             .roots(question?.roots.orEmpty().map { it.shown })
             .build()
-        if (turn.chat.instance == ChatAddress.AGENTS) {
-            return unavailable(request, "the turn belongs to no chat, so nobody can be asked", call, question)
-        }
-        val channel = channels.channel(turn.chat.instance)
-            ?: return unavailable(request, "the channel of the chat is not open", call, question)
+        val instance = directory.askingInstance(turn)
+            ?: return unavailable(request, "the agent has no channel, so nobody can be asked", call, question)
+        val channel = channels.channel(instance)
+            ?: return unavailable(request, "the channel $instance is not open", call, question)
         logger.info(
             "Approval {} of call {} of {} in turn {} of {} is asked for",
             request.id,

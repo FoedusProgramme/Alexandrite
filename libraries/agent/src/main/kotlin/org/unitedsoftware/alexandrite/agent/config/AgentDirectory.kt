@@ -7,6 +7,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
@@ -86,6 +87,16 @@ internal class AgentDirectory(settings: AgentSettings, channels: ChannelDirector
         val agents = attached(instance)
         return agents.singleOrNull()
             ?: agents.firstOrNull { agent -> agent.attachments.any { it.instance == instance && it.default } }
+    }
+
+    /**
+     * The channel instance that asks people about [turn]: that of its chat, else, for a turn of no chat, that of its
+     * agent's first attachment; null when the agent has none.
+     */
+    fun askingInstance(turn: TurnInfo): ChannelInstanceId? = if (turn.chat.instance == ChatAddress.AGENTS) {
+        agent(turn.agent)?.attachments?.firstOrNull()?.instance
+    } else {
+        turn.chat.instance
     }
 }
 

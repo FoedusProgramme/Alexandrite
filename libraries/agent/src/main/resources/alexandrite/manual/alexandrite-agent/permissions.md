@@ -82,7 +82,8 @@ person.
 
 An approval request shows the call, its preview (a diff, the command and its working directory, the sandbox, the hosts
 it asks for), why it was asked and, in a tainted conversation, where the taint came from. On Telegram it is posted in
-the chat for an operator's turn and in the admins' direct chats otherwise, and waits
+the chat for an operator's turn and in the admins' direct chats otherwise; a turn of no chat, such as a heartbeat,
+asks through the channel of its agent's first attachment. It waits
 `channels.telegram.instances.<name>.approvalMinutes` (10); only admins can answer. It has at most three buttons: Allow
 ("Allow, mark tainted" when the call would taint), Deny, and one of "Always allow 〈rule〉", "Allow and trust 〈root〉",
 "Always allow and trust 〈root〉" or "Allow, keep clean" (see alexandrite-agent/taint-and-trust). A person who writes in

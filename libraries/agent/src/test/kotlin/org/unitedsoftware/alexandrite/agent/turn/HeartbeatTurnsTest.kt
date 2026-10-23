@@ -3,6 +3,7 @@ package org.unitedsoftware.alexandrite.agent.turn
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.delivery.SENT_SOURCE
 import org.unitedsoftware.alexandrite.agent.execute
+import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
@@ -35,7 +36,10 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-/** A heartbeat belongs to no chat: its reply reaches nobody, it asks nobody, and it speaks through chat.send. */
+/**
+ * A heartbeat belongs to no chat: its reply reaches nobody, it asks through its agent's channel, and it speaks through
+ * chat.send.
+ */
 class HeartbeatTurnsTest {
     private val store = MemoryStore()
     private val model = ScriptedModel()
@@ -47,11 +51,14 @@ class HeartbeatTurnsTest {
         ToolResult("Pasted.")
     }
 
-    private fun harness(configure: PluginHarness.Builder.() -> Unit = {}): PluginHarness = agentHarness(
+    private fun harness(
+        agent: String = """"channels": {"test:main": {"home": "home"}}""",
+        configure: PluginHarness.Builder.() -> Unit = {},
+    ): PluginHarness = agentHarness(
         """
         {
           "previewIntervalMillis": 0,
-          "agents": {"coder": {"model": "scripted/test-model", "channels": {"test:main": {"home": "home"}}}}
+          "agents": {"coder": {"model": "scripted/test-model", $agent}}
         }
         """.trimIndent(),
         store,
@@ -108,13 +115,14 @@ class HeartbeatTurnsTest {
     }
 
     @Test
-    fun `a beat's gated call is refused unasked, and it tells the home chat through chat_send`() {
+    fun `a beat's gated call asks through its agent's channel, and it tells the home chat through chat_send`() {
         model.reply { toolCall("exec.run", "{}") }
             .reply { toolCall("chat.send", """{"to": "home", "text": "The disk is almost full."}""") }
             .reply { text("") }
             .reply { text("I will clean it up.") }
 
         harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Denied(channel().user("operator")))
             assertIs<TurnOutcome.Completed>(beat())
             channel().receive("What did you say?", channel().chat("home"), channel().user("operator"))
                 .let { assertIs<Admission.Accepted>(it).ticket.outcome() }
@@ -122,12 +130,41 @@ class HeartbeatTurnsTest {
             val (refused, sent) = beats().filterIsInstance<ToolResultEntry>()
             assertIs<ToolOutcome.NotRun>(refused.outcome)
             assertEquals(emptyList(), exec.calls)
-            assertEquals(emptyList(), channel().approvals)
+            val asked = channel().approvals.single()
+            assertEquals(listOf("exec.run", ChatAddress.ofAgent(coder)), listOf(asked.tool, asked.turn.chat))
             assertTrue((sent.content.single() as TextPart).text.startsWith("Sent to test:main:home"))
             assertEquals("The disk is almost full.", channel().sent.single().message.text)
             val told = model.requests.last().history.filterIsInstance<UserEntry>().flatMap { it.parts }
                 .filterIsInstance<ContextPart>().single { it.source == SENT_SOURCE }
             assertContains(told.text, "from a heartbeat:\n  > The disk is almost full.")
+        }
+    }
+
+    @Test
+    fun `a tainted beat's chat_send runs once an operator allows it`() {
+        model.reply { toolCall("notes.paste", "{}") }
+            .reply { toolCall("chat.send", """{"to": "home", "text": "A new release is out."}""") }
+            .reply { text("") }
+
+        harness().execute {
+            channel().scriptApprovals(ApprovalAnswer.Allowed(channel().user("operator")))
+            assertIs<TurnOutcome.Completed>(beat())
+
+            assertEquals("chat.send", channel().approvals.single().tool)
+            assertEquals("A new release is out.", channel().sent.single().message.text)
+        }
+    }
+
+    @Test
+    fun `a beat of a profile, which serves no channel, is refused unasked`() {
+        model.reply { toolCall("exec.run", "{}") }.reply { text("") }
+
+        harness(agent = """"description": "Writes code."""").execute {
+            assertIs<TurnOutcome.Completed>(beat())
+
+            assertIs<ToolOutcome.NotRun>(beats().filterIsInstance<ToolResultEntry>().single().outcome)
+            assertEquals(emptyList(), exec.calls)
+            assertEquals(emptyList(), channel().approvals)
         }
     }
 

@@ -32,7 +32,8 @@ public interface Channel {
     public suspend fun title(chat: ChatAddress): String? = null
 
     /**
-     * Asks an approver about [request] and waits for the answer, within the channel's own limit.
+     * Asks an approver about [request] and waits for the answer, within the channel's own limit. A request of a turn
+     * of no chat, at [ChatAddress.AGENTS], comes to the channel of its agent's first attachment.
      *
      * The agent withdraws a request by cancelling the call: the channel then marks it withdrawn and rethrows.
      */

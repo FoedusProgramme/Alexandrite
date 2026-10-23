@@ -273,7 +273,7 @@ public class RecordingChannel(
     /** Records [request] and answers it once approvals are not held, with the next scripted answer or the default. */
     override suspend fun askApproval(request: ApprovalRequest): ApprovalAnswer {
         val hold = synchronized(lock) {
-            checkChat(request.turn.chat, "an approval request")
+            if (request.turn.chat.instance != ChatAddress.AGENTS) checkChat(request.turn.chat, "an approval request")
             record(Event.ApprovalAsked(request))
             approvalHold
         }

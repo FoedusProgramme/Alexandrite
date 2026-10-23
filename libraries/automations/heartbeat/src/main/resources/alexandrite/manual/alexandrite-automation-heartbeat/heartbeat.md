@@ -7,8 +7,10 @@ How an agent's heartbeat works: turns on a timer that belong to no chat, how to 
 A heartbeat gives an agent a turn every so often, in its own heartbeat conversation that belongs to no chat. The turn
 starts with an [alexandrite:initiated] header of kind `heartbeat` and the heartbeat's prompt; its reply reaches nobody.
 To tell someone something, send it with chat.send, to `home` (the agent's home chat) or a chat from chat.list;
-otherwise end without a reply. A beat runs as nobody: its gated calls go to an operator, and it does not start while the
-previous one still runs.
+otherwise end without a reply. A beat runs as nobody: its gated calls go to an operator through the channel of the
+agent's first attachment (on Telegram, the admins' direct chats), and it does not start while the previous one still
+runs. A chat.send of an untainted beat needs nobody; once the heartbeat conversation is tainted it asks too, until an
+operator clears it with `/untaint heartbeat`.
 
 The default prompt asks the agent to look at the time, its notes and its running jobs, and to message someone only
 when something needs their attention.

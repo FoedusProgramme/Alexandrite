@@ -127,12 +127,7 @@ internal class TaintOffers(
         roots: List<Root>,
         kind: TrustOfferKind = TrustOfferKind.TAINTED,
     ): ApprovalAnswer? {
-        val instance = if (turn.chat.instance == ChatAddress.AGENTS) {
-            directory.agent(turn.agent)?.attachments?.firstOrNull()?.instance
-        } else {
-            turn.chat.instance
-        }
-        val channel = instance?.let(channels::channel) ?: return null
+        val channel = directory.askingInstance(turn)?.let(channels::channel) ?: return null
         val offer = TrustOffer(shortId(), turn, ReviewText.escape(reason), roots.map { it.shown }, kind)
         logger.info("Trust offer {} of turn {} of {} is made", offer.id, turn.id, turn.key)
         return try {
