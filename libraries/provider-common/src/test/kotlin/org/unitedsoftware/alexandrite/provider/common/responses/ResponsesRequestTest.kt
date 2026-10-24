@@ -203,7 +203,7 @@ class ResponsesRequestTest {
         assertTrue("not shown: the model cannot take it" in body.toString())
         assertEquals(
             listOf("unsupported_media", "unsupported_option", "unsupported_option"),
-            built.warnings.map { it.kind }.sorted(),
+            built.warnings.map { it.kind.id }.sorted(),
         )
     }
 
@@ -235,6 +235,6 @@ class ResponsesRequestTest {
         val built = built(request(listOf(testUserEntry(turn, "Hi"))) { tools(tools).options(options) }, single)
 
         assertFalse("parallel_tool_calls" in built.body)
-        assertEquals(listOf("unsupported_option"), built.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_option"), built.warnings.map { it.kind.id })
     }
 }

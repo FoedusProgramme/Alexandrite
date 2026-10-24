@@ -1,13 +1,16 @@
-package org.unitedsoftware.alexandrite.sdk.chat
+package org.unitedsoftware.alexandrite.sdk.turn
 
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
+import org.unitedsoftware.alexandrite.sdk.chat.AgentId
+import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
+import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.runtime.HostApi
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
-import org.unitedsoftware.alexandrite.sdk.turn.ControlRefusedException
 import java.time.Instant
 import java.time.ZoneId
 
@@ -86,7 +89,7 @@ public class ChatSettingsSnapshot private constructor(
         .zone(zone)
         .defaultZone(defaultZone)
 
-    public class Builder internal constructor(private var agent: AgentId) {
+    public class Builder internal constructor(private val agent: AgentId) {
         private var model: ModelRef? = null
         private var reasoning: ReasoningEffort? = null
         private var language: LanguageTag? = null
@@ -101,8 +104,6 @@ public class ChatSettingsSnapshot private constructor(
         private var defaultMode: PermissionMode? = null
         private var zone: ZoneId? = null
         private var defaultZone: ZoneId? = null
-
-        public fun agent(agent: AgentId): Builder = apply { this.agent = agent }
 
         public fun model(model: ModelRef?): Builder = apply { this.model = model }
 

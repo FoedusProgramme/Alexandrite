@@ -266,5 +266,5 @@ private class Sink : ReplySink {
 
     override suspend fun complete(message: OutboundMessage): Delivery = error("A stream never completes its reply.")
 
-    override suspend fun abandon(end: ReplyEnd) = error("A stream never abandons its reply.")
+    override suspend fun abandon(end: ReplyEnd, vouched: Boolean) = error("A stream never abandons its reply.")
 }

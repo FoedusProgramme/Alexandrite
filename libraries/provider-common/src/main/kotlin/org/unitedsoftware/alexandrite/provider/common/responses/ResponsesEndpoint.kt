@@ -26,6 +26,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
 
@@ -77,7 +78,7 @@ public class ResponsesEndpoint(
     private val responses: ResponsesSettings = ResponsesSettings(),
 ) : ModelEndpoint,
     AutoCloseable {
-    private val core = EndpointCore(id, settings, flavor.listing, flavor.dialect)
+    private val core = EndpointCore(id, settings, flavor.listing, flavor.dialect, SENDS)
 
     override suspend fun webSearch(model: String, query: WebQuery): List<WebSearchResult> {
         if (!responses.nativeSearch) return super.webSearch(model, query)
@@ -108,14 +109,17 @@ public class ResponsesEndpoint(
 
     private suspend fun FlowCollector<ModelEvent>.read(stream: HttpResponseStream, response: ResponsesResponse) {
         when (stream.mediaType) {
-            "text/event-stream" -> stream.events().transformWhile { event ->
-                emit(event)
-                !response.done
-            }.collect { event ->
-                if (event.data.isNotBlank() && event.data != DONE) {
-                    val data = core.json(event.data, response.started)
-                    response.event(data, event.type, ::classify).forEach { emit(it) }
+            "text/event-stream" -> {
+                stream.events().transformWhile { event ->
+                    emit(event)
+                    !response.done
+                }.collect { event ->
+                    if (event.data.isNotBlank() && event.data != DONE) {
+                        val data = core.json(event.data, response.started)
+                        response.event(data, event.type, ::classify).forEach { emit(it) }
+                    }
                 }
+                if (response.done) stream.drain()
             }
 
             "application/json", null -> {
@@ -131,3 +135,6 @@ public class ResponsesEndpoint(
         const val DONE = "[DONE]"
     }
 }
+
+/** The media kinds that the Responses API carries here: images, and PDF files. */
+private val SENDS = setOf(MediaKind.IMAGE, MediaKind.FILE)

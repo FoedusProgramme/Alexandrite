@@ -4,7 +4,7 @@ import kotlinx.serialization.json.JsonObject
 
 /** The plugins' config as raw subtrees. */
 public interface ConfigSource {
-    /** The object at the dot-separated [path], the root for "", or null when it is missing. */
+    /** The object at the [ConfigPath] [path], the root for "", or null when it is missing. */
     public fun tree(path: String): JsonObject?
 
     public companion object {

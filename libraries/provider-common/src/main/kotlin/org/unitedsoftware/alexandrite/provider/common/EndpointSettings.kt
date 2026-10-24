@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.provider.common
 
+import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -13,12 +14,23 @@ import org.unitedsoftware.alexandrite.sdk.config.Secret
 import org.unitedsoftware.alexandrite.sdk.model.ModelPrice
 import org.unitedsoftware.alexandrite.sdk.model.ReasoningEffort
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
-import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import java.math.BigDecimal
 import java.net.URI
 import java.net.URISyntaxException
 import kotlin.time.Duration.Companion.seconds
+
+/**
+ * What a wire API sets on every request itself: [auth], the header that carries the API key, and the [own] headers it
+ * sets besides, neither of which an endpoint's headers may set.
+ */
+@Poko
+public class WireHeaders(public val auth: String, public val own: Set<String> = emptySet()) {
+    public companion object {
+        /** The key as a bearer token in `authorization`, as the Chat Completions and Responses APIs take it. */
+        public val BEARER: WireHeaders = WireHeaders(EndpointSettings.DEFAULT_AUTH_HEADER)
+    }
+}
 
 /** One configured endpoint: where it is, how it signs in and what the operator says about its models. */
 public class EndpointSettings(
@@ -33,14 +45,15 @@ public class EndpointSettings(
     public val discover: Boolean = true,
     public val turnContext: TurnContextSetting = TurnContextSetting.TRANSIENT,
     public val timeouts: TimeoutConfig = TimeoutConfig(),
-    /** The header that carries [apiKey], null for the one that the wire API names. */
-    public val authHeader: String? = null,
-    /** Headers of the wire API that the provider sets on every request itself. */
-    public val providerHeaders: Set<String> = emptySet(),
+    /**
+     * What the endpoint's wire API sets on every request itself, the header that carries [apiKey] among it; null for
+     * what the endpoint's wire API names, which the endpoint then checks [headers] against.
+     */
+    public val wire: WireHeaders? = null,
 ) {
     init {
         require(isHttpUrl(baseUrl)) { "baseUrl must be an http or https URL without user info, query or fragment" }
-        val reserved = RESERVED_HEADERS + providerHeaders.map { it.lowercase() }
+        val reserved = RESERVED_HEADERS + wire?.own.orEmpty().map { it.lowercase() }
         require(apiKey == null || isHeaderValue(apiKey.reveal())) {
             "apiKey holds a control character or one beyond Latin-1"
         }
@@ -53,7 +66,7 @@ public class EndpointSettings(
                 "headers.$name holds a control character or one beyond Latin-1"
             }
         }
-        val keyHeaders = authHeader?.let(::listOf) ?: WIRE_AUTH_HEADERS
+        val keyHeaders = wire?.auth?.let(::listOf) ?: WIRE_AUTH_HEADERS
         headers.keys.firstOrNull { name -> apiKey != null && keyHeaders.any { it.equals(name, ignoreCase = true) } }
             ?.let { throw IllegalArgumentException("headers may not set ${it.lowercase()} when apiKey is set") }
         for (model in models.keys) {
@@ -65,11 +78,12 @@ public class EndpointSettings(
         /** The header that carries the API key unless the wire API names another. */
         const val DEFAULT_AUTH_HEADER = "authorization"
 
+        /** The headers that the wire APIs carry the API key in. */
+        private val WIRE_AUTH_HEADERS = listOf(DEFAULT_AUTH_HEADER, "x-api-key")
+
         private val RESERVED_HEADERS =
             setOf("accept", "connection", "content-length", "content-type", "expect", "host", "upgrade")
 
-        /** The headers that the wire APIs carry the API key in. */
-        private val WIRE_AUTH_HEADERS = listOf(DEFAULT_AUTH_HEADER, "x-api-key")
         private val TOKEN = ('a'..'z') + ('A'..'Z') + ('0'..'9') + "!#$%&'*+-.^_`|~".toList()
 
         private fun isHttpUrl(text: String): Boolean = try {
@@ -118,9 +132,9 @@ internal object TurnContextSerializer : KSerializer<TurnContextSetting> {
 @Serializable
 public class ModelConfig(
     public val displayName: String? = null,
-    /** Used when the backend reports none. */
+    /** Wins over the window that the backend lists. */
     public val contextWindow: Int? = null,
-    /** Used when the backend reports none. */
+    /** Wins over the limit that the backend lists. */
     public val maxOutputTokens: Int? = null,
     public val nativeTools: Boolean? = null,
     public val parallelToolCalls: Boolean? = null,
@@ -191,22 +205,4 @@ public class TimeoutConfig(
 
     internal fun timeouts(): HttpTimeouts =
         HttpTimeouts(connectSeconds.seconds, firstByteSeconds.seconds, idleSeconds.seconds)
-}
-
-/** The path of a wire API that [baseUrl] ends with, null when there is none. */
-public fun apiPathIn(baseUrl: String): String? {
-    val base = baseUrl.trimEnd('/')
-    return API_PATHS.firstOrNull { base.endsWith(it, ignoreCase = true) }
-}
-
-private val API_PATHS = listOf("/v1/messages", "/chat/completions", "/responses", "/messages")
-
-/** Throws when one of [ids], the keys of a provider's `endpoints`, is no [EndpointId]. */
-public fun requireEndpointIds(ids: Collection<String>) {
-    for (id in ids) {
-        require(runCatching { EndpointId(id) }.isSuccess) {
-            "endpoints holds '$id', which is no endpoint id: an id is lowercase words of letters and digits, " +
-                "each starting with a letter, joined by single hyphens, such as \"deepseek\""
-        }
-    }
 }

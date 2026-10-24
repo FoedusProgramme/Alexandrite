@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.app
 
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertContains
@@ -129,6 +130,49 @@ class InstallationTest {
         assertFalse(Files.exists(root))
         assertTrue(Files.exists(cli.configFile))
         assertTrue(Files.exists(cli.dataDir.resolve("runtime.lock")))
+    }
+
+    @Test
+    fun `uninstall takes the install script's PATH lines out of the shell's startup files, even when data stays`() {
+        val cli = Commands(directory)
+        installed(cli)
+        val block = "# >>> alexandrite >>>\nexport PATH=\"/opt/bin:\$PATH\"\n# <<< alexandrite <<<\n"
+        val profile = cli.home.resolve(".profile")
+        Files.writeString(profile, "umask 022\n$block")
+        val dotfiles = Files.createDirectories(directory.resolve("dotfiles"))
+        Files.writeString(dotfiles.resolve("zshrc"), "alias ll='ls -l'\n${block}bindkey -e\n")
+        val zshrc = Files.createSymbolicLink(cli.home.resolve(".zshrc"), dotfiles.resolve("zshrc"))
+        val fish = cli.home.resolve(".config/fish/conf.d/alexandrite.fish")
+        Files.createDirectories(fish.parent)
+        Files.writeString(fish, block.replace("export PATH=\"/opt/bin:\$PATH\"", "set -gx PATH /opt/bin \$PATH"))
+        val bashrc = Files.writeString(cli.home.resolve(".bashrc"), "# >>> alexandrite >>>\nunfinished\n")
+
+        val printed = cli("uninstall", "--keep-data", "--yes")
+
+        assertEquals(0, printed.code, printed.err)
+        assertContains(printed.out, "the lines the install script added to $profile to put Alexandrite on PATH")
+        assertEquals("umask 022\n", Files.readString(profile))
+        assertTrue(Files.isSymbolicLink(zshrc))
+        assertEquals("alias ll='ls -l'\nbindkey -e\n", Files.readString(zshrc))
+        assertFalse(Files.exists(fish))
+        assertEquals("# >>> alexandrite >>>\nunfinished\n", Files.readString(bashrc))
+    }
+
+    @Test
+    fun `uninstall removes the backup that the runtime keeps beside the file a linked config names`() {
+        val cli = Commands(directory)
+        val dotfiles = Files.createDirectories(directory.resolve("dotfiles"))
+        val target = Files.writeString(dotfiles.resolve("alexandrite.json"), "{}")
+        val backup = Files.writeString(dotfiles.resolve("alexandrite.json.bak"), "{}")
+        Files.createDirectories(cli.configFile.parent)
+        Files.createSymbolicLink(cli.configFile, target)
+
+        val printed = cli("uninstall", "--yes")
+
+        assertEquals(0, printed.code, printed.err)
+        assertFalse(Files.exists(backup))
+        assertFalse(Files.exists(cli.configFile, LinkOption.NOFOLLOW_LINKS))
+        assertTrue(Files.exists(target))
     }
 
     @Test

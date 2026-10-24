@@ -14,7 +14,7 @@ public val DEFAULT_PROTECT: List<String> = listOf(
 /** The sandbox type of no sandbox. */
 public const val HOST_SANDBOX: String = "host"
 
-/** The sandbox type of the platform's sandbox. */
+/** The sandbox type that takes the first sandbox available on this host. */
 public const val AUTO_SANDBOX: String = "auto"
 
 /** A sandbox's `protect` entries: [names] at any depth, [paths] as written, and whether they hold [ALEXANDRITE_PLACES]. */
@@ -35,8 +35,8 @@ public class Protect private constructor(
 }
 
 /**
- * The one of [environments] that a sandbox [type] selects: none for [HOST_SANDBOX], the platform's for [AUTO_SANDBOX]
- * where it is available, else none after telling [missing] why. Throws an [IllegalArgumentException] for a named one
+ * The one of [environments] that a sandbox [type] selects: none for [HOST_SANDBOX], the first that is available on this
+ * host for [AUTO_SANDBOX], else none after telling [missing] why. Throws an [IllegalArgumentException] for a named one
  * that is missing or unavailable.
  */
 public fun <E : Any> selectEnvironment(
@@ -48,10 +48,15 @@ public fun <E : Any> selectEnvironment(
 ): E? = when (type) {
     HOST_SANDBOX -> null
 
-    AUTO_SANDBOX -> {
-        val platform = platformEnvironment()
-        environments.firstOrNull { name(it) == platform && available(it) }.also { found ->
-            if (found == null) missing(platform?.let { "the $it sandbox is not available" } ?: "this platform has none")
+    AUTO_SANDBOX -> environments.firstOrNull(available).also { found ->
+        if (found == null) {
+            missing(
+                if (environments.isEmpty()) {
+                    "no plugin contributes a sandbox"
+                } else {
+                    "none of the sandboxes ${environments.joinToString { name(it) }} is available on this host"
+                },
+            )
         }
     }
 
@@ -65,13 +70,6 @@ public fun <E : Any> selectEnvironment(
     }
 }
 
-/** The execution environment that a sandbox of type `auto` runs in on the platform [os], null where there is none. */
-public fun platformEnvironment(os: String = System.getProperty("os.name").orEmpty()): String? = when {
-    os.startsWith("Mac") -> "seatbelt"
-    os.startsWith("Linux") -> "bubblewrap"
-    else -> null
-}
-
 /** The variables that send a program's network traffic through the HTTP proxy on the loopback [port]. */
 public fun proxyVariables(port: Int): Map<String, String> {
     val url = "http://127.0.0.1:$port"
@@ -80,3 +78,22 @@ public fun proxyVariables(port: Int): Map<String, String> {
 }
 
 private val PROXY_VARIABLES = listOf("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
+
+/**
+ * A process builder that runs [argv] in the place of [command]: in its directory, with its redirects and its variables,
+ * and [variables] beside them.
+ */
+public fun wrapped(command: ProcessBuilder, argv: List<String>, variables: Map<String, String>): ProcessBuilder {
+    val wrapped = ProcessBuilder(argv)
+        .directory(command.directory())
+        .redirectInput(command.redirectInput())
+        .redirectOutput(command.redirectOutput())
+        .redirectError(command.redirectError())
+        .redirectErrorStream(command.redirectErrorStream())
+    wrapped.environment().apply {
+        clear()
+        putAll(command.environment())
+        putAll(variables)
+    }
+    return wrapped
+}

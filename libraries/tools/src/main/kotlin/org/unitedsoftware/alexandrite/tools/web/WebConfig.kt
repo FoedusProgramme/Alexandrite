@@ -3,7 +3,7 @@ package org.unitedsoftware.alexandrite.tools.web
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 import org.unitedsoftware.alexandrite.sdk.config.Secret
-import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
+import org.unitedsoftware.alexandrite.sdk.web.WebSearchBackend
 import java.net.URI
 import java.net.URISyntaxException
 import java.util.Locale
@@ -11,8 +11,6 @@ import java.util.Locale
 @ConfigSection("web")
 @Serializable
 internal class WebConfig(
-    /** The side model that answers `web.fetch` from a page, `endpoint/model`; the agent's judge model when null. */
-    val model: String? = null,
     /** Private hosts that `web.fetch` may reach all the same, by exact name or IP literal. */
     val allowedPrivateHosts: Set<String> = emptySet(),
     /** How long one fetch or search may take, at most 300 s. */
@@ -35,7 +33,9 @@ internal class WebConfig(
         require(timeoutSeconds in 1..300) { "timeoutSeconds must be from 1 to 300" }
         require(maxBytes in 1..10_000_000) { "maxBytes must be from 1 to 10000000" }
         require(maxTextChars in 1..1_000_000) { "maxTextChars must be from 1 to 1000000" }
-        model?.let(ModelRef::parse)
+        require(searchBackend == null || WebSearchBackend.ID.matches(searchBackend)) {
+            "searchBackend '$searchBackend' is no backend id: lowercase letters, digits and '-', such as \"brave\""
+        }
         require(braveApiKey == null || braveApiKey.reveal().isNotBlank()) { "braveApiKey may not be blank" }
         require(tavilyApiKey == null || tavilyApiKey.reveal().isNotBlank()) { "tavilyApiKey may not be blank" }
     }

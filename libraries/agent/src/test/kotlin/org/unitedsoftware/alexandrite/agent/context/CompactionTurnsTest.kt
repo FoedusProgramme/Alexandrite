@@ -493,7 +493,7 @@ class CompactionTurnsTest {
                 text("Hi.")
                 usage(Usage.builder().inputTokens(reported).contextTokens(reported).build())
             }.reply(turns) { text("Hello again.") }.reply(summarizer) { text("Said hi.") }
-            val config = """{"trigger": 0.2, "target": 0.1, "keepTurns": 0}"""
+            val config = """{"trigger": 0.08, "target": 0.03, "keepTurns": 0}"""
             agentHarness(
                 """{"previewIntervalMillis": 0, "agents": {"coder": {"model": "scripted/test-model", """ +
                     """"channels": {"test:main": {}}, "compaction": $config}}}""",
@@ -507,6 +507,35 @@ class CompactionTurnsTest {
 
         assertEquals(0, compactions(1_000_000))
         assertEquals(1, compactions(9_900))
+    }
+
+    @Test
+    fun `a model whose endpoint gives no context window has its conversation compacted within the assumed one`() {
+        val model = ScriptedModel()
+        model.reply(turns) { toolCall("fs.read", """{"path": "a"}""") }
+            .reply(turns) { toolCall("fs.read", """{"path": "b"}""") }
+            .reply(turns) { text("Read them.") }
+            .reply(turns) { text("Done.") }
+            .reply(summarizer) { text("Read a and b.") }
+        val config = """{"trigger": 20000, "target": 5000, "clearAt": "off", "keepTurns": 0}"""
+
+        agentHarness(
+            """{"previewIntervalMillis": 0, "agents": {"coder": {"model": "scripted/test-model", """ +
+                """"channels": {"test:main": {}}, "compaction": $config}}}""",
+            store,
+        ) { channel(operators = setOf("operator")).model(model).tool(read) }.execute {
+            ask("First.").ticket.outcome()
+            assertIs<TurnOutcome.Completed>(ask("Second.").ticket.outcome())
+            val status = get<ConversationControl>().context(channel().chat())
+
+            assertEquals(1, model.requests.count { it.summarizes })
+            assertEquals(1, stored().filterIsInstance<SummaryEntry>().size)
+            assertEquals(
+                Triple(ASSUMED_CONTEXT_WINDOW, 20_000L, true),
+                Triple(status.window, status.trigger, status.windowAssumed),
+            )
+        }
+        model.assertFinished()
     }
 
     private companion object {

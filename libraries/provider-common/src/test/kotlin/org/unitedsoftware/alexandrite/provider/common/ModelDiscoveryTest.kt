@@ -82,7 +82,7 @@ class ModelDiscoveryTest {
     }
 
     @Test
-    fun `the operator's facts win, except a context window the backend reports`() {
+    fun `the operator's facts win, its context window too`() {
         server.enqueue(fakeResponse { body(listing(model("chat-model", "max_model_len", 32768))) }, "/v1/models")
         val configured = mapOf(
             "chat-model" to ModelConfig(contextWindow = 8192, parallelToolCalls = false, inputMedia = setOf("image")),
@@ -92,12 +92,22 @@ class ModelDiscoveryTest {
         val models = models(models = configured)
 
         val chat = models.getValue("chat-model")
-        assertEquals(32768, chat.contextWindow)
+        assertEquals(8192, chat.contextWindow)
         assertFalse(chat.parallelToolCalls)
         assertEquals(setOf(MediaKind.IMAGE), chat.inputMedia)
         val extra = models.getValue("extra-model")
         assertEquals(4096 to "Extra", extra.contextWindow to extra.displayName)
         assertFalse(extra.nativeTools || extra.parallelToolCalls)
+    }
+
+    @Test
+    fun `a configured kind the wire API never carries is bound away`() {
+        server.enqueue(fakeResponse { body(listing(model("chat-model"))) }, "/v1/models")
+        val configured = mapOf("chat-model" to ModelConfig(inputMedia = setOf("image", "audio")))
+
+        val models = models(models = configured)
+
+        assertEquals(setOf(MediaKind.IMAGE), models.getValue("chat-model").inputMedia)
     }
 
     @Test

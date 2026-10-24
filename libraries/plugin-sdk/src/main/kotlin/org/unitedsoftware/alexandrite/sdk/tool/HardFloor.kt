@@ -37,15 +37,19 @@ public interface HardFloor {
 }
 
 /** What the [HardFloor] decided. */
-public sealed interface FloorCheck {
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface FloorCheck {
+    @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Allowed(public val canonical: Path) : FloorCheck
 
     /** [canonical] is the path to use once a person allows the call; [reason] names the kind of place. */
+    @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Ask(public val canonical: Path, public val reason: String) : FloorCheck
 
     /** [reason] names the kind of protected place, never anything inside it. */
+    @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Denied(public val reason: String) : FloorCheck
 }

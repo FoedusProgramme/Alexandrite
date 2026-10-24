@@ -10,6 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The config commands with no app running, which check and write the file themselves. */
@@ -117,6 +118,49 @@ class ConfigCommandsTest {
     }
 
     @Test
+    fun `a key with dots is set, read and unset by its path in brackets`() {
+        val path = "providers.deepseek.endpoints.deepseek.models[\"gpt-6.1-sol\"].contextWindow"
+
+        val set = cli("config", "set", path, "200000")
+        val single = cli("config", "get", "providers.deepseek.endpoints.deepseek.models['gpt-6.1-sol'].contextWindow")
+        val written = cli.config()
+        val unset = cli("config", "unset", "providers.deepseek.endpoints.deepseek.models[\"gpt-6.1-sol\"]")
+
+        assertEquals(
+            Printed(0, "Changed $path in ${cli.configFile}.\nAlexandrite applies it when it starts.\n", ""),
+            set,
+        )
+        assertContains(written, "\"models\": {\"gpt-6.1-sol\": {\"contextWindow\": 200000}}")
+        assertEquals(Printed(0, "200000\n", ""), single)
+        assertEquals(0, unset.code, unset.err)
+        assertFalse("gpt-6" in cli.config())
+    }
+
+    @Test
+    fun `a key with dots split at its dots is refused with the path in brackets as the hint`() {
+        val printed =
+            cli("config", "set", "providers.deepseek.endpoints.deepseek.models.gpt-6.1-sol.contextWindow", "1")
+
+        assertEquals(1, printed.code)
+        assertContains(
+            printed.err,
+            "Keys with dots go in brackets: " +
+                "providers.deepseek.endpoints.deepseek.models[\"gpt-6.1-sol\"].contextWindow.",
+        )
+        assertEquals(original, cli.config())
+    }
+
+    @Test
+    fun `a malformed key is a usage error that says what is wrong`() {
+        val printed = cli("config", "set", "providers.deepseek.endpoints.deepseek.models[gpt-4.1]", "1")
+
+        assertEquals(ExitCode.USAGE, printed.code)
+        assertContains(printed.err, "the key in the bracket at 45 needs quotes")
+        assertContains(printed.err, "models[\"gpt-4.1\"]")
+        assertEquals(original, cli.config())
+    }
+
+    @Test
     fun `get prints a string as it is, anything else and the whole file as JSON`() {
         assertEquals(Printed(0, "UTC\n", ""), cli("config", "get", "app.zone"))
         assertEquals(Printed(0, "\"UTC\"\n", ""), cli("config", "get", "app.zone", "--json"))
@@ -150,6 +194,18 @@ class ConfigCommandsTest {
         assertEquals(ExitCode.CONFIG, json.code)
         assertContains(json.out, "\"valid\": false")
         assertContains(unset.err, "DEEPSEEK_KEY")
+    }
+
+    @Test
+    fun `check fails a file that names a plugin which cannot load, and other commands warn of it`() {
+        cli.config(original.replace("\"UTC\"", "\"UTC\", \"plugins\": [\"weather\"]"))
+
+        val checked = cli("config", "check")
+        val read = cli("manual")
+
+        assertEquals(ExitCode.CONFIG, checked.code)
+        assertContains(checked.err, "Cannot load the plugin 'weather' that 'app.plugins' names")
+        assertContains(read.err, "Cannot load the plugin 'weather' that 'app.plugins' names")
     }
 
     @Test
@@ -266,4 +322,23 @@ class ConfigCommandsTest {
     private fun names(): List<String> =
         Files.list(cli.configFile.parent).use { files -> files.map { "${it.fileName}" }.sorted().toList() }
             .also { assertTrue(it.isNotEmpty()) }
+
+    @Test
+    fun `a base URL that ends with an API path names the path to leave out`() {
+        val paths = mapOf(
+            "https://api.example.com/v1/chat/completions" to "/chat/completions",
+            "https://api.example.com/v1/responses/" to "/responses",
+            "https://api.example.com/anthropic/v1/messages" to "/v1/messages",
+            "https://api.example.com/messages" to "/messages",
+        )
+
+        for ((url, path) in paths) assertEquals(path, apiPathIn(url), url)
+        for (url in listOf(
+            "https://api.example.com/v1",
+            "https://api.example.com/anthropic",
+            "http://127.0.0.1:1234/",
+        )) {
+            assertNull(apiPathIn(url), url)
+        }
+    }
 }

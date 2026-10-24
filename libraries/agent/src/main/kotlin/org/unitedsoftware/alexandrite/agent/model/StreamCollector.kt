@@ -43,35 +43,22 @@ internal suspend fun collectResponse(
     )
 }
 
-/**
- * Logs what [endpoint] warns about [request], such as an option its model does not take, at WARN the first time and
- * at DEBUG after that, as the same request repeats each round.
- */
+/** Logs what [endpoint] warns about [request], such as an option its model does not accept, once per model and run. */
 private fun warned(endpoint: ModelEndpoint, request: ModelRequest, warnings: List<Warning>) {
     for (warning in warnings) {
         val model = request.model
-        val first = WARNED.size < MAX_WARNED && WARNED.add("$model ${warning.kind}: ${warning.message}")
-        if (first) {
-            logger.warn(
-                "Endpoint {} warns about a request to {}: {} ({})",
-                endpoint.id,
-                model,
-                warning.message,
-                warning.kind,
-            )
-        } else {
-            logger.debug(
-                "Endpoint {} warns about a request to {}: {} ({})",
-                endpoint.id,
-                model,
-                warning.message,
-                warning.kind,
-            )
-        }
+        if (WARNED.size >= MAX_WARNED || !WARNED.add("$model ${warning.kind}: ${warning.message}")) continue
+        logger.warn(
+            "Endpoint {} warns about a request to {}: {} ({})",
+            endpoint.id,
+            model,
+            warning.message,
+            warning.kind,
+        )
     }
 }
 
-/** The warnings logged at WARN so far, by model, kind and message. */
+/** The warnings logged so far, by model, kind and message. */
 private val WARNED = ConcurrentHashMap.newKeySet<String>()
 
 private const val MAX_WARNED = 1024

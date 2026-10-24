@@ -7,6 +7,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
+import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
@@ -129,24 +130,22 @@ internal class NotedMedia(
     val saved: Path?,
     /** Why it was not saved, null when it was. */
     val why: String?,
-    /** Whether the model was shown an image, null for another kind. */
+    /** How the attachment reaches the model, null where it was not saved. */
     val view: View?,
 ) {
-    enum class View {
-        SHOWN,
+    internal sealed interface View {
+        /** The bytes reach the model inline. */
+        data object Shown : View
 
-        /** The model views no images. */
-        NOT_VIEWED,
+        /** [model] reads the attachment; its reading follows in the message. */
+        class Read(val model: ModelRef) : View
 
-        /** Models view no images of its type. */
-        UNVIEWABLE,
-
-        /** The media store refused it. */
-        NOT_STORED,
+        /** Only the file is saved, for [reason], in lower case without a closing full stop. */
+        class Saved(val reason: String) : View
     }
 }
 
-/** The note that names where each of [noted] was saved or why it was not, and whether the model was shown an image. */
+/** The note that names where each of [noted] was saved or why it was not, and how each reaches the model. */
 internal fun mediaNote(noted: List<NotedMedia>): ContextPart = ContextPart(
     MEDIA_SOURCE,
     buildString {
@@ -167,16 +166,15 @@ private fun mediaLine(media: NotedMedia): String = buildString {
     append(')')
     if (attachment.fromQuote) append(", from the quoted message")
     media.why?.let { append(": ").append(oneLine(it)) }
-    when (media.view) {
-        NotedMedia.View.SHOWN -> append("; shown to you")
-        NotedMedia.View.NOT_VIEWED -> append("; you cannot view images, so it is not shown to you")
-        NotedMedia.View.UNVIEWABLE -> append("; not shown to you, as models view no ${oneLine(attachment.mediaType)}")
-        NotedMedia.View.NOT_STORED -> append("; not shown to you, as it could not be stored")
+    when (val view = media.view) {
+        NotedMedia.View.Shown -> append("; shown to you")
+        is NotedMedia.View.Read -> append("; read for you by ${view.model} (its reading follows in the message)")
+        is NotedMedia.View.Saved -> append("; not shown: ${oneLine(view.reason)}")
         null -> Unit
     }
 }
 
-private fun shortened(name: String): String = cutWithEllipsis(name, MAX_NAME_CHARS)
+internal fun shortened(name: String): String = cutWithEllipsis(name, MAX_NAME_CHARS)
 
 /** [label] on one line, with a backslash in front when it would pass for a framing field, a quote or a header. */
 private fun factLabel(label: String): String {
@@ -189,7 +187,7 @@ private fun factLabel(label: String): String {
 private const val UNKNOWN = "unknown"
 
 /** The characters of an attachment's name that the media note shows. */
-private const val MAX_NAME_CHARS = 200
+internal const val MAX_NAME_CHARS = 200
 
 /** The fields of message framing v1, as a label shows them without its invisible characters. */
 private val FRAMING_FIELDS = setOf("from", "operator", "received", "message", "chat", "forwardedfrom", "quoting")

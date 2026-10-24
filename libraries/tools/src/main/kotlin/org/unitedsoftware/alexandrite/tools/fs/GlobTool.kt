@@ -2,6 +2,8 @@ package org.unitedsoftware.alexandrite.tools.fs
 
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.requiredString
+import org.unitedsoftware.alexandrite.internal.tool.stringArgument
 import org.unitedsoftware.alexandrite.sdk.chat.rootConversation
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -43,7 +45,7 @@ internal class GlobTool(private val floor: HardFloor) : ReviewedTool {
     )
 
     override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
-        floor.readReview(arguments.string("path"), context)
+        floor.readReview(arguments.stringArgument("path"), context)
     } catch (e: ToolRefusal) {
         CallReview.builder().build()
     }
@@ -51,7 +53,7 @@ internal class GlobTool(private val floor: HardFloor) : ReviewedTool {
     override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = refusing {
         val pattern = arguments.requiredString("pattern")
         val glob = Glob.of(pattern, "pattern")
-        val path = context.searched(arguments.string("path"))
+        val path = context.searched(arguments.stringArgument("path"))
         blocking { glob(glob, pattern, path, context) }
     }
 

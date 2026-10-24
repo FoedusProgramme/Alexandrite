@@ -24,7 +24,6 @@ import org.unitedsoftware.alexandrite.runtime.Termination
 import org.unitedsoftware.alexandrite.runtime.decodeSection
 import org.unitedsoftware.alexandrite.runtime.get
 import org.unitedsoftware.alexandrite.runtime.getOrNull
-import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.runtime.StopRequest
@@ -49,8 +48,6 @@ private val logger: Logger by lazy { LoggerFactory.getLogger("org.unitedsoftware
 private const val LOG_LEVEL = "alexandrite.log.level"
 
 private const val VERSION_RESOURCE = "/alexandrite-version.properties"
-
-private const val APP_ROOT = "app"
 
 private const val EXAMPLE_CONFIG = "config/alexandrite.example.json"
 
@@ -224,12 +221,12 @@ private fun host(
         err.println("alexandrite: ${e.message}")
         return ExitCode.CONFIG
     }
-    val plugins = try {
-        settings.plugins.fold(PluginSet.builtIn()) { set, id -> set.named(id) }
-    } catch (e: IllegalArgumentException) {
-        err.println("alexandrite: Cannot load the plugins of '$APP_ROOT.plugins': ${e.message}")
+    val loaded = appPlugins(settings.plugins)
+    if (loaded.problems.isNotEmpty()) {
+        loaded.problems.forEach { err.println("alexandrite: $it") }
         return ExitCode.CONFIG
     }
+    val plugins = loaded.set
     val texts = AppTexts(
         AppTexts.packs(AppPlugin::class.java.classLoader),
         locations.configFile.toAbsolutePath().parent?.resolve(OPERATOR_TEXTS),

@@ -141,8 +141,8 @@ class ModelRequestTest {
 
     @Test
     fun `model info is validated`() {
+        assertFailsWith<IllegalArgumentException> { ModelInfo.builder("", Dialect("openai-chat")).build() }
         val invalid = listOf<ModelInfo.Builder.() -> Unit>(
-            { id("") },
             { contextWindow(0) },
             { maxOutputTokens(-1) },
             { parallelToolCalls(true) },

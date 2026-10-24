@@ -38,10 +38,8 @@ public open class EndpointConfigSerializer<O>(
     private val baseUrl: String?,
     private val keyRequired: Boolean = false,
     private val turnContext: TurnContextSetting = TurnContextSetting.TRANSIENT,
-    /** As in [EndpointSettings.authHeader]. */
-    private val authHeader: String? = null,
-    /** As in [EndpointSettings.providerHeaders]. */
-    private val providerHeaders: Set<String> = emptySet(),
+    /** As in [EndpointSettings.wire]. */
+    private val wire: WireHeaders? = null,
 ) : KSerializer<EndpointConfig<O>> {
     init {
         val own = options.descriptor
@@ -109,8 +107,7 @@ public open class EndpointConfigSerializer<O>(
             discover = discover,
             turnContext = context,
             timeouts = timeouts,
-            authHeader = authHeader,
-            providerHeaders = providerHeaders,
+            wire = wire,
         )
         return EndpointConfig(settings, json.decodeFromJsonElement(options, JsonObject(own)))
     }

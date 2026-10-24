@@ -65,7 +65,7 @@ public class ChatLinkGroup private constructor(
 
 /** A link of a chat into a group made at runtime. */
 @Poko
-public class ChatLink(
+public class ChatLink @InternalAlexandriteApi constructor(
     public val linkedAt: Instant,
     /** Null for the host. */
     public val linkedBy: ChatUser?,

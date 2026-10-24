@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.config.Agent
 import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.config.AgentSettings
+import org.unitedsoftware.alexandrite.agent.context.ContextWindows
 import org.unitedsoftware.alexandrite.agent.control.CommandLanes
 import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.model.Endpoints
@@ -25,6 +26,7 @@ internal class AgentPlugin(
     private val settings: AgentSettings,
     private val directory: AgentDirectory,
     private val endpoints: Endpoints,
+    private val windows: ContextWindows,
     private val intakes: ChatIntakes,
     private val lanes: CommandLanes,
     private val workers: TurnWorkers,
@@ -56,10 +58,13 @@ internal class AgentPlugin(
         }
     }
 
-    /** Warns of each agent model that its endpoint does not list, or lists without the price a budget in money needs. */
+    /**
+     * Warns of each agent model that its endpoint does not list, or lists without the price a budget in money needs or
+     * the context window its conversations are kept within.
+     */
     private suspend fun checkModels() {
         for (agent in directory.agents) {
-            for (model in (agent.models + listOfNotNull(agent.judgeModel, agent.summaryModel)).distinct()) {
+            for (model in agent.allModels) {
                 check(agent, model)
             }
         }
@@ -86,7 +91,10 @@ internal class AgentPlugin(
                 agent.id,
                 model,
             )
-        } else if (info.price == null && agent.hasMoneyBudget()) {
+            return
+        }
+        if (model in agent.models) windows.of(model, info)
+        if (info.price == null && agent.hasMoneyBudget()) {
             logger.warn(
                 "Agent '{}' has a budget in money, but its model {} has no price, so its calls count as nothing: set " +
                     "models.\"{}\".price in the config of endpoint '{}', or budget tokens",

@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.app
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -9,8 +10,14 @@ import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.tui.Mark
 import org.unitedsoftware.alexandrite.app.tui.columns
 import org.unitedsoftware.alexandrite.app.tui.pad
+import org.unitedsoftware.alexandrite.provider.common.ModelListing
+import org.unitedsoftware.alexandrite.provider.common.messages.MessagesListing
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
+import org.unitedsoftware.alexandrite.runtime.config.EnvReferences
+import org.unitedsoftware.alexandrite.runtime.config.writtenConfig
 import org.unitedsoftware.alexandrite.sdk.config.ConfigException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
+import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -148,7 +155,7 @@ private fun config(cli: Cli, environment: Map<String, String>, findings: Mutable
     } catch (e: IOException) {
         null
     }
-    val unset = raw?.let { strings(it) }.orEmpty().flatMap { referencedVariables(it) }
+    val unset = raw?.let { strings(it) }.orEmpty().flatMap { EnvReferences.all(it) }
         .filter { it !in environment }.distinct()
     if (unset.isNotEmpty()) {
         findings += Finding(
@@ -194,7 +201,7 @@ private fun without(element: JsonElement, unset: Set<String>): JsonElement? = wh
 
     is JsonPrimitive -> element.takeUnless {
         it.isString &&
-            referencedVariables(it.content).any { name -> name in unset }
+            EnvReferences.all(it.content).any { name -> name in unset }
     }
 }
 
@@ -271,28 +278,63 @@ private fun disk(cli: Cli): Finding {
     }
 }
 
-/** One request to each configured endpoint that checks that it answers and takes its key. */
+/**
+ * One request to each configured endpoint that checks that it answers and takes its key, and the agent models whose
+ * context window its listing leaves unknown.
+ */
 private fun endpoints(cli: Cli, config: JsonObject): List<Finding> =
     config.objectAt("providers").flatMap { (name, value) ->
         val provider = providerKind(name) ?: return@flatMap emptyList()
-        ((value as? JsonObject)?.get("endpoints") as? JsonObject).orEmpty().map { (id, endpoint) ->
-            val config = endpoint as? JsonObject ?: JsonObject(emptyMap())
+        ((value as? JsonObject)?.get("endpoints") as? JsonObject).orEmpty().flatMap { (id, endpoint) ->
+            val settings = endpoint as? JsonObject ?: JsonObject(emptyMap())
             val check = "endpoint $id"
-            val base = config["baseUrl"].text ?: provider.defaultUrl
-                ?: return@map Finding(check, Verdict.FAIL, cli.t("doctor.no_base_url"))
-            val key = config["apiKey"].text
+            val base = settings["baseUrl"].text ?: provider.defaultUrl
+                ?: return@flatMap listOf(Finding(check, Verdict.FAIL, cli.t("doctor.no_base_url")))
+            val key = settings["apiKey"].text
             val headers = buildMap {
-                (config["headers"] as? JsonObject)?.forEach { (header, text) ->
+                (settings["headers"] as? JsonObject)?.forEach { (header, text) ->
                     text.text?.let { put(header, it) }
                 }
                 putAll(keyHeaders(provider, key))
             }
             val secrets = listOfNotNull(key) + headers.values
             val path = provider.keyPath?.takeIf { key != null } ?: provider.modelsPath
-            reached(cli, check, "${base.trimEnd('/')}$path", headers, secrets, base)
+            val (finding, body) = reached(cli, check, "${base.trimEnd('/')}$path", headers, secrets, base)
+            val listing = body?.takeIf { path == provider.modelsPath && provider.listsWindows }
+            listOf(finding) + listing?.let { unknownWindows(cli, config, name, id, settings, it) }.orEmpty()
         }
     }
 
+/** The agent models of endpoint [id] of [provider] whose context window neither its [settings] nor its [listing] give. */
+private fun unknownWindows(
+    cli: Cli,
+    config: JsonObject,
+    provider: String,
+    id: String,
+    settings: JsonObject,
+    listing: String,
+): List<Finding> {
+    val listed = try {
+        (Json.parseToJsonElement(listing) as? JsonObject)?.get("data") as? JsonArray
+    } catch (e: IllegalArgumentException) {
+        null
+    } ?: return emptyList()
+    val configured = settings["models"] as? JsonObject
+    return agents(config).flatMap { it.models }.distinct().mapNotNull { name ->
+        val model = ModelRef.parseOrNull(name)?.takeIf { it.endpoint.value == id } ?: return@mapNotNull null
+        if ((configured?.get(model.model) as? JsonObject)?.get("contextWindow") != null) return@mapNotNull null
+        val entry = listed.firstOrNull { (it as? JsonObject)?.get("id").text == model.model } as? JsonObject
+            ?: return@mapNotNull null
+        val reader = if (providerKind(provider)?.anthropic == true) MessagesListing() else ModelListing()
+        if (reader.facts(entry).contextWindow != null) return@mapNotNull null
+        val key = ConfigPath.format(
+            listOf("providers", provider, "endpoints", id, "models", model.model, "contextWindow"),
+        )
+        Finding("model $name", Verdict.WARN, cli.t("doctor.no_context_window", "key" to key))
+    }
+}
+
+/** The finding of the request to [url] and the body of its successful answer. */
 private fun reached(
     cli: Cli,
     check: String,
@@ -300,7 +342,7 @@ private fun reached(
     headers: Map<String, String>,
     secrets: List<String>,
     base: String,
-): Finding {
+): Pair<Finding, String?> {
     fun masked(text: String) = secrets.filter { it.length >= 4 }.fold(text) { masked, it -> masked.replace(it, "***") }
     val fetched = try {
         cli.machine.get(url, headers)
@@ -315,23 +357,26 @@ private fun reached(
                     "reason" to (e.message ?: e),
                 ),
             ),
-        )
+        ) to null
     }
     return when (fetched.status) {
-        in 200..299 -> Finding(check, Verdict.OK, cli.t("doctor.endpoint_ok", "base" to base))
+        in 200..299 -> Finding(check, Verdict.OK, cli.t("doctor.endpoint_ok", "base" to base)) to fetched.body
 
         401, 403 -> Finding(
             check,
             Verdict.FAIL,
             cli.t("doctor.key_refused", "base" to base, "status" to fetched.status),
-        )
+        ) to null
 
-        else -> Finding(check, Verdict.WARN, cli.t("doctor.endpoint_http", "base" to base, "status" to fetched.status))
+        else -> {
+            val text = cli.t("doctor.endpoint_http", "base" to base, "status" to fetched.status)
+            Finding(check, Verdict.WARN, text) to null
+        }
     }
 }
 
 private fun telegram(cli: Cli, config: JsonObject): List<Finding> =
-    config.objectAt("channels.telegram.instances").map { (name, value) ->
+    config.objectAt(TELEGRAM_INSTANCES).map { (name, value) ->
         val config = value as? JsonObject ?: JsonObject(emptyMap())
         val check = "telegram:$name"
         val token = config["botToken"].text

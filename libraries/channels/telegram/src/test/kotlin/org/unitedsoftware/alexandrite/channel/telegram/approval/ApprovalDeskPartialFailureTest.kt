@@ -81,15 +81,16 @@ class ApprovalDeskPartialFailureTest {
             val turn = testTurn(chat = ChatAddress(WORK, "${ada.id}")) {
                 actor(ChatUser(UserAddress(WORK, "${ada.id}"), "Ada", null, isBot = false, isOperator = true))
             }
-            val request = ApprovalRequest(
+            val request = ApprovalRequest.builder(
                 "k3x9",
                 turn,
                 "fs.write",
                 ToolRisk.WORKSPACE_WRITE,
                 """{"path":"notes.md"}""",
-                diff,
                 "the chat is in ask mode",
             )
+                .preview(diff)
+                .build()
             fake.fail("sendMessage", 500, "boom", nth = 2)
 
             val answer = desk.ask(request)

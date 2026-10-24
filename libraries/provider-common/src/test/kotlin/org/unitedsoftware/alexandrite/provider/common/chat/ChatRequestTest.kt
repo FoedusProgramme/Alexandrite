@@ -20,6 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextItem
 import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
@@ -81,7 +82,7 @@ class ChatRequestTest {
             override val acceptsParallelToolCalls: Boolean = false
 
             override fun toolChoice(request: ModelRequest, body: JsonObjectBuilder): Warning? =
-                Warning("unsupported_option", "No choice here.")
+                Warning(WarningKind.UNSUPPORTED_OPTION, "No choice here.")
         },
         caching = object : ChatCaching() {
             override fun key(key: String, body: JsonObjectBuilder) {
@@ -294,7 +295,7 @@ class ChatRequestTest {
         assertEquals(listOf("text", "text", "image_url"), seen.map { it.text("type") })
         assertEquals("data:image/png;base64,AQID", seen[2]["image_url"]!!.jsonObject.text("url"))
         assertEquals("From Ada:\n\nLook.\n\n[image dot.png not shown: the model cannot take it]", unseen)
-        assertEquals(listOf("unsupported_media"), blind.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_media"), blind.warnings.map { it.kind.id })
     }
 
     @Test
@@ -376,7 +377,7 @@ class ChatRequestTest {
         assertEquals("high", effort(ReasoningEffort.HIGH).body.text("reasoning_effort"))
         val refused = effort(ReasoningEffort.MAX)
         assertNull(refused.body["reasoning_effort"])
-        assertEquals(listOf("unsupported_option"), refused.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_option"), refused.warnings.map { it.kind.id })
     }
 
     @Test

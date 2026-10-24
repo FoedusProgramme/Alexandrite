@@ -23,7 +23,7 @@ internal class ManualTool(manual: Lazy<Manual>) : CompanionTool {
     private val manual by manual
 
     override val definition: ToolDefinition = ToolDefinition(
-        name = "manual.read",
+        name = MANUAL_TOOL,
         description = "Reads Alexandrite's manual, which tells how this version works: its commands, permissions, " +
             "taint and trust, tools, MCP servers, persona, skills and config keys. Without arguments it lists the " +
             "pages; with 'topic' it returns a page; with 'query' it returns the sections that match best.",
@@ -87,3 +87,5 @@ internal class ManualTool(manual: Lazy<Manual>) : CompanionTool {
         return ToolResult("The sections that match \"$query\" best; read a whole page with its topic:\n\n$lines")
     }
 }
+
+internal const val MANUAL_TOOL: String = "manual.read"

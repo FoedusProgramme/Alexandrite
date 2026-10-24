@@ -15,3 +15,6 @@ internal object NoTaintLedger : TaintLedger {
 
     override fun reason(path: Path): String? = null
 }
+
+/** Edit places that hold every file. */
+internal val EveryEditPlace = EditPlaces { _, _ -> true }

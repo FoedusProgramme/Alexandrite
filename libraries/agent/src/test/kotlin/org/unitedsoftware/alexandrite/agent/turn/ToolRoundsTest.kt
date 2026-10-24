@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.agent.StoreIndex
 import org.unitedsoftware.alexandrite.agent.agentHarness
 import org.unitedsoftware.alexandrite.agent.execute
 import org.unitedsoftware.alexandrite.agent.logged
+import org.unitedsoftware.alexandrite.agent.tinyPng
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.hook.HookDecision
@@ -16,6 +17,7 @@ import org.unitedsoftware.alexandrite.sdk.model.FinishKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
 import org.unitedsoftware.alexandrite.sdk.model.Usage
+import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.store.MediaStore
 import org.unitedsoftware.alexandrite.sdk.store.TurnEndKind
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
@@ -58,7 +60,8 @@ import kotlin.test.assertTrue
 
 class ToolRoundsTest {
     private val store = MemoryStore()
-    private val model = ScriptedModel()
+    private val vision = ScriptedModel.modelInfo().rebuild { inputMedia(setOf(MediaKind.IMAGE)) }
+    private val model = ScriptedModel(models = listOf(vision))
     private val key = AgentChatKey.parse("coder@test:main:chat")
     private val read = recordingTool("fs.read") { arguments, _ ->
         ToolResult("Contents of ${arguments["path"]?.jsonPrimitive?.content}.")
@@ -206,7 +209,7 @@ class ToolRoundsTest {
 
     @Test
     fun `media in a result is stored before the result, and the next request carries it inline`() {
-        val bytes = byteArrayOf(1, 2, 3)
+        val bytes = tinyPng()
         val shot = recordingTool("screen.shot") { _, _ ->
             ToolResult(listOf(TextPart("A screenshot."), MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(bytes))))
         }
@@ -237,7 +240,7 @@ class ToolRoundsTest {
             recordingTool(name) { _, _ ->
                 if (started.incrementAndGet() == 2) returned.complete(Unit)
                 returned.await()
-                ToolResult(listOf(MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(name.encodeToByteArray()))))
+                ToolResult(listOf(MediaPart(MediaKind.IMAGE, "image/png", InlineMedia(tinyPng()))))
             }
         }
         model.reply {

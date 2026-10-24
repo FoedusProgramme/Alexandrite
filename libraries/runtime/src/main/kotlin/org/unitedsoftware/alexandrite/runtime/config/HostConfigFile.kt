@@ -14,6 +14,7 @@ import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEdit
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditRefusal
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSnapshot
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
 import org.unitedsoftware.alexandrite.sdk.config.JsonConfigSource
@@ -92,17 +93,21 @@ public class HostConfigFile(
             ConfigFile.resolved(target, written, environment())
         }
         val resolution = resolveConfig(plugins.members, JsonConfigSource(resolved), mutableListOf())
-        val problems = pluginProblems(plugins).ifEmpty { resolution.problems }
-        if (problems.isNotEmpty()) {
-            throw refused(
-                ConfigEditRefusal.INVALID_RESULT,
-                "$what: ${problems.joinToString(" ") { it.message }}",
-            )
-        }
+        val problems = pluginProblems(plugins).ifEmpty { resolution.problems }.map { it.message }
         val previous = try {
             ConfigFile.parsed(target, file.text)
         } catch (e: ConfigFileException) {
             JsonObject(emptyMap())
+        }
+        if (problems.isNotEmpty()) {
+            val unknown = unknownKeys(problems)
+            val hint = paths.orEmpty().firstNotNullOfOrNull { keys ->
+                bracketHint(keys, unknown, { previous.at(it) }, { isMapIn(plugins, it) })
+            }
+            throw refused(
+                ConfigEditRefusal.INVALID_RESULT,
+                listOfNotNull("$what: ${problems.joinToString(" ")}", hint).joinToString(" "),
+            )
         }
         val changed = paths?.filter { previous.at(it) != written.at(it) }
             ?: mutableListOf<List<String>>().also { changedPaths(emptyList(), previous, written, it) }
@@ -127,11 +132,10 @@ public class HostConfigFile(
             leaves.map(taking::take).any { !it }
         }
         val commits = readable(ConfigEditRefusal.INVALID_RESULT, what, target) { taking.prepare() }
-        val dotted = changed.map { it.joinToString(".") }
-        val changes = ConfigChanges(dotted, restart.map { it.joinToString(".") })
+        val changes = ConfigChanges(changed.map(ConfigPath::format), restart.map(ConfigPath::format))
         if (check) return changes
         replaceConfig(file, text)
-        logger.info("{}: changed {} in the config file {}", name, dotted.joinToString(), target)
+        logger.info("{}: changed {} in the config file {}", name, changes.changed.joinToString(), target)
         for ((plugin, commit) in commits) {
             try {
                 commit()
@@ -154,7 +158,9 @@ private class LiveChanges(enabled: List<EnabledPlugin>, live: List<Pair<String, 
     private val plugins = enabled.associateBy { it.id }
     private val places = live.flatMap { (plugin, config) ->
         val root = plugins[plugin]?.member?.index?.configRoot?.split('.') ?: return@flatMap emptyList()
-        config.paths.map { path -> root + path.split('.').filter(String::isNotEmpty) to (plugin to config) }
+        config.paths.map { path ->
+            (if (path.isEmpty()) root else root + ConfigPath.parse(path)) to (plugin to config)
+        }
     }
     private val taking = mutableListOf<Pair<String, LiveConfig>>()
 

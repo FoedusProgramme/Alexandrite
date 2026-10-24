@@ -1,6 +1,5 @@
 package org.unitedsoftware.alexandrite.app
 
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,6 +11,7 @@ import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.app.control.ConfigChangeView
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
+import org.unitedsoftware.alexandrite.runtime.config.EnvReferences
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
@@ -271,7 +271,7 @@ internal fun telegramChanges(
     apiBaseUrl: String?,
 ): List<ConfigChangeView> {
     val instance = buildJsonObject {
-        put("botToken", envReference(secret))
+        put("botToken", EnvReferences.of(secret))
         put("adminUserIds", buildJsonArray { admins.forEach { add(it) } })
         apiBaseUrl?.let { put("apiBaseUrl", it) }
     }
@@ -312,7 +312,7 @@ internal fun configuredBot(cli: Cli, config: JsonObject, token: String): String?
     }
     return config.objectAt(TELEGRAM_INSTANCES).entries.firstOrNull { (_, value) ->
         val written = (value as? JsonObject)?.get("botToken").text ?: return@firstOrNull false
-        val variable = referencedVariable(written)
+        val variable = EnvReferences.whole(written)
         (if (variable != null) environment[variable] else written) == token
     }?.key
 }

@@ -1,5 +1,6 @@
 package org.unitedsoftware.alexandrite.app
 
+import org.unitedsoftware.alexandrite.internal.path.OsFamily
 import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
@@ -18,10 +19,10 @@ private const val WINDOWS_DATA = "Data"
 
 internal enum class Platform { MAC, WINDOWS, UNIX }
 
-internal fun platformOf(osName: String): Platform = when {
-    osName.startsWith("Mac", ignoreCase = true) || osName.startsWith("Darwin", ignoreCase = true) -> Platform.MAC
-    osName.startsWith("Windows", ignoreCase = true) -> Platform.WINDOWS
-    else -> Platform.UNIX
+internal fun platformOf(osName: String): Platform = when (OsFamily.of(osName)) {
+    OsFamily.MAC -> Platform.MAC
+    OsFamily.WINDOWS -> Platform.WINDOWS
+    OsFamily.LINUX, OsFamily.OTHER -> Platform.UNIX
 }
 
 /** Throws [IllegalArgumentException] for a variable that names no valid path. */

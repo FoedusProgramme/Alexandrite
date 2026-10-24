@@ -159,7 +159,8 @@ class TrustCommandsTest {
     fun `untaint clears the chat's conversations, or one agent's, and says what they were`() = runTest {
         val untaint = testCommand("untaint", issuer = OPERATOR)
         val neko = testCommand("untaint", "neko", issuer = OPERATOR)
-        control.taints[untaint.chat] = ConversationTaint(Instant.parse("2026-01-01T10:00:00Z"), "a web page")
+        control.taints[untaint.chat] =
+            ConversationTaint(Instant.parse("2026-01-01T10:00:00Z"), "a web page")
 
         assertEquals(
             "The conversation of main here is no longer tainted (it was since 2026-01-01: a web page). Its next " +

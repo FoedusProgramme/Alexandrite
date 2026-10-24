@@ -94,7 +94,7 @@ class MessagesResponseTest {
         assertEquals("true", recorded.json()["stream"].toString())
         val started = events.first() as ModelEvent.ResponseStarted
         assertEquals("msg_1" to "claude-model", started.responseId to started.model)
-        assertEquals(listOf("unsupported_option"), started.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_option"), started.warnings.map { it.kind.id })
     }
 
     @Test

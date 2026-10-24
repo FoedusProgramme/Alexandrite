@@ -2,7 +2,6 @@ package org.unitedsoftware.alexandrite.tools.exec
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -19,13 +18,13 @@ import org.unitedsoftware.alexandrite.sdk.tool.ToolContext
 import org.unitedsoftware.alexandrite.sdk.tool.ToolResult
 import org.unitedsoftware.alexandrite.tools.monitor.MonitorOptions
 import org.unitedsoftware.alexandrite.tools.monitor.monitoring
-import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -170,7 +169,8 @@ class MonitorTest {
                 ).problem,
             )
         }
-        assertNotNull(tool.review(arguments("command" to "echo hello", "background" to "true"), fs.context()).problem)
+        assertNull(tool.review(arguments("command" to "echo hello", "background" to "true"), fs.context()).problem)
+        assertNotNull(tool.review(arguments("command" to "echo hello", "background" to "yes"), fs.context()).problem)
         val background = tool.review(
             JsonObject(arguments("command" to "echo hello") + ("background" to JsonPrimitive(true))),
             fs.context(),

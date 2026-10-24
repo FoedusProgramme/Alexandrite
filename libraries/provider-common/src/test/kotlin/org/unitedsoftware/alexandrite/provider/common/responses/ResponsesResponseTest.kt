@@ -1,10 +1,10 @@
 package org.unitedsoftware.alexandrite.provider.common.responses
 
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import org.unitedsoftware.alexandrite.provider.common.ModelConfig
@@ -37,7 +37,10 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 class ResponsesResponseTest {
     private val server = FakeModelServer()
@@ -99,6 +102,22 @@ class ResponsesResponseTest {
             ),
         )
         assertEquals(1, events.filterIsInstance<ModelEvent.UsageUpdated>().size)
+    }
+
+    @Test
+    fun `a stream is read to its end after the response completes, so a proxy sees it taken whole`() {
+        val events = textEvents(listOf("Hi."), completed(responsesUsage(3, 0, 1, 0)))
+        val trailing = fakeResponse {
+            events.forEach { event(it.toString(), it["type"]!!.jsonPrimitive.content) }
+            pause(400.milliseconds)
+            comment("keep-alive")
+        }
+
+        val started = TimeSource.Monotonic.markNow()
+        val streamed = respond(trailing)
+
+        assertIs<ModelEvent.Completed>(streamed.last())
+        assertTrue(started.elapsedNow() >= 350.milliseconds, "${started.elapsedNow()}")
     }
 
     @Test

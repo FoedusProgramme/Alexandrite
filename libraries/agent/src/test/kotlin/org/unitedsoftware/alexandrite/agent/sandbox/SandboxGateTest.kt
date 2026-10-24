@@ -12,6 +12,7 @@ import org.unitedsoftware.alexandrite.agent.hook.TurnHooks
 import org.unitedsoftware.alexandrite.agent.permission.Approvals
 import org.unitedsoftware.alexandrite.agent.permission.CallRules
 import org.unitedsoftware.alexandrite.agent.permission.CheckedCall
+import org.unitedsoftware.alexandrite.agent.permission.EveryEditPlace
 import org.unitedsoftware.alexandrite.agent.permission.InstructionPlaces
 import org.unitedsoftware.alexandrite.agent.permission.Judge
 import org.unitedsoftware.alexandrite.agent.permission.NoForesight
@@ -28,7 +29,6 @@ import org.unitedsoftware.alexandrite.agent.trust.TrustRules
 import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
-import org.unitedsoftware.alexandrite.sdk.chat.SettingChange
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
@@ -49,6 +49,7 @@ import org.unitedsoftware.alexandrite.sdk.tool.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
+import org.unitedsoftware.alexandrite.sdk.turn.SettingChange
 import org.unitedsoftware.alexandrite.testkit.PluginHarness
 import org.unitedsoftware.alexandrite.testkit.RecordingEnvironment
 import org.unitedsoftware.alexandrite.testkit.testToolContext
@@ -111,6 +112,7 @@ class SandboxGateTest {
             running.get<InstructionPlaces>(),
             NoForesight,
             NoMarkOffers,
+            EveryEditPlace,
         )
 
         suspend fun mode(mode: PermissionMode, of: TurnInfo = turn) {

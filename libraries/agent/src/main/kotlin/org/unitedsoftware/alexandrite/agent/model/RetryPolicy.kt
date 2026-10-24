@@ -23,21 +23,26 @@ internal class RetryPolicy(config: ModelCallConfig, private val random: Random) 
     private val retries = config.retries
     private val maxRetryAfter = config.maxRetryAfterSeconds.seconds
 
-    /** What [call] for [turn] returns, made again after each [ModelException] that [delayBefore] retries. */
-    suspend fun <T> retrying(turn: TurnId, call: suspend () -> T): T {
+    /**
+     * What [call] for [turn] returns, made again after each [ModelException] that [delayBefore] retries for a request
+     * of about [promptTokens] prompt tokens.
+     */
+    suspend fun <T> retrying(turn: TurnId, promptTokens: Long = 0, call: suspend () -> T): T {
         var retry = 1
         while (true) {
             try {
                 return call()
             } catch (e: ModelException) {
-                val wait = delayBefore(retry, e.error) ?: throw e
+                val wait = delayBefore(retry, e.error, promptTokens) ?: throw e
+                val once = onceBecause(e.error, promptTokens)
                 logger.warn(
-                    "The model call of turn {} failed ({}): retry {} of {} in {}",
+                    "The model call of turn {} failed ({}): retry {} of {} in {}{}",
                     turn,
                     e.error.kind,
                     retry,
-                    retries,
+                    if (once == null) retries else 1,
                     wait,
+                    once?.let { ", the only one as $it" }.orEmpty(),
                 )
                 delay(wait)
                 retry++
@@ -45,18 +50,32 @@ internal class RetryPolicy(config: ModelCallConfig, private val random: Random) 
         }
     }
 
-    /** How long to wait before retry [retry] after [error], null when the call is not made again. */
-    fun delayBefore(retry: Int, error: ModelError): Duration? {
+    /**
+     * How long to wait before retry [retry] after [error] of a request of about [promptTokens] prompt tokens, null when
+     * the call is not made again.
+     */
+    fun delayBefore(retry: Int, error: ModelError, promptTokens: Long = 0): Duration? {
         if (!error.retryable || retry > retries) return null
+        if (retry > 1 && onceBecause(error, promptTokens) != null) return null
         if (error.kind == ModelErrorKind.MALFORMED_OUTPUT) return Duration.ZERO
         if (error.outputStarted) return null
         val asked = error.retryAfter ?: return backoff(retry)
         return asked.takeIf { it <= maxRetryAfter }
     }
 
+    /** Why a call that failed with [error] is retried once at most, null when the configured retries apply. */
+    private fun onceBecause(error: ModelError, promptTokens: Long): String? = when {
+        error.outputStarted -> "its output had started"
+        promptTokens >= LARGE_PROMPT_TOKENS -> "its prompt of about $promptTokens tokens is large"
+        else -> null
+    }
+
     private fun backoff(retry: Int): Duration =
         BACKOFF[minOf(retry, BACKOFF.size) - 1] * (1 - JITTER + 2 * JITTER * random.nextDouble())
 }
+
+/** The estimated prompt tokens from which a failed request is sent again once at most. */
+internal const val LARGE_PROMPT_TOKENS: Long = 100_000
 
 private val BACKOFF = listOf(1.seconds, 4.seconds, 10.seconds)
 

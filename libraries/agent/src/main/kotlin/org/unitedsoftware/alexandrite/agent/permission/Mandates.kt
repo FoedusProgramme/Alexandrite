@@ -18,8 +18,8 @@ import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.store.Records
 import org.unitedsoftware.alexandrite.sdk.store.collection
+import org.unitedsoftware.alexandrite.sdk.tool.Mandate
 import org.unitedsoftware.alexandrite.sdk.tool.Tool
-import org.unitedsoftware.alexandrite.sdk.turn.Mandate
 import java.security.SecureRandom
 import java.time.Clock
 import java.util.Base64

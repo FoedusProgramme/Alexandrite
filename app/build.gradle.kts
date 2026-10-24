@@ -41,7 +41,7 @@ dependencies {
 
 application {
     mainClass = "org.unitedsoftware.alexandrite.app.MainKt"
-    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED", "-Djava.awt.headless=true")
 }
 
 val versionResource = tasks.register<WriteProperties>("versionResource") {

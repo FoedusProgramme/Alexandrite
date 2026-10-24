@@ -10,6 +10,7 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.unitedsoftware.alexandrite.internal.process.destroyTree
+import org.unitedsoftware.alexandrite.internal.text.shellLine
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
 import org.unitedsoftware.alexandrite.sdk.tool.SegmentJoint
 import java.io.File
@@ -338,7 +339,7 @@ internal suspend fun runSteps(
         val pipeline = call.steps.subList(index, end)
         index = end
         val header = "$ " + pipeline.joinToString(" | ") { piped ->
-            (listOf(commandLine(piped.words)) + piped.redirects.map { it.text }).joinToString(" ")
+            (listOf(shellLine(piped.words)) + piped.redirects.map { it.text }).joinToString(" ")
         }
         val runs = when (step.joint) {
             SegmentJoint.AND -> status == 0
@@ -449,15 +450,6 @@ private fun joined(blocks: List<String>, maxChars: Int): String {
     collector.append(text.toCharArray(), text.length)
     return collector.text()
 }
-
-/** [words] as one command line, each word that a shell would split or expand in single quotes. */
-internal fun commandLine(words: List<String>): String = words.joinToString(" ") { word ->
-    val plain = word.isNotEmpty() && word.all { it.isLetterOrDigit() || it in PLAIN }
-    if (plain) word else "'${word.replace("'", "'\\''")}'"
-}
-
-/** The characters a shell takes as part of a word. */
-private const val PLAIN = "-_./=:,+@%~"
 
 /** The exit code of a program that its `timeout` stopped. */
 private const val TIMED_OUT = 124

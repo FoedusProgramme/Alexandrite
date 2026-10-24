@@ -22,8 +22,7 @@ public class OutboundMessage private constructor(
     public val files: List<OutboundFile>,
     /**
      * Whether the agent vouches for the message's words — Alexandrite's own, or a trusted turn's in a clean
-     * conversation — so that a channel may tell a quote of them as trusted content; a reply's final message only where
-     * its [ReplyRequest.vouched] holds too.
+     * conversation — so that a channel may tell a quote of them as trusted content.
      */
     public val vouched: Boolean,
 ) {

@@ -3,7 +3,6 @@ package org.unitedsoftware.alexandrite.testkit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.runtime.AlexandriteRuntime
@@ -13,6 +12,7 @@ import org.unitedsoftware.alexandrite.runtime.RuntimeSpec
 import org.unitedsoftware.alexandrite.runtime.Termination
 import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.runtime.config.splicedConfig
+import org.unitedsoftware.alexandrite.runtime.config.writtenConfig
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelInstanceId
@@ -165,11 +165,7 @@ public class PluginHarness private constructor(
             write(file, tree)
             return true
         }
-        val current = try {
-            Json.parseToJsonElement(text.removePrefix(BYTE_ORDER_MARK)) as? JsonObject
-        } catch (e: SerializationException) {
-            null
-        } ?: return ours
+        val current = writtenConfig(text) ?: return ours
         val spliced = spliced(text, current, owned)
         if (spliced != text) Files.writeString(file, spliced)
         return ours
@@ -480,8 +476,6 @@ public class PluginHarness private constructor(
 }
 
 private val PRETTY = Json { prettyPrint = true }
-
-private const val BYTE_ORDER_MARK = "\uFEFF"
 
 private const val CONFIG_ORIGIN = "PluginHarness.Builder.config(...)"
 

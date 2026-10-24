@@ -5,12 +5,16 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.control.ConversationSeals
+import org.unitedsoftware.alexandrite.agent.control.NoteOrder
+import org.unitedsoftware.alexandrite.agent.control.PendingNote
+import org.unitedsoftware.alexandrite.agent.control.PendingNotes
 import org.unitedsoftware.alexandrite.agent.control.pruneInactive
 import org.unitedsoftware.alexandrite.agent.permission.ArgsCanonicalizer
 import org.unitedsoftware.alexandrite.agent.prompt.TOOLS_HEADER
 import org.unitedsoftware.alexandrite.internal.hash.hex
 import org.unitedsoftware.alexandrite.internal.hash.sha256Digest
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -27,14 +31,22 @@ internal const val TOOLS_SOURCE: String = "alexandrite.tools"
 
 /** The tools that the last turn of each active conversation offered, by name with the SHA-256 of each definition. */
 @Singleton
-@Contribute(ConversationSeals::class)
+@Contribute(ConversationSeals::class, PendingNotes::class)
 internal class OfferedTools(records: Records, private val conversations: ConversationStore) :
     Lifecycle,
-    ConversationSeals {
+    ConversationSeals,
+    PendingNotes {
     private val offered = records.collection<Fingerprint>(COLLECTION)
 
     override suspend fun onStart() {
         offered.pruneInactive(conversations)
+    }
+
+    override val order: Int = NoteOrder.TOOLS
+
+    override suspend fun pending(turn: TurnInfo, definitions: List<ToolDefinition>): PendingNote? {
+        val comparison = compare(turn.conversation, definitions) ?: return null
+        return PendingNote(comparison.notice, null) { record(turn.conversation, comparison) }
     }
 
     /** [definitions] beside the tools that [conversation]'s last turn offered, null when those cannot be read. */

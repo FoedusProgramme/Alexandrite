@@ -18,7 +18,11 @@ public value class PermissionMode internal constructor(public val id: String) {
         /** Allow rules first, then a human. */
         public val ASK: PermissionMode = PermissionMode("ask")
 
-        /** File writes the floor allows run (an opaque program never), the rest as in [ASK]. */
+        /**
+         * File writes run where the turn's writes may land, as a sandbox lets commands write: the agent's workspace, the
+         * conversation's directory, the folders it trusts, the temp directory and the sandbox's writable paths; the rest
+         * as in [ASK].
+         */
         public val ALLOW_EDIT: PermissionMode = PermissionMode("allowedit")
 
         /** Allow rules, then a side model, then a human. */

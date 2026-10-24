@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.testkit
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.unitedsoftware.alexandrite.internal.path.hasPosixPermissions
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
@@ -119,7 +120,7 @@ public class TestToolContext internal constructor(
 /** [path], created owner-only with the directories on the way when it does not exist. */
 private fun createdOwnerOnly(path: Path): Path {
     if (Files.isDirectory(path)) return path
-    if ("posix" in path.fileSystem.supportedFileAttributeViews()) {
+    if (hasPosixPermissions(path)) {
         Files.createDirectories(path, PosixFilePermissions.asFileAttribute(OWNER_ONLY))
     } else {
         Files.createDirectories(path)

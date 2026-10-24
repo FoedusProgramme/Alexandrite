@@ -32,7 +32,6 @@ import org.unitedsoftware.alexandrite.sdk.chat.ForwardOrigin
 import org.unitedsoftware.alexandrite.sdk.chat.Quote
 import org.unitedsoftware.alexandrite.sdk.chat.QuoteTrust
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
-import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.turn.CommandInvocation
 import java.time.Instant
 import kotlin.test.Test

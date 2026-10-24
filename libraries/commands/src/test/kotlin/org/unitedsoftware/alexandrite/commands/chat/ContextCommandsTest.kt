@@ -74,6 +74,23 @@ class ContextCommandsTest {
     }
 
     @Test
+    fun `context says when the window is assumed, as the model's endpoint gives none`() = runTest {
+        val status = ContextStatus(conversation, TEST_MODEL, 64_000, TEST_TIME, 128_000, 121_600, 25_600, null, 0, true)
+        control.scriptContext(chat, status)
+
+        assertEquals(
+            """
+                Context of this conversation with the model scripted/test-model:
+                Last request: 64000 of the 128000 tokens assumed for the model's context window (50%), counted at 2026-01-01 00:00.
+                It is compacted once a request reaches 121600 tokens, down to 25600.
+                The model's endpoint gives no context window, so 128000 tokens are assumed: set the model's contextWindow in the config to its real window.
+                It was not compacted yet.
+            """.trimIndent(),
+            commands.answer(testCommand("context", issuer = GUEST)),
+        )
+    }
+
+    @Test
     fun `context says when nothing was counted or compacted and the window is unknown`() = runTest {
         val status = ContextStatus(conversation, null, null, null, null, null, null, null, 0)
         control.scriptContext(chat, status)

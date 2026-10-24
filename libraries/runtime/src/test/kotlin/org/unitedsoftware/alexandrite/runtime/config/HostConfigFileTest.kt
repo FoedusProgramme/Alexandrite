@@ -51,7 +51,11 @@ class HostConfigFileTest {
         val limits: Limits = Limits(),
         val folders: List<String> = emptyList(),
         val agents: Map<String, Agent> = emptyMap(),
+        val models: Map<String, Model> = emptyMap(),
     )
+
+    @Serializable
+    data class Model(val contextWindow: Int? = null)
 
     @Serializable
     data class Agent(val name: String? = null, val links: List<List<String>> = emptyList())
@@ -368,7 +372,7 @@ class HostConfigFileTest {
     fun `a path that is malformed or runs through a value that is no object is refused`() {
         write()
 
-        for (path in listOf("", ".home", "home.", "a..b")) {
+        for (path in listOf("", ".home", "home.", "a..b", "a[0]", "a[\"b", "a[\"b\"]c")) {
             assertEquals(ConfigEditRefusal.INVALID_PATH, refusal { set(path, JsonPrimitive(1)) }.refusal, path)
             assertEquals(ConfigEditRefusal.INVALID_PATH, refusal { remove(path) }.refusal, path)
             assertEquals(ConfigEditRefusal.INVALID_PATH, refusal { get(path) }.refusal, path)
@@ -379,6 +383,83 @@ class HostConfigFileTest {
             value.message,
         )
         assertEquals(original, read())
+    }
+
+    @Test
+    fun `a malformed path is refused saying what is wrong and how a path is written`() {
+        write()
+
+        val message = refusal { set("plugins.notes.models[gpt-4.1]", JsonPrimitive(1)) }.message.orEmpty()
+
+        assertContains(message, "Malformed config path 'plugins.notes.models[gpt-4.1]': the key in the bracket at 21")
+        assertContains(message, "models[\"gpt-4.1\"]")
+    }
+
+    @Test
+    fun `a key with dots is set, read, reported and removed by its path in brackets`() {
+        write()
+        val path = "plugins.notes.models[\"gpt-6.1-sol\"].contextWindow"
+
+        val set = change { set(path, JsonPrimitive(200000)) }
+        val single = change { set("plugins.notes.models['gpt-6.1-sol'].contextWindow", JsonPrimitive(100000)) }
+
+        assertEquals(ConfigChanges(listOf(path), listOf(path)), set)
+        assertEquals(listOf(path), single.changed)
+        assertContains(read(), "\"gpt-6.1-sol\": {")
+        assertEquals(mapOf("gpt-6.1-sol" to Model(100000)), decoded().models)
+        assertEquals(JsonPrimitive(100000), runBlocking { config().get(path) })
+        val model = "plugins.notes.models[\"gpt-6.1-sol\"]"
+        assertEquals(listOf(model), change { remove(model) }.changed)
+        assertEquals(emptyMap(), decoded().models)
+    }
+
+    @Test
+    fun `a key with dots split at its dots is refused with the path in brackets as the hint`() {
+        write()
+
+        val split = refusal { set("plugins.notes.models.gpt-6.1-sol.contextWindow", JsonPrimitive(200000)) }
+        val whole = refusal { set("plugins.notes.models.gpt-4.1", buildJsonObject { put("contextWindow", 128000) }) }
+
+        assertEquals(ConfigEditRefusal.INVALID_RESULT, split.refusal)
+        assertContains(
+            split.message.orEmpty(),
+            "Keys with dots go in brackets: plugins.notes.models[\"gpt-6.1-sol\"].contextWindow.",
+        )
+        assertContains(whole.message.orEmpty(), "Keys with dots go in brackets: plugins.notes.models[\"gpt-4.1\"].")
+        assertEquals(original, read())
+    }
+
+    @Test
+    fun `a key with dots that the file holds is named in brackets when a change splits it`() {
+        write("""{"plugins": {"notes": {"agents": {"a.b.c": {"name": "x"}}}}}""")
+
+        val set = refusal { set("plugins.notes.agents.a.b.c.name", JsonPrimitive("y")) }
+        val removed = refusal { remove("plugins.notes.agents.a.b.c") }
+        val unrelated = refusal { set("plugins.notes.limits.turns", JsonPrimitive(0)) }
+
+        assertContains(set.message.orEmpty(), "Keys with dots go in brackets: plugins.notes.agents[\"a.b.c\"].name.")
+        assertEquals(ConfigEditRefusal.INVALID_PATH, removed.refusal)
+        assertEquals(
+            "Nothing is set at 'plugins.notes.agents.a.b.c'. Keys with dots go in brackets: " +
+                "plugins.notes.agents[\"a.b.c\"].",
+            removed.message,
+        )
+        assertFalse("brackets" in unrelated.message.orEmpty())
+        assertEquals(ConfigChanges(emptyList(), emptyList()), change { remove("plugins.notes.agents.x.y") })
+    }
+
+    @Test
+    fun `a secret below a key with dots is named by its path in brackets and moved whole`() {
+        write("""{"plugins": {"keys": {}}}""")
+
+        val refused = refusal { set("plugins.keys.pools[\"a.b\"]", strings("plain-pool")) }
+        val named = mutableListOf<String>()
+        val text = """{"plugins": {"keys": {"pools": {"a.b": ["new-pool"]}}}}"""
+        val referenced = referencedSecrets(plugins, "{}", text) { path, _ -> "V".also { named += path } }
+
+        assertContains(refused.message.orEmpty(), "'plugins.keys.pools[\"a.b\"][0]'")
+        assertEquals(listOf("plugins.keys.pools[\"a.b\"][0]"), named)
+        assertEquals(text.replace("\"new-pool\"", "\"${'$'}{env:V}\""), referenced)
     }
 
     @Test

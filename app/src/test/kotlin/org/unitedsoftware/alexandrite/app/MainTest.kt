@@ -406,7 +406,10 @@ class MainTest {
     fun `a plugin that is not on the class path exits 78`() {
         assertEquals(78, hostWith("""{"app": {"plugins": ["weather"]}}"""))
 
-        assertContains(stderr(), "Cannot load the plugins of 'app.plugins': No plugin 'weather' on the class path")
+        assertContains(
+            stderr(),
+            "Cannot load the plugin 'weather' that 'app.plugins' names: No plugin 'weather' on the class path",
+        )
     }
 
     @Test

@@ -4,6 +4,7 @@ import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.config.SandboxConfig
 import org.unitedsoftware.alexandrite.agent.config.configuredPath
 import org.unitedsoftware.alexandrite.agent.prompt.Persona
+import org.unitedsoftware.alexandrite.agent.tool.writtenFile
 import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
@@ -16,12 +17,17 @@ import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
 import org.unitedsoftware.alexandrite.sdk.runtime.HostPaths
 import org.unitedsoftware.alexandrite.sdk.tool.CallReview
-import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import java.nio.file.Path
 import java.util.Locale
 
+/** The names of a project's instruction files, in the order they load. */
+internal val INSTRUCTION_FILES: List<String> = listOf("AGENTS.md", "CLAUDE.md")
+
+/** Where a project keeps its skills, one directory per skill. */
+internal val SKILL_DIRECTORIES: List<String> = listOf(".agents/skills", ".claude/skills")
+
 /** The relative paths at any depth that hold a project's instructions or skills. */
-internal val INSTRUCTION_NAMES: List<String> = listOf("AGENTS.md", "CLAUDE.md", ".agents/skills", ".claude/skills")
+internal val INSTRUCTION_NAMES: List<String> = INSTRUCTION_FILES + SKILL_DIRECTORIES
 
 /**
  * The places whose files steer an agent once written: the config and secrets files, the persona and skill directories,
@@ -35,8 +41,7 @@ internal interface InstructionPlaces {
      * What a command writes cannot be foreseen: the sandbox's protect list and the judge's rule for tainted
      * conversations cover it.
      */
-    fun written(agent: AgentId, review: CallReview): String? =
-        (review.preview as? ReviewPreview.Diff)?.path?.takeIf { it.isAbsolute }?.let { kind(it, agent) }
+    fun written(agent: AgentId, review: CallReview): String? = review.preview.writtenFile?.let { kind(it, agent) }
 
     /** The kind of instruction-bearing place that [path] (absolute) is or lies in for a write by [agent], else null. */
     fun kind(path: Path, agent: AgentId): String?
@@ -114,7 +119,7 @@ internal class HostInstructionPlaces(
         if (!protect.alexandrite) return null
         val own = workspaces.paths.values + directory.agents.map { places.conversations(it.id) }
         if (own.any { under(target, real(it)) }) return null
-        return ALEXANDRITE.takeIf { alexandritePlaces(paths).any { under(target, real(it)) } }
+        return ALEXANDRITE.takeIf { paths.alexandritePlaces.any { under(target, real(it)) } }
     }
 
     private fun protectedBy(agent: AgentId, config: SandboxConfig): Protected {
@@ -147,9 +152,7 @@ private fun same(path: Path, other: Path): Boolean = folded(path) == folded(othe
 
 private fun folded(path: Path): Path = Path.of(path.toString().lowercase(Locale.ROOT))
 
-private val INSTRUCTION_FILES = INSTRUCTION_NAMES.filterNot { '/' in it }
-
-private val SKILL_NAMES = INSTRUCTION_NAMES.filter { '/' in it }.map { it.split('/') }
+private val SKILL_NAMES = SKILL_DIRECTORIES.map { it.split('/') }
 
 private const val SECRETS_FILE = "secrets.env"
 

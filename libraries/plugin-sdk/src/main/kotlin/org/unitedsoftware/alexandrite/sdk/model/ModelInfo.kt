@@ -54,7 +54,7 @@ public class ModelInfo private constructor(
         .webSearch(webSearch)
         .price(price)
 
-    public class Builder internal constructor(private var id: String, private var dialect: Dialect) {
+    public class Builder internal constructor(private val id: String, private val dialect: Dialect) {
         private var displayName: String? = null
         private var contextWindow: Int? = null
         private var maxOutputTokens: Int? = null
@@ -65,10 +65,6 @@ public class ModelInfo private constructor(
         private var streaming: Boolean = false
         private var webSearch: Boolean = false
         private var price: ModelPrice? = null
-
-        public fun id(id: String): Builder = apply { this.id = id }
-
-        public fun dialect(dialect: Dialect): Builder = apply { this.dialect = dialect }
 
         public fun displayName(displayName: String?): Builder = apply { this.displayName = displayName }
 

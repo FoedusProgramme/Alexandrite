@@ -48,7 +48,7 @@ class TelegramWindowsTest {
             .reply { text("Neither ran.") }
         val asked = mutableListOf<FakeBotMessage>()
 
-        app.run(builder(""""permission": {"mode": "auto", "judge": "scripted/$FAST_MODEL"}""")) {
+        app.run(builder(""""permission": {"mode": "auto"}, "roles": {"judge": "scripted/$FAST_MODEL"}""")) {
             app.send(app.ada, app.adaChat, "Read the page.")
             answer(request(), "Allow, mark tainted")
             app.message(app.adaChat, "It asks to run a script.")

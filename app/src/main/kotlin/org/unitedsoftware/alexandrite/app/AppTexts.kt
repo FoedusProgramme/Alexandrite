@@ -8,10 +8,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.runInterruptible
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.internal.resource.resourceFiles
 import org.unitedsoftware.alexandrite.runtime.TextCatalog
 import org.unitedsoftware.alexandrite.runtime.i18n.TEXTS_SUFFIX
 import org.unitedsoftware.alexandrite.runtime.i18n.readTexts
-import org.unitedsoftware.alexandrite.runtime.i18n.resourceFiles
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import java.io.IOException

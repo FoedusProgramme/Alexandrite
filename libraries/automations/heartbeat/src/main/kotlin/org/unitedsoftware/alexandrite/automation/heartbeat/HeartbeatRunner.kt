@@ -25,6 +25,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.InitiatedTurn
 import org.unitedsoftware.alexandrite.sdk.turn.RefusalReason
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
+import java.time.Clock
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
@@ -37,10 +38,11 @@ internal class HeartbeatRunner(
     private val heartbeats: Heartbeats,
     private val initiator: TurnInitiator,
     private val scope: PluginScope,
+    clock: Clock,
     time: TimeSource?,
 ) : Lifecycle,
     BeatEvents<AgentId> {
-    private val time = time ?: TimeSource.system
+    private val time = time ?: TimeSource.of(clock)
     private val beats = Beats(heartbeats.all.map { it.plan }, Beater { beat(it) }, this, this.time)
 
     /** The refusals logged per agent since its last admitted beat. */

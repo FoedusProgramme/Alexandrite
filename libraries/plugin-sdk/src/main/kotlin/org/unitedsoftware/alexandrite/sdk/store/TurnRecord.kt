@@ -39,9 +39,9 @@ public class TurnRecord private constructor(
         .end(end)
 
     public class Builder internal constructor(
-        private var id: TurnId,
-        private var conversation: ConversationId,
-        private var key: AgentChatKey,
+        private val id: TurnId,
+        private val conversation: ConversationId,
+        private val key: AgentChatKey,
         private var kind: TurnKind,
         private var startedAt: Instant,
     ) {
@@ -50,12 +50,6 @@ public class TurnRecord private constructor(
         private var lineage: TurnLineage? = null
         private var endedAt: Instant? = null
         private var end: TurnEndKind? = null
-
-        public fun id(id: TurnId): Builder = apply { this.id = id }
-
-        public fun conversation(conversation: ConversationId): Builder = apply { this.conversation = conversation }
-
-        public fun key(key: AgentChatKey): Builder = apply { this.key = key }
 
         public fun kind(kind: TurnKind): Builder = apply { this.kind = kind }
 

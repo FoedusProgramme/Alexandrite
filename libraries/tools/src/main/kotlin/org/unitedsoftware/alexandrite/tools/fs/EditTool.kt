@@ -6,6 +6,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.booleanArgument
+import org.unitedsoftware.alexandrite.internal.tool.requiredString
+import org.unitedsoftware.alexandrite.internal.tool.stringArgument
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.runtime.AgentPlaces
@@ -108,14 +111,14 @@ private fun edits(arguments: JsonObject): List<Edit> {
     return edits.mapIndexed { index, element ->
         val edit = element as? JsonObject
             ?: throw ToolRefusal("Edit ${index + 1} is no {\"old\": …, \"new\": …} object.")
-        val old = edit.string("old") ?: throw ToolRefusal("Edit ${index + 1} gives no 'old' text.")
+        val old = edit.stringArgument("old") ?: throw ToolRefusal("Edit ${index + 1} gives no 'old' text.")
         if (old.isEmpty()) {
             throw ToolRefusal(
                 "The 'old' text of edit ${index + 1} is empty: give the text to replace, or use fs.write.",
             )
         }
-        val new = edit.string("new") ?: throw ToolRefusal("Edit ${index + 1} gives no 'new' text.")
-        Edit(old, new, edit.boolean("all"))
+        val new = edit.stringArgument("new") ?: throw ToolRefusal("Edit ${index + 1} gives no 'new' text.")
+        Edit(old, new, edit.booleanArgument("all") == true)
     }
 }
 

@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.sdk.channel.ToolCallStatus
 import org.unitedsoftware.alexandrite.sdk.channel.TurnEvent
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import org.unitedsoftware.alexandrite.testkit.testTexts
 import java.nio.file.Path
@@ -90,7 +91,7 @@ class ActivityTextTest {
     @Test
     fun `an edit shows the lines its diff added and removed`() {
         val unified = "--- a\n+++ b\n@@ -1,2 +1,1 @@\n-old\n-older\n+new\n"
-        val diff = TurnEvent.Content.Diff(Path.of("/srv/notes.md"), unified)
+        val diff = TurnEvent.Content.Preview(ReviewPreview.Diff(Path.of("/srv/notes.md"), unified))
         val calls = listOf(call(activity = ToolActivity.EDIT, status = ToolCallStatus.COMPLETED, content = diff))
 
         val rendered = renderActivity(texts, null, calls)

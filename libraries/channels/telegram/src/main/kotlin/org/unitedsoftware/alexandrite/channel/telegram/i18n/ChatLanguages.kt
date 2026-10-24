@@ -2,8 +2,8 @@ package org.unitedsoftware.alexandrite.channel.telegram.i18n
 
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
 import kotlin.coroutines.cancellation.CancellationException
 
 /** The language of [chat], null when it has none or these settings cannot tell. */

@@ -220,13 +220,13 @@ internal class TelegramReply(
         }
     }
 
-    override suspend fun abandon(end: ReplyEnd) {
+    override suspend fun abandon(end: ReplyEnd, vouched: Boolean) {
         if (finish("An abandon ($end)") != State.OPEN) return
         showing.withLock {
             try {
                 close()
                 showFrozenActivities()
-                shownIn(bodyMessages(null))
+                if (vouched) shownIn(bodyMessages(null))
             } finally {
                 releaseReply()
             }

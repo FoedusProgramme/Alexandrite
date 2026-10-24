@@ -45,7 +45,7 @@ public interface TurnControl {
 
 /** A tool call that runs on in the background after its turn went on. */
 @Poko
-public class JobStatus(
+public class JobStatus @InternalAlexandriteApi constructor(
     public val id: RunId,
     /** The chat of the turn that made the call. */
     public val chat: ChatAddress,

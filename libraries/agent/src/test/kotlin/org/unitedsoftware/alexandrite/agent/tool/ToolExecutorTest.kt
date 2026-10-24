@@ -162,7 +162,7 @@ class ToolExecutorTest {
                 ended.single()
             }
 
-            assertEquals(listOf(TurnEvent.Content.Diff(preview.path, preview.unified), null), shown)
+            assertEquals(listOf(TurnEvent.Content.Preview(preview), null), shown)
         }
 
     @Test

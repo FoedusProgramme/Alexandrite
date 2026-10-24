@@ -145,25 +145,43 @@ class TelegramReplyTest {
     // Vouching.
 
     @Test
-    fun `a quote is trusted of the final of a vouched reply that the agent vouches for, or of a vouched message`() =
+    fun `a quote is trusted of a final message or a message that the agent vouches for, and of no other`() = runTest {
+        val output = output(streaming = false)
+        val chat = output.address()
+        val shown = mutableListOf<Delivery>()
+        for (final in listOf(markdown("Vouched.").rebuild { vouched(true) }, markdown("Changed since."))) {
+            val reply = output.channel.openReply(ReplyRequest(testTurn(chat = chat), null))
+            shown += reply.complete(final)
+        }
+        for (vouched in listOf(true, false)) {
+            shown +=
+                output.channel.send(
+                    chat,
+                    OutboundMessage.builder("A notice.", MessageKind.NOTICE).vouched(vouched).build(),
+                )
+        }
+
+        val ids = shown.map { assertIs<Delivery.Delivered>(it).messages.single().id.toLong() }
+        assertEquals(listOf(true, false, true, false), ids.map { output.vouched.contains(DIRECT, it) })
+    }
+
+    @Test
+    fun `the previews that an abandoned reply leaves are trusted only when the agent vouches for them as it ends`() =
         runTest {
-            val output = output(streaming = false)
-            val chat = output.address()
-            val shown = mutableListOf<Delivery>()
-            for (final in listOf(markdown("Vouched.").rebuild { vouched(true) }, markdown("Changed since."))) {
-                val reply = output.channel.openReply(ReplyRequest(testTurn(chat = chat), null, vouched = true))
-                shown += reply.complete(final)
-            }
-            for (vouched in listOf(true, false)) {
-                shown +=
-                    output.channel.send(
-                        chat,
-                        OutboundMessage.builder("A notice.", MessageKind.NOTICE).vouched(vouched).build(),
-                    )
+            val output = output()
+            val chats = mapOf(true to DIRECT, false to DIRECT + 1)
+            for ((vouched, chat) in chats) {
+                val reply = output.channel.openReply(ReplyRequest(testTurn(chat = output.address(chat)), null))
+                reply.preview(0, "Partly $vouched.")
+                advanceTimeBy(100)
+                reply.abandon(ReplyEnd.CANCELLED, vouched)
             }
 
-            val ids = shown.map { assertIs<Delivery.Delivered>(it).messages.single().id.toLong() }
-            assertEquals(listOf(true, false, true, false), ids.map { output.vouched.contains(DIRECT, it) })
+            val left = chats.map { (vouched, chat) ->
+                val id = output.api.messages.entries.single { (_, text) -> text == "Partly $vouched." }.key.second
+                output.vouched.contains(chat, id)
+            }
+            assertEquals(listOf(true, false), left)
         }
 
     // Segments.

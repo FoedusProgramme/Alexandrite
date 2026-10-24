@@ -2,16 +2,16 @@ package org.unitedsoftware.alexandrite.automation.schedule
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.automation.common.CronExpression
 import org.unitedsoftware.alexandrite.automation.common.When
 import org.unitedsoftware.alexandrite.automation.common.parseDuration
+import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.textArgument
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
@@ -65,7 +65,13 @@ internal class CreateTool(
     )
 
     /** Has a person see the prompt and the time of a task that a tainted conversation asks for. */
-    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview {
+    override suspend fun review(arguments: JsonObject, context: ToolContext): CallReview = try {
+        reviewed(arguments, context)
+    } catch (e: ToolRefusal) {
+        CallReview.builder().problem(e.message).build()
+    }
+
+    private fun reviewed(arguments: JsonObject, context: ToolContext): CallReview {
         if (refusal(context.turn, "schedule") != null) return CallReview.builder().build()
         if (!context.tainted) return LASTING
         val time = FORMS.firstNotNullOfOrNull { form -> arguments.text(form)?.let { "$form $it" } } ?: "no time"
@@ -76,7 +82,13 @@ internal class CreateTool(
         }
     }
 
-    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
+        executed(arguments, context)
+    } catch (e: ToolRefusal) {
+        problem(e.message)
+    }
+
+    private suspend fun executed(arguments: JsonObject, context: ToolContext): ToolResult {
         val turn = context.turn
         refusal(turn, "schedule")?.let { return problem(it) }
         val prompt = arguments.text("prompt")?.trim().orEmpty()
@@ -196,7 +208,13 @@ internal class CancelTool(control: Lazy<ScheduleControl>) : Tool {
         titleArguments = listOf("id"),
     )
 
-    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult {
+    override suspend fun execute(arguments: JsonObject, context: ToolContext): ToolResult = try {
+        executed(arguments, context)
+    } catch (e: ToolRefusal) {
+        problem(e.message)
+    }
+
+    private suspend fun executed(arguments: JsonObject, context: ToolContext): ToolResult {
         val turn = context.turn
         refusal(turn, "cancel")?.let { return problem(it) }
         val id = arguments.text("id")?.trim()?.lowercase().orEmpty()
@@ -232,11 +250,8 @@ private const val TAINTED = "the conversation took in untrusted content, and a s
 
 private fun problem(text: String): ToolResult = ToolResult(text, isError = true)
 
-private fun JsonObject.text(name: String): String? = when (val value = get(name)) {
-    null, JsonNull -> null
-    is JsonPrimitive -> value.contentOrNull?.takeIf { it.isNotBlank() }
-    else -> value.toString()
-}
+/** The argument [name] as text that is not blank, null when it is not given or blank. */
+private fun JsonObject.text(name: String): String? = textArgument(name)?.takeIf { it.isNotBlank() }
 
 /** A JSON Schema object of string [properties] by name and description, of which [required] are required. */
 private fun schema(required: List<String>, vararg properties: Pair<String, String>): JsonObject = buildJsonObject {

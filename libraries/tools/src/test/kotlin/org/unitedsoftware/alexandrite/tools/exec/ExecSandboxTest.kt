@@ -61,7 +61,7 @@ class ExecSandboxTest {
         )
 
         val contained = assertNotNull(review.contained)
-        assertEquals("seatbelt", contained.environment)
+        assertEquals("seatbelt", contained.environmentName)
         assertEquals(listOf(fs.workspace, sub), contained.boundary.writable)
         assertEquals(listOf("example.com", "127.0.0.1:8080"), contained.hosts)
         assertNull(review.problem)

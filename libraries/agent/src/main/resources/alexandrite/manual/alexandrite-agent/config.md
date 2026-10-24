@@ -8,7 +8,8 @@ One JSON file, `alexandrite.json`, configures the host and every plugin, each pl
 `agent`, `tools`, `mcp`, `channels.telegram`, `providers.<provider>` (such as `providers.deepseek`),
 `automations.schedule`, `automations.heartbeat`, and `plugins.<id>` for a plugin that is not built in. A plugin's
 `enabled` key, such as `mcp.enabled`, switches it off with `false`. A key is written as its path of dot-separated
-names, such as `agent.agents.main.models`.
+names, such as `agent.agents.main.models`. A name that holds a dot, such as a model id, goes in brackets and quotes:
+`providers.openai-responses.endpoints.main.models["gpt-6.1-sol"].contextWindow`.
 
 ## Reading and changing it
 
@@ -42,6 +43,8 @@ Models are reached through endpoints, configured at `providers.<provider>.endpoi
 `headers`, `models`). A model is named `<endpoint>/<model>` everywhere, such as `deepseek/deepseek-chat`.
 `providers.<provider>.endpoints.<endpoint>.models.<model>` may set `contextWindow`, `maxOutputTokens` and `price` (US
 dollars per million tokens: `input`, `output`, `cached`).
+A configured `contextWindow` or `maxOutputTokens` wins over the one the endpoint lists, and a model whose window neither
+gives has its conversations compacted within an assumed 128000 tokens, which the log and `alexandrite doctor` warn of.
 
 ## The agent plugin's keys
 
@@ -69,13 +72,19 @@ Per agent, under `agent.agents.<id>`:
 - `workspace`: its own directory, by default `<data dir>/workspaces/<id>`.
 - `agent.agents.<id>.tools.allow` and `agent.agents.<id>.tools.deny` (globs over tool names such as `fs.*`, deny
   winning) and `agent.agents.<id>.tools.forGuests` (the tools a guest's turn may call).
-- `permission`: `mode`, `allow`, `deny`, `trust`, `judge`, `judgeTimeoutSeconds`, `taintedNetworkReads`.
+- `permission`: `mode`, `allow`, `deny`, `trust`, `judgeTimeoutSeconds`, `taintedNetworkReads`.
+- `roles`: the models of the agent's side work, each `<endpoint>/<model>`: `judge` (the agent's own model when unset),
+  `summary` (the turn's model), `web` (the judge), `image`, `audio`, `video`, `file` (the readers that `media` may
+  delegate to, none by default).
+- `media`: how a turn takes media of each kind, `image`, `audio`, `video`, `file`, each `auto` (the turn's model where
+  it takes the kind, else the kind's reader), `native` (the turn's model only), `delegate` (always the reader, which
+  `roles` must then set) or `off` (saved, never shown).
 - `sandbox`: `type` (`host`, `auto`, `seatbelt`, `bubblewrap`), `allowWrite`, `denyRead`, `protect`,
   `network.allowedDomains`, `autoAllow`, `strict` (see alexandrite-tools/exec).
 - `budget.daily` and `budget.monthly`, each `tokens` and/or `money` (see alexandrite-agent/usage-and-budgets);
   `maxRounds` and `maxTurnTokens` bound one turn.
 - `toolTimeoutSeconds` (1800) and `foregroundSeconds` (300, after which a call moves to the background).
 - `compaction`: `trigger` (0.95 of the context window), `target` (0.20), `clearAt` (0.60), `keepTurns` (2),
-  `keepToolRounds` (5), `maxSummaryTokens`, `model`.
+  `keepToolRounds` (5), `maxSummaryTokens`; its summary is written by `roles.summary`.
 
 An agent with no `channels` is a profile for sub-agents (see alexandrite-agent/profiles-and-delegation).

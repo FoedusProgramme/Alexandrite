@@ -386,7 +386,7 @@ class MessagesRequestTest {
             "${blocks[1]["source"]}",
         )
         assertEquals("[image old.bmp not shown: the model cannot take it]", blocks[2].text("text"))
-        assertEquals(listOf("unsupported_media"), seen.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_media"), seen.warnings.map { it.kind.id })
         assertEquals(2, blind.warnings.size)
     }
 
@@ -402,7 +402,7 @@ class MessagesRequestTest {
         val max = effort(ReasoningEffort.MAX)
         assertNull(max.body["thinking"])
         assertNull(max.body["output_config"])
-        assertEquals(listOf("unsupported_option"), max.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_option"), max.warnings.map { it.kind.id })
         assertNull(body(request(listOf(user("Hi"))))["thinking"])
     }
 
@@ -450,7 +450,7 @@ class MessagesRequestTest {
         assertEquals("""{"type":"none"}""", "${parallel(false, ToolChoice.None).body["tool_choice"]}")
         assertNull(parallel(true).body["tool_choice"])
         val single = parallel(true, info = info.toBuilder().parallelToolCalls(false).build())
-        assertEquals(listOf("unsupported_option"), single.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_option"), single.warnings.map { it.kind.id })
     }
 
     @Test
@@ -486,7 +486,7 @@ class MessagesRequestTest {
         assertEquals("4096", asked(null, unknown).body.text("max_tokens"))
         val clamped = asked(100000)
         assertEquals("64000", clamped.body.text("max_tokens"))
-        assertEquals(listOf("unsupported_option"), clamped.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_option"), clamped.warnings.map { it.kind.id })
     }
 
     @Test

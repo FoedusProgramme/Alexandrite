@@ -18,6 +18,7 @@ import org.unitedsoftware.alexandrite.automation.common.TimeSource
 import org.unitedsoftware.alexandrite.automation.common.Trigger
 import org.unitedsoftware.alexandrite.automation.common.When
 import org.unitedsoftware.alexandrite.automation.common.restarting
+import org.unitedsoftware.alexandrite.sdk.chat.AgentChatKey
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -30,6 +31,7 @@ import org.unitedsoftware.alexandrite.sdk.turn.ReplyRoute
 import org.unitedsoftware.alexandrite.sdk.turn.TurnInitiator
 import org.unitedsoftware.alexandrite.sdk.turn.TurnOutcome
 import org.unitedsoftware.alexandrite.sdk.turn.TurnTicket
+import java.time.Clock
 import java.time.Instant
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.minutes
@@ -46,9 +48,10 @@ internal class Scheduling(
     private val initiator: TurnInitiator,
     private val notices: Notices,
     private val scope: PluginScope,
+    clock: Clock,
     time: TimeSource?,
 ) : Lifecycle {
-    val time: TimeSource = time ?: TimeSource.system
+    val time: TimeSource = time ?: TimeSource.of(clock)
 
     private val closing = MutableStateFlow(false)
     private val trigger = Trigger<String> { task, occurrence -> fire(task, occurrence) }
@@ -103,8 +106,8 @@ internal class Scheduling(
             logger.warn("Scheduled task {} came due without its record: skipped", task.id)
             return Fired.DONE
         }
-        val turn = InitiatedTurn.builder(record.chat, TurnKind.REMINDER, framing(task.id, record, occurrence))
-            .agent(record.key.agent)
+        val prompt = framing(task.id, record, occurrence)
+        val turn = InitiatedTurn.builder(AgentChatKey(record.key.agent, record.chat), TurnKind.REMINDER, prompt)
             .route(ReplyRoute.ToChat(record.chat))
             .trust(if (record.mandate == null) Trust.UNTRUSTED else Trust.TRUSTED)
             .mandate(record.mandate)
@@ -122,6 +125,11 @@ internal class Scheduling(
                     }
                     if (closing.value || ++tries > OPEN_TRIES) return Fired.REPLAY
                     withTimeoutOrNull(1.seconds) { closing.first { it } }
+                }
+
+                else -> {
+                    logger.warn("Scheduled task {} was not taken in, as {}: skipped", task.id, admission)
+                    return Fired.DONE
                 }
             }
         }

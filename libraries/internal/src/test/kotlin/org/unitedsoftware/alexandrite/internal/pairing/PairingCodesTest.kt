@@ -205,6 +205,14 @@ class PairingCodesTest {
     }
 
     @Test
+    fun `a text holds a code whatever separates its characters`() {
+        for (text in listOf("my code is 1a0z-9kmx.", "1A0Z\u20139KMX", "1A0Z_9KMX", "1a0z\n9kmx")) {
+            assertTrue(holdsPairingCode(text, "1A0Z-9KMX"), text)
+        }
+        assertEquals(false, holdsPairingCode("1A0Z-9KMY", "1A0Z-9KMX"))
+    }
+
+    @Test
     fun `beyond the capacity the oldest code is dropped`() {
         val small = PairingCodes<String, String>(clock, capacity = 3)
         val issued = (1..4).map { small.issue(LINK, "owner $it", "offer $it") }

@@ -3,8 +3,6 @@ package org.unitedsoftware.alexandrite.app
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.internal.path.writeAtomically
 import java.io.IOException
@@ -163,11 +161,4 @@ internal fun availableRelease(cli: Cli): String? {
 internal fun isDevelopmentBuild(version: String): Boolean = version.endsWith("-SNAPSHOT")
 
 /** Whether the config file leaves `app.updates.check` on, true when it cannot be read. */
-private fun updatesChecked(cli: Cli): Boolean {
-    val text = try {
-        Files.readString(cli.locations.configFile)
-    } catch (e: IOException) {
-        return true
-    }
-    return (writtenConfig(text)?.at("app.updates.check") as? JsonPrimitive)?.booleanOrNull != false
-}
+private fun updatesChecked(cli: Cli): Boolean = appConfig(cli)?.updates?.check ?: true

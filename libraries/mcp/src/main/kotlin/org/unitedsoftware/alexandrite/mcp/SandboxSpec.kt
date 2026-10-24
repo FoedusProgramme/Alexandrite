@@ -22,15 +22,7 @@ internal class SandboxSpec(
     val allowed: List<HostPattern>,
 ) {
     /** [boundary] with its network through the proxy on the loopback [port]. */
-    fun through(port: Int): Boundary = Boundary(
-        boundary.writable,
-        boundary.writeDenied,
-        boundary.protectedNames,
-        boundary.readDenied,
-        boundary.readable,
-        NetworkAccess.Proxy(port),
-        boundary.environment + proxyVariables(port),
-    )
+    fun through(port: Int): Boundary = boundary.withNetwork(NetworkAccess.Proxy(port), proxyVariables(port))
 }
 
 /**
@@ -50,13 +42,11 @@ internal fun serverSandbox(
     config.network.allowedDomains.firstOrNull { HostPattern.parse(it) == null }?.let {
         throw ConfigException(
             "$key.network.allowedDomains",
-            "'$it' is no host: write a name such as example.com or *.example.com, or an address such as 127.0.0.1, " +
-                "each with an optional :port.",
+            HostPattern.notAHost(it),
         )
     }
     val protect = Protect.of(config.protect)
-    val own = listOfNotNull(paths.configFile?.parent, paths.configTarget, paths.configBackup) +
-        listOf(paths.dataRoot, paths.pluginDataRoot, paths.cacheRoot) + paths.protected
+    val own = paths.alexandritePlaces
     val writable = listOfNotNull(cwd) + config.allowWrite.map { resolved(paths, "$key.allowWrite", it) }
     val boundary = Boundary(
         writable = writable,
@@ -70,12 +60,12 @@ internal fun serverSandbox(
     return SandboxSpec(environment, boundary, config.network.allowedDomains.mapNotNull(HostPattern::parse))
 }
 
-/** The environment that [type] names, null for none or for `auto` on a platform without one. */
+/** The environment that [type] names, null for none or for `auto` on a host without one. */
 private fun environment(key: String, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? =
     try {
         selectEnvironment(type, environments, { it.name }, { it.available() }) { why ->
             logger.warn(
-                "The MCP server at {} asks for the platform's sandbox, but {}: it runs on the host",
+                "The MCP server at {} asks for a sandbox, but {}: it runs on the host",
                 key.removeSuffix(".sandbox"),
                 why,
             )

@@ -5,8 +5,17 @@ import org.unitedsoftware.alexandrite.agent.directory.Inbox
 import org.unitedsoftware.alexandrite.agent.directory.Saving
 import org.unitedsoftware.alexandrite.agent.directory.generatedName
 import org.unitedsoftware.alexandrite.agent.directory.inboxName
+import org.unitedsoftware.alexandrite.agent.media.MediaPlan
+import org.unitedsoftware.alexandrite.agent.media.MediaReadException
+import org.unitedsoftware.alexandrite.agent.media.MediaReader
+import org.unitedsoftware.alexandrite.agent.media.MediaReading
+import org.unitedsoftware.alexandrite.agent.media.MediaRoute
+import org.unitedsoftware.alexandrite.agent.prompt.Escaper
 import org.unitedsoftware.alexandrite.agent.prompt.NotedMedia
 import org.unitedsoftware.alexandrite.agent.prompt.mediaNote
+import org.unitedsoftware.alexandrite.agent.prompt.oneLine
+import org.unitedsoftware.alexandrite.agent.prompt.shortened
+import org.unitedsoftware.alexandrite.internal.media.normalizedImage
 import org.unitedsoftware.alexandrite.sdk.channel.IncomingMessage
 import org.unitedsoftware.alexandrite.sdk.channel.MediaAttachment
 import org.unitedsoftware.alexandrite.sdk.chat.TurnId
@@ -17,6 +26,8 @@ import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaId
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.transcript.MediaPart
+import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
+import org.unitedsoftware.alexandrite.sdk.transcript.Part
 import org.unitedsoftware.alexandrite.sdk.transcript.StoredMedia
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutputPart
@@ -27,41 +38,49 @@ import org.unitedsoftware.alexandrite.sdk.transcript.UserPart
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * The media of the turn [turn]: its messages' attachments saved into the [inbox], images put into [store] for a model
- * that views them, and the bytes its requests carry.
+ * The media of the turn [turn]: its messages' attachments saved into the [inbox], put into [store] for a model that
+ * takes them natively or [reader] for one that does not, and the bytes its requests carry.
  */
 internal class TurnMedia(
     private val turn: TurnId,
     private val store: MediaStore,
     private val maxBytes: Long,
     private val inbox: Inbox,
+    private val reader: MediaReader,
 ) {
     /** The bytes of the media the turn put or read, null where the store has none. */
     private val loaded = HashMap<MediaId, InlineMedia?>()
 
     /**
-     * The images of [message] that the model is shown where it views [images], followed by the note that names where
-     * each attachment was saved in the inbox of [info] or why it was not.
+     * The parts that carry [message]'s attachments as [plan] routes each kind, followed by the note that names where
+     * each was saved in the inbox of [info] or why it was not.
      */
-    suspend fun put(info: TurnInfo, message: IncomingMessage, images: Boolean): List<UserPart> {
+    suspend fun put(info: TurnInfo, message: IncomingMessage, plan: MediaPlan): List<UserPart> {
         val parts = mutableListOf<UserPart>()
         val noted = message.media.mapIndexed { index, attachment ->
             val generated = generatedName(attachment.kind, attachment.mediaType, message.ref.id, index + 1)
-            put(info, attachment, generated, images, parts)
+            put(info, attachment, generated, plan, parts)
         }
         if (noted.isNotEmpty()) parts += mediaNote(noted)
         return parts
     }
 
-    /** [result] with its inline media put into the store, or a note where a part is left out. */
-    suspend fun stored(result: ToolResultEntry): ToolResultEntry {
+    /**
+     * [result] with its inline media put into the store, read now for [turn] where [plan] routes the kind to a reader.
+     */
+    suspend fun stored(turn: TurnInfo, result: ToolResultEntry, plan: MediaPlan): ToolResultEntry {
         val small = result.withContent { part ->
-            if ((part.inlineBytes()?.size ?: 0) > maxBytes) leftOut(part, "larger than $maxBytes bytes") else part
+            val image = (part as? MediaPart)?.takeIf { it.kind == MediaKind.IMAGE && it.source is InlineMedia }
+            when {
+                (part.inlineBytes()?.size ?: 0) > maxBytes -> leftOut(part, "larger than $maxBytes bytes")
+                image != null -> normalized(image) ?: leftOut(part, "the image could not be decoded")
+                else -> part
+            }
         }
         val stored = try {
             store.storeInline(small) as ToolResultEntry
         } catch (e: IllegalArgumentException) {
-            logger.debug("Turn {} cannot store the media of a tool result", turn, e)
+            logger.debug("Turn {} cannot store the media of a tool result", this.turn, e)
             return small.withContent { if (it.inlineBytes() != null) leftOut(it, "the store refused it") else it }
         }
         for ((part, put) in small.content.zip(stored.content)) {
@@ -69,19 +88,24 @@ internal class TurnMedia(
             val id = ((put as? MediaPart)?.source as? StoredMedia)?.id ?: continue
             loaded[id] = bytes
         }
+        for (part in stored.content) {
+            val media = part as? MediaPart ?: continue
+            val route = plan.route(media.kind) as? MediaRoute.Read ?: continue
+            warm(turn, media, route.model)
+        }
         return stored
     }
 
-    /** [entries] with the stored media they refer to carried inline. */
-    suspend fun inline(entries: List<TranscriptEntry>): List<TranscriptEntry> = entries.map { entry ->
+    /** [entries] with the stored media they refer to carried as [plan] routes each kind. */
+    suspend fun inline(entries: List<TranscriptEntry>, plan: MediaPlan): List<TranscriptEntry> = entries.map { entry ->
         when (entry) {
-            is UserEntry -> UserEntry(entry.record, entry.parts.map { userPart(it) }, entry.origin)
+            is UserEntry -> UserEntry(entry.record, entry.parts.map { userPart(it, plan) }, entry.origin)
 
             is ToolResultEntry -> ToolResultEntry(
                 entry.record,
                 entry.callId,
                 entry.toolName,
-                entry.content.map { outputPart(it) },
+                entry.content.map { outputPart(it, plan) },
                 entry.outcome,
             )
 
@@ -90,14 +114,14 @@ internal class TurnMedia(
     }
 
     /**
-     * Saves [attachment] into the inbox of [info] as its own name or else [generated], and adds the part that shows it
-     * to [parts] when it is an image the model views where it views [images].
+     * Saves [attachment] into the inbox of [info] as its own name or else [generated], and adds the part that [plan]
+     * carries to the model for its kind to [parts].
      */
     private suspend fun put(
         info: TurnInfo,
         attachment: MediaAttachment,
         generated: String,
-        images: Boolean,
+        plan: MediaPlan,
         parts: MutableList<UserPart>,
     ): NotedMedia {
         val content = attachment.content ?: return notSaved(attachment, checkNotNull(attachment.unavailable))
@@ -117,30 +141,68 @@ internal class TurnMedia(
         refusal?.let {
             logger.warn("Turn {} did not save an attachment of type {}: {}", turn, attachment.mediaType, it)
         }
-        val view = when {
-            attachment.kind != MediaKind.IMAGE -> null
-            !images -> NotedMedia.View.NOT_VIEWED
-            attachment.mediaType.lowercase() !in VIEWED_IMAGES -> NotedMedia.View.UNVIEWABLE
-            else -> shown(attachment, bytes, parts)
-        }
+        val view = view(info, attachment, bytes, plan, parts)
         return NotedMedia(attachment, bytes.size.toLong(), (saving as? Saving.Saved)?.path, refusal, view)
     }
 
-    /** Adds the part that shows [attachment] to [parts], and says how it went. */
+    /** How the model takes [attachment] as [plan] routes its kind, adding the part it is shown to [parts]. */
+    private suspend fun view(
+        info: TurnInfo,
+        attachment: MediaAttachment,
+        bytes: ByteArray,
+        plan: MediaPlan,
+        parts: MutableList<UserPart>,
+    ): NotedMedia.View = when (val route = plan.route(attachment.kind)) {
+        is MediaRoute.Saved -> NotedMedia.View.Saved(route.reason)
+
+        MediaRoute.Native -> shown(attachment, bytes, parts)
+
+        is MediaRoute.Read -> {
+            val view = shown(attachment, bytes, parts)
+            if (view != NotedMedia.View.Shown) {
+                view
+            } else {
+                try {
+                    reader.read(info, parts.last() as MediaPart, route.model)
+                    NotedMedia.View.Read(route.model)
+                } catch (e: MediaReadException) {
+                    NotedMedia.View.Saved(e.reason)
+                }
+            }
+        }
+    }
+
+    /**
+     * Adds the part that carries [attachment] inline to [parts], storing its bytes, an image's normalized so that no
+     * model refuses its type or size.
+     */
     private suspend fun shown(
         attachment: MediaAttachment,
         bytes: ByteArray,
         parts: MutableList<UserPart>,
     ): NotedMedia.View {
+        val part = with(attachment) { MediaPart(kind, mediaType, InlineMedia(bytes), name, width, height) }
+        val shown = if (part.kind == MediaKind.IMAGE) normalized(part) else part
+        if (shown == null) return NotedMedia.View.Saved("the image could not be decoded")
+        val carried = (shown.source as InlineMedia).bytes()
         val stored = try {
-            store.put(bytes, attachment.kind, attachment.mediaType)
+            store.put(carried, shown.kind, shown.mediaType)
         } catch (e: IllegalArgumentException) {
             logger.debug("Turn {} cannot store an attachment: {}", turn, e.toString())
-            return NotedMedia.View.NOT_STORED
+            return NotedMedia.View.Saved("it could not be stored")
         }
-        loaded[stored.id] = InlineMedia(bytes)
-        with(attachment) { parts += MediaPart(kind, mediaType, stored, name, width, height) }
-        return NotedMedia.View.SHOWN
+        loaded[stored.id] = InlineMedia(carried)
+        parts += with(shown) { MediaPart(kind, mediaType, stored, name, width, height) }
+        return NotedMedia.View.Shown
+    }
+
+    /** Reads [part] with [model] now, to warm the cache; a failure is only logged. */
+    private suspend fun warm(turn: TurnInfo, part: MediaPart, model: ModelRef) {
+        try {
+            reader.read(turn, part, model)
+        } catch (e: MediaReadException) {
+            logger.debug("Turn {} did not warm the reading of a tool result's {}: {}", this.turn, part.kind, e)
+        }
     }
 
     private fun notSaved(attachment: MediaAttachment, why: String, size: Long? = attachment.size): NotedMedia {
@@ -148,11 +210,24 @@ internal class TurnMedia(
         return NotedMedia(attachment, size, null, why, null)
     }
 
-    private suspend fun userPart(part: UserPart): UserPart =
-        if (part is MediaPart) inlined(part) ?: missing(part) else part
+    private suspend fun userPart(part: UserPart, plan: MediaPlan): UserPart =
+        if (part is MediaPart) rendered(part, plan) as UserPart else part
 
-    private suspend fun outputPart(part: ToolOutputPart): ToolOutputPart =
-        if (part is MediaPart) inlined(part) ?: missing(part) else part
+    private suspend fun outputPart(part: ToolOutputPart, plan: MediaPlan): ToolOutputPart =
+        if (part is MediaPart) rendered(part, plan) as ToolOutputPart else part
+
+    /** [part] as [plan] routes its kind: its bytes inline, its cached reading, or a marker naming why not. */
+    private suspend fun rendered(part: MediaPart, plan: MediaPlan): Part = when (val route = plan.route(part.kind)) {
+        MediaRoute.Native -> inlined(part) ?: missing(part)
+        is MediaRoute.Read -> reading(part, route.model) ?: TextPart(notReadMarker(part))
+        is MediaRoute.Saved -> TextPart(savedMarker(part, route.reason))
+    }
+
+    /** The cached reading of [part] by [model], framed as a context block; null where the cache has none. */
+    private suspend fun reading(part: MediaPart, model: ModelRef): TextPart? {
+        val found = reader.cached(part, model) ?: return null
+        return TextPart(readingText(part, found))
+    }
 
     /** [part] with its stored bytes inline, null where the store has none. */
     private suspend fun inlined(part: MediaPart): MediaPart? {
@@ -180,12 +255,36 @@ internal class TurnMedia(
     }
 }
 
+/** [part]'s [reading], framed as a context block like the others. */
+private fun readingText(part: MediaPart, reading: MediaReading): String = buildString {
+    appendLine("[alexandrite:media-reading]")
+    appendLine("${mediaLabel(part)}, as ${reading.model} read it:")
+    appendLine(Escaper.HEADERS.text(reading.text))
+    append("[/alexandrite:media-reading]")
+}
+
+/** What the request reads in place of [part], which no cache entry gives a reading of for this turn's model. */
+private fun notReadMarker(part: MediaPart): String = "(${mediaLabel(part)}: not read for this model)"
+
+/** What the request reads in place of [part], whose route only saves it for [reason]. */
+private fun savedMarker(part: MediaPart, reason: String): String = "(${mediaLabel(part)} not shown: ${oneLine(reason)})"
+
+private fun mediaLabel(part: MediaPart): String = buildString {
+    append(part.kind)
+    part.name?.let { append(" \"").append(shortened(oneLine(it))).append('"') }
+}
+
 private fun ToolOutputPart.inlineBytes(): InlineMedia? = (this as? MediaPart)?.source as? InlineMedia
 
 private fun ToolResultEntry.withContent(part: (ToolOutputPart) -> ToolOutputPart): ToolResultEntry =
     ToolResultEntry(record, callId, toolName, content.map(part), outcome)
 
-/** The types of image that the agent shows a model that views images. */
-private val VIEWED_IMAGES = setOf("image/jpeg", "image/png", "image/gif", "image/webp")
-
 private val logger = LoggerFactory.getLogger(TurnMedia::class.java)
+
+/** The inline image [part] normalized to a type and size every model that views images takes, null if undecodable. */
+private fun normalized(part: MediaPart): MediaPart? {
+    val image = normalizedImage((part.source as InlineMedia).bytes()) ?: return null
+    val width = image.width.takeIf { it > 0 }
+    val height = image.height.takeIf { it > 0 }
+    return MediaPart(MediaKind.IMAGE, image.mediaType, InlineMedia(image.bytes), part.name, width, height)
+}

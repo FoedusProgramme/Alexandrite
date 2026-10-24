@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.agent.control.Granter
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.i18n.TextKeys
 import org.unitedsoftware.alexandrite.agent.permission.canonical
+import org.unitedsoftware.alexandrite.agent.permission.denial
 import org.unitedsoftware.alexandrite.agent.project.isRepository
 import org.unitedsoftware.alexandrite.agent.who
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
@@ -89,8 +90,8 @@ internal class FolderTrust(settings: AgentSettings, paths: HostPaths, private va
 
             is FloorCheck.Ask -> check.canonical
 
-            is FloorCheck.Denied ->
-                throw Refused(TextKeys.FOLDER_PROTECTED, "folder" to folder, "reason" to check.reason)
+            else ->
+                throw Refused(TextKeys.FOLDER_PROTECTED, "folder" to folder, "reason" to check.denial)
         }
         if (!Files.isDirectory(canonical)) throw Refused(TextKeys.FOLDER_MISSING, "folder" to folder)
         writing.withLock {
@@ -209,9 +210,9 @@ private fun configured(entries: List<String>, paths: HostPaths, floor: HardFloor
 
         is FloorCheck.Ask -> check.canonical
 
-        is FloorCheck.Denied -> throw ConfigException(
+        else -> throw ConfigException(
             "agent.$KEY",
-            "the trusted folder $path is a protected place (${check.reason}), which no file tool reaches",
+            "the trusted folder $path is a protected place (${check.denial}), which no file tool reaches",
         )
     }
 }

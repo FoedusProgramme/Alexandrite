@@ -147,7 +147,7 @@ class ChatResponseTest {
         assertEquals("/v1/chat/completions", recorded.path)
         val started = events.first() as ModelEvent.ResponseStarted
         assertEquals("resp-1" to "chat-model", started.responseId to started.model)
-        assertEquals(listOf("unsupported_option"), started.warnings.map { it.kind })
+        assertEquals(listOf("unsupported_option"), started.warnings.map { it.kind.id })
     }
 
     @Test

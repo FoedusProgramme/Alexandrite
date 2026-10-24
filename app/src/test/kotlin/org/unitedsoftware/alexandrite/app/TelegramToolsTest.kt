@@ -57,7 +57,8 @@ class TelegramToolsTest {
               "name": "Coder",
               "model": "scripted/test-model",
               "channels": {"telegram:work": {}},
-              "permission": {${mode?.let { "\"mode\": \"$it\", " }.orEmpty()}"judge": "scripted/$FAST_MODEL"},
+              "permission": {${mode?.let { "\"mode\": \"$it\"" }.orEmpty()}},
+              "roles": {"judge": "scripted/$FAST_MODEL"},
               "tools": {"forGuests": ["telegram.react", "telegram.sticker", "telegram.pin"]}
             }
           }

@@ -45,8 +45,7 @@ public fun messagesEndpoint(
         discover = discover,
         turnContext = turnContext,
         timeouts = FIXTURE_TIMEOUTS,
-        authHeader = MessagesEndpoint.AUTH_HEADER,
-        providerHeaders = MessagesEndpoint.PROVIDER_HEADERS,
+        wire = MessagesEndpoint.WIRE,
     )
     return MessagesEndpoint(EndpointId("test"), settings, flavor, messages)
 }

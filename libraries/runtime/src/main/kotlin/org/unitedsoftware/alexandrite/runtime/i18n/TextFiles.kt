@@ -3,13 +3,9 @@ package org.unitedsoftware.alexandrite.runtime.i18n
 import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import java.io.IOException
 import java.io.InputStreamReader
-import java.net.JarURLConnection
 import java.net.URL
 import java.nio.charset.CodingErrorAction
-import java.nio.file.Files
-import java.nio.file.Path
 import java.util.Properties
-import kotlin.io.path.isRegularFile
 
 /** The resource directory of the texts of [plugin]. */
 @InternalAlexandriteApi
@@ -43,37 +39,6 @@ public fun readTexts(bytes: ByteArray): Map<String, String> {
 @InternalAlexandriteApi
 public fun placeholderNames(text: String): Set<String> =
     PLACEHOLDER.findAll(text).mapTo(sortedSetOf()) { it.groupValues[1] }
-
-/**
- * The paths, relative to [directory], of the files below [directory] in the class path entry (a directory or a jar)
- * that [url], the resource [name], comes from.
- */
-@InternalAlexandriteApi
-public fun resourceFiles(url: URL, name: String, directory: String): List<String> = when (url.protocol) {
-    "file" -> {
-        val entry = generateSequence(Path.of(url.toURI())) { it.parent }.elementAt(name.trim('/').split('/').size)
-        val base = entry.resolve(directory)
-        if (!Files.isDirectory(base)) {
-            emptyList()
-        } else {
-            Files.walk(base).use { paths ->
-                paths.filter { it.isRegularFile() }.map { base.relativize(it).joinToString("/") }.toList()
-            }
-        }
-    }
-
-    "jar" -> {
-        val connection = (url.openConnection() as JarURLConnection).apply { useCaches = false }
-        connection.jarFile.use { jar ->
-            jar.entries().asSequence().filterNot { it.isDirectory }.map { it.name }
-                .filter { it.startsWith("${directory.trim('/')}/") }
-                .map { it.removePrefix("${directory.trim('/')}/") }
-                .toList()
-        }
-    }
-
-    else -> throw IOException("Cannot list the resources beside $url: only directories and jars can be listed.")
-}.sorted()
 
 @InternalAlexandriteApi
 public const val TEXTS_SUFFIX: String = ".properties"

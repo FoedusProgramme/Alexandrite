@@ -23,8 +23,7 @@ class EndpointConfigTest {
         baseUrl = null,
         keyRequired = true,
         turnContext = TurnContextSetting.BAKE,
-        authHeader = "x-api-key",
-        providerHeaders = setOf("x-version"),
+        wire = WireHeaders("x-api-key", setOf("x-version")),
     )
 
     private object Plain : EndpointConfigSerializer<NoOptions>(
@@ -65,7 +64,7 @@ class EndpointConfigTest {
             listOf(1L, 2L, 3L),
             listOf(timeouts.connectSeconds, timeouts.firstByteSeconds, timeouts.idleSeconds),
         )
-        assertEquals("x-api-key" to setOf("x-version"), settings.authHeader to settings.providerHeaders)
+        assertEquals(WireHeaders("x-api-key", setOf("x-version")), settings.wire)
         assertEquals(7 to "spicy", config.options.level to config.options.flavor)
     }
 

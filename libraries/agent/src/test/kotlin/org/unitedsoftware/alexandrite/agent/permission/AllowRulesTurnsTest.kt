@@ -75,8 +75,11 @@ class AllowRulesTurnsTest {
             run("make", "clean")
 
             val (first, second) = channel().approvals
-            assertEquals(test, first.always)
-            assertEquals(RuleSubject("command.exec", listOf("make", "clean"), "make clean"), second.always)
+            assertEquals(test, first.alwaysRules.firstOrNull())
+            assertEquals(
+                RuleSubject("command.exec", listOf("make", "clean"), "make clean"),
+                second.alwaysRules.firstOrNull(),
+            )
             assertEquals(
                 listOf(
                     ToolOutcome.Succeeded to "Ran make test.",
@@ -191,7 +194,10 @@ class AllowRulesTurnsTest {
             run("make", "test", "${ASKED}notes")
 
             val asked = channel().approvals[1]
-            assertEquals(listOf(null, emptyList<RuleSubject>()), listOf(asked.always, asked.alwaysRules))
+            assertEquals(
+                listOf(null, emptyList<RuleSubject>()),
+                listOf(asked.alwaysRules.firstOrNull(), asked.alwaysRules),
+            )
             assertEquals("${ASKED}notes is in a place the floor asks about", asked.reason)
             assertEquals(listOf(ClearanceKind.HUMAN, ClearanceKind.HUMAN), exec.cleared.toList())
             assertEquals(1, get<PermissionRules>().allowRules(channel().chat()).size)

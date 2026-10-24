@@ -1,7 +1,6 @@
 package org.unitedsoftware.alexandrite.store.sqlite
 
 import org.junit.jupiter.api.io.TempDir
-import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals

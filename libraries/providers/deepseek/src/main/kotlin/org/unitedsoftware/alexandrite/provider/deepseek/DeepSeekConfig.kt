@@ -5,24 +5,20 @@ import org.unitedsoftware.alexandrite.provider.common.EndpointConfig
 import org.unitedsoftware.alexandrite.provider.common.EndpointConfigSerializer
 import org.unitedsoftware.alexandrite.provider.common.NoOptions
 import org.unitedsoftware.alexandrite.provider.common.TurnContextSetting
-import org.unitedsoftware.alexandrite.provider.common.requireEndpointIds
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
+import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
 
 @ConfigSection
 @Serializable
 internal class DeepSeekConfig(
     /** The endpoints by their ids. */
     val endpoints: Map<
-        String,
+        EndpointId,
         @Serializable(with = EndpointSerializer::class)
         EndpointConfig<NoOptions>,
         > =
         emptyMap(),
-) {
-    init {
-        requireEndpointIds(endpoints.keys)
-    }
-}
+)
 
 internal object EndpointSerializer : EndpointConfigSerializer<NoOptions>(
     "org.unitedsoftware.alexandrite.provider.deepseek.EndpointConfig",

@@ -64,11 +64,14 @@ public enum class Capacity {
 }
 
 /** What the agent made of a submission. */
-public sealed interface Admission {
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface Admission {
     /** Queued as the turn of [ticket]. */
+    @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Accepted(public val ticket: TurnTicket) : Admission
 
+    @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Refused(
         public val reason: RefusalReason,

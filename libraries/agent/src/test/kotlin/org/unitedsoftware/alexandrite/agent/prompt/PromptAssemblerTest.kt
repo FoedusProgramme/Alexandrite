@@ -2,14 +2,25 @@ package org.unitedsoftware.alexandrite.agent.prompt
 
 import org.junit.jupiter.api.io.TempDir
 import org.unitedsoftware.alexandrite.agent.agentHarness
+import org.unitedsoftware.alexandrite.agent.delivery.DELIVERY_SECTION
+import org.unitedsoftware.alexandrite.agent.directory.CONVERSATION_DIRECTORY_SECTION
 import org.unitedsoftware.alexandrite.agent.directory.ConversationDirectories
+import org.unitedsoftware.alexandrite.agent.directory.conversationDirectorySection
 import org.unitedsoftware.alexandrite.agent.execute
+import org.unitedsoftware.alexandrite.agent.media.MEDIA_SECTION
+import org.unitedsoftware.alexandrite.agent.project.PROJECT_SECTION
+import org.unitedsoftware.alexandrite.agent.skill.SKILLS_SECTION
+import org.unitedsoftware.alexandrite.agent.tool.TOOLS_SECTION
+import org.unitedsoftware.alexandrite.agent.workspace.WORKSPACE_SECTION
+import org.unitedsoftware.alexandrite.agent.workspace.workspaceSection
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import org.unitedsoftware.alexandrite.sdk.chat.ConversationId
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
+import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.model.PromptSection
+import org.unitedsoftware.alexandrite.testkit.ScriptedModel
 import org.unitedsoftware.alexandrite.testkit.recordingTool
 import org.unitedsoftware.alexandrite.testkit.testTurn
 import java.nio.file.Files
@@ -51,6 +62,11 @@ class PromptAssemblerTest {
 
     private fun PromptSection.line(): String = "$id: ${if (id == BASE_SECTION) text.substringBefore('.') else text}"
 
+    private fun List<PromptSection>.withoutMedia(): List<PromptSection> = filterNot { it.id == MEDIA_SECTION }
+
+    private fun turn(info: TurnInfo, offered: Set<String> = emptySet()): PromptTurn =
+        PromptTurn(info, offered, ScriptedModel.modelInfo())
+
     @Test
     fun `a turn gets the base section, the agent's instructions and the chat's language, in that order`() {
         write("agents/coder/PERSONA.md", "Read the code first.", "2026-01-01T00:00:00Z")
@@ -61,7 +77,7 @@ class PromptAssemblerTest {
             val coder = testTurn { agent(AgentId("coder")).language(LanguageTag("zh-CN")) }
             val helper = testTurn(TurnKind.HEARTBEAT) { agent(AgentId("helper")) }
 
-            val sections = assembler.sections(coder, ChatKind.GROUP)
+            val sections = assembler.sections(turn(coder), ChatKind.GROUP)
             assertEquals(
                 listOf(
                     "alexandrite.base: You are Coder",
@@ -69,25 +85,28 @@ class PromptAssemblerTest {
                     "agent.instructions.2: Read the code first.",
                     "chat.language: Answer in zh-CN unless the user writes in another language.",
                 ),
-                sections.map { it.line() },
+                sections.withoutMedia().map { it.line() },
             )
-            assertEquals(true, sections.all { it.stable })
+            assertEquals(true, sections.all { it.id == MEDIA_SECTION || it.stable })
             assertEquals(
                 listOf(
                     "alexandrite.base: You are helper",
                     "agent.instructions.1: The operator likes tea.",
                 ),
-                assembler.sections(helper, ChatKind.DIRECT).map { it.line() },
+                assembler.sections(turn(helper), ChatKind.DIRECT).withoutMedia().map { it.line() },
             )
-            assertEquals(listOf(BASE_SECTION), assembler.sections(helper, null).map { it.id })
+            assertEquals(
+                listOf(BASE_SECTION, MEDIA_SECTION),
+                assembler.sections(turn(helper), null).map { it.id },
+            )
             assertFailsWith<IllegalArgumentException> {
-                assembler.sections(testTurn { agent(AgentId("other")) }, ChatKind.DIRECT)
+                assembler.sections(turn(testTurn { agent(AgentId("other")) }), ChatKind.DIRECT)
             }
         }
     }
 
     @Test
-    fun `an agent that selects a tool is told of its workspace and conversation directory before the language`() {
+    fun `a turn is told of the parts that its offered tools use, in their order, and a turn offered none of none`() {
         val config = """
             {
               "agents": {
@@ -103,20 +122,32 @@ class PromptAssemblerTest {
             val helper = testTurn { agent(AgentId("helper")) }
             val conversationDirectory = get<ConversationDirectories>().path(AgentId("coder"), ConversationId("test"))
 
-            val sections = assembler.sections(coder, ChatKind.DIRECT)
+            val offered = setOf("fs.read", "skill.load", "chat.send")
+            val sections = assembler.sections(turn(coder, offered), ChatKind.DIRECT)
             assertEquals(
                 listOf(
                     BASE_SECTION,
+                    TOOLS_SECTION,
+                    DELIVERY_SECTION,
                     WORKSPACE_SECTION,
                     CONVERSATION_DIRECTORY_SECTION,
+                    PROJECT_SECTION,
                     SKILLS_SECTION,
+                    MEDIA_SECTION,
                     LANGUAGE_SECTION,
                 ),
                 sections.map { it.id },
             )
-            assertEquals(workspaceSection(Path.of("/srv/coder")), sections[1])
-            assertEquals(conversationDirectorySection(conversationDirectory), sections[2])
-            assertEquals(listOf(BASE_SECTION), assembler.sections(helper, ChatKind.DIRECT).map { it.id })
+            assertEquals(workspaceSection(Path.of("/srv/coder")), sections[3])
+            assertEquals(conversationDirectorySection(conversationDirectory), sections[4])
+            assertEquals(
+                listOf(BASE_SECTION, MEDIA_SECTION, LANGUAGE_SECTION),
+                assembler.sections(turn(coder), ChatKind.DIRECT).map { it.id },
+            )
+            assertEquals(
+                listOf(BASE_SECTION, MEDIA_SECTION),
+                assembler.sections(turn(helper), ChatKind.DIRECT).map { it.id },
+            )
         }
     }
 }

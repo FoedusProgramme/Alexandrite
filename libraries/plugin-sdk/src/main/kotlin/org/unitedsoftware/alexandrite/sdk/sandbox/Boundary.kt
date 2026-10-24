@@ -1,6 +1,7 @@
 package org.unitedsoftware.alexandrite.sdk.sandbox
 
 import dev.drewhamilton.poko.Poko
+import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import java.nio.file.Path
 
 /**
@@ -35,6 +36,10 @@ public class Boundary private constructor(
         }
     }
 
+    /** This boundary with [network], and [variables] beside its own. */
+    public fun withNetwork(network: NetworkAccess, variables: Map<String, String>): Boundary =
+        Boundary(writable, writeDenied, protectedNames, readDenied, readable, network, environment + variables)
+
     public companion object {
         public operator fun invoke(
             writable: List<Path>,
@@ -59,11 +64,14 @@ public class Boundary private constructor(
 }
 
 /** Where a program inside a [Boundary] may connect. */
-public sealed interface NetworkAccess {
+@SubclassOptInRequired(InternalAlexandriteApi::class)
+public interface NetworkAccess {
     /** Nowhere. */
+    @OptIn(InternalAlexandriteApi::class)
     public data object None : NetworkAccess
 
     /** Only to the HTTP proxy that listens on the loopback [port]. */
+    @OptIn(InternalAlexandriteApi::class)
     @Poko
     public class Proxy(public val port: Int) : NetworkAccess {
         init {

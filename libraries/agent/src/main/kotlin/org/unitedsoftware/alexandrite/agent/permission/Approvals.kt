@@ -5,17 +5,18 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.agent.config.AgentDirectory
 import org.unitedsoftware.alexandrite.agent.tool.GateResult
 import org.unitedsoftware.alexandrite.agent.trust.CallTrust
 import org.unitedsoftware.alexandrite.agent.trust.Foreseen
 import org.unitedsoftware.alexandrite.agent.trust.Foresight
 import org.unitedsoftware.alexandrite.agent.trust.Root
+import org.unitedsoftware.alexandrite.internal.id.shortId
 import org.unitedsoftware.alexandrite.internal.text.ReviewText
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalAnswer
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalRequest
 import org.unitedsoftware.alexandrite.sdk.channel.ApprovalTrust
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
-import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.permission.Clearance
@@ -27,7 +28,6 @@ import org.unitedsoftware.alexandrite.sdk.tool.RuleSubject
 import org.unitedsoftware.alexandrite.sdk.transcript.NotRunReason
 import org.unitedsoftware.alexandrite.sdk.transcript.ToolOutcome
 import java.nio.file.Path
-import java.security.SecureRandom
 
 /** Asks a person about the gated calls that nothing else lets run. */
 internal interface Approvals {
@@ -46,17 +46,20 @@ internal class Question(
     val unasked: ClearanceKind?,
 )
 
-/** Asks through the channel of the call's chat, and takes an answer from an operator only. */
+/**
+ * Asks through the channel of the call's chat, or of its agent's first attachment for a turn of no chat, and takes an
+ * answer from an operator only.
+ */
 @Singleton
 @Binds(Approvals::class)
 internal class ChannelApprovals(
     private val channels: ChannelDirectory,
+    private val directory: AgentDirectory,
     private val rules: CallRules,
     private val foresight: Foresight,
     private val awaiting: AwaitingCalls,
     private val judge: Judge,
 ) : Approvals {
-    private val random = SecureRandom()
 
     override suspend fun ask(call: CheckedCall, reason: String, note: String?, question: Question?): GateResult {
         val gate = call.call
@@ -82,29 +85,28 @@ internal class ChannelApprovals(
             emptyList()
         }
         val shown = grantable.map { RuleSubject(it.tool, it.tokens, ReviewText.escape(it.display)) }
-        val request = ApprovalRequest(
-            newId(),
+        val request = ApprovalRequest.builder(
+            shortId(),
             turn,
             gate.tool.definition.name,
             call.risk,
             ReviewText.escape(canonical),
-            call.review.preview?.let { escaped(it) },
             ReviewText.escape(reason),
-            gate.calls.chain?.agents.orEmpty(),
-            shown,
-            question != null,
-            taint = gate.taint.known?.let { ConversationTaint(it.at, ReviewText.escape(it.reason)) },
-            note = note?.let { ReviewText.escape(it, keepNewlines = true) },
-            contained = call.review.contained,
-            background = call.review.background,
-            untrusted = question?.let { ReviewText.escape(it.foreseen.reason) },
-            roots = question?.roots.orEmpty().map { it.shown },
         )
-        if (turn.chat.instance == ChatAddress.AGENTS) {
-            return unavailable(request, "the turn belongs to no chat, so nobody can be asked", call, question)
-        }
-        val channel = channels.channel(turn.chat.instance)
-            ?: return unavailable(request, "the channel of the chat is not open", call, question)
+            .preview(call.review.preview?.let { escaped(it) })
+            .chain(gate.calls.chain?.agents.orEmpty())
+            .alwaysRules(shown)
+            .taint(gate.taint.known?.let { ConversationTaint(it.at, ReviewText.escape(it.reason)) })
+            .note(note?.let { ReviewText.escape(it, keepNewlines = true) })
+            .contained(call.review.contained)
+            .background(call.review.background)
+            .untrusted(question?.let { ReviewText.escape(it.foreseen.reason) })
+            .roots(question?.roots.orEmpty().map { it.shown })
+            .build()
+        val instance = directory.askingInstance(turn)
+            ?: return unavailable(request, "the agent has no channel, so nobody can be asked", call, question)
+        val channel = channels.channel(instance)
+            ?: return unavailable(request, "the channel $instance is not open", call, question)
         logger.info(
             "Approval {} of call {} of {} in turn {} of {} is asked for",
             request.id,
@@ -246,13 +248,6 @@ internal class ChannelApprovals(
             currentCoroutineContext().ensureActive()
             logger.warn("Cannot keep the record of a call that waits for approval: {}", e.toString())
         }
-    }
-
-    private fun newId(): String = String(CharArray(ID_LENGTH) { ID_CHARS[random.nextInt(ID_CHARS.length)] })
-
-    private companion object {
-        const val ID_CHARS = "abcdefghijkmnopqrstuvwxyz23456789"
-        const val ID_LENGTH = 8
     }
 }
 

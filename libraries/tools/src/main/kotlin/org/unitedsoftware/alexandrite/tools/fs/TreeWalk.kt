@@ -71,17 +71,17 @@ internal class TreeWalk(
             val child = children.next()
             val name = child.fileName.toString()
             when (val check = floor.checkRead(child, agent, conversation)) {
-                is FloorCheck.Denied -> {
-                    protected.add(child to check.reason)
-                    continue
-                }
+                is FloorCheck.Allowed -> Unit
 
                 is FloorCheck.Ask -> if (!asked) {
                     personal.add(child to check.reason)
                     continue
                 }
 
-                else -> Unit
+                else -> {
+                    protected.add(child to check.denial)
+                    continue
+                }
             }
             val attributes = try {
                 attributes(child)

@@ -16,8 +16,9 @@ import org.unitedsoftware.alexandrite.channel.telegram.reply.Target
 import org.unitedsoftware.alexandrite.channel.telegram.tools.ChatDesk.Companion.QUOTED
 import org.unitedsoftware.alexandrite.channel.telegram.tools.ChatDesk.Companion.THIS
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
-import org.unitedsoftware.alexandrite.sdk.channel.Delivery
-import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
+import org.unitedsoftware.alexandrite.internal.tool.booleanArgument
+import org.unitedsoftware.alexandrite.internal.tool.requiredText
+import org.unitedsoftware.alexandrite.internal.tool.textArgument
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
@@ -81,8 +82,8 @@ internal class ReactTool(desks: TelegramDesks) : TelegramTool(desks) {
 
     override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned {
         val target = desk.target(turn.chat)
-        val emoji = arguments.required("emoji")
-        val message = desk.message(turn, arguments.text("message"), THIS)
+        val emoji = arguments.requiredText("emoji")
+        val message = desk.message(turn, arguments.textArgument("message"), THIS)
         val shown = "React with $emoji to message $message in ${desk.name(turn.chat)}"
         return Planned(shown, RuleSubject(definition.name, emptyList(), "any reaction with telegram.react")) {
             val reaction = buildJsonObject {
@@ -113,8 +114,8 @@ internal class PinTool(desks: TelegramDesks) : TelegramTool(desks) {
 
     override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned {
         val target = desk.target(turn.chat)
-        val message = desk.message(turn, arguments.text("message"), QUOTED)
-        val notify = arguments.flag("notify") ?: false
+        val message = desk.message(turn, arguments.textArgument("message"), QUOTED)
+        val notify = arguments.booleanArgument("notify") ?: false
         val how = if (notify) "notifying its members" else "quietly"
         return Planned("Pin message $message in ${desk.name(turn.chat)}, $how") {
             desk.act(target, "pinChatMessage", onMessage(target, message) { put("disable_notification", !notify) })
@@ -137,7 +138,7 @@ internal class TitleTool(desks: TelegramDesks) : TelegramTool(desks) {
     override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned {
         val target = desk.target(turn.chat)
         if (!target.group) throw ToolRefusal("Only a group has a title that the bot may change.")
-        val title = arguments.required("title")
+        val title = arguments.requiredText("title")
         if (title.length > MAX_TITLE) throw ToolRefusal("A title has $MAX_TITLE characters at most.")
         return Planned("Rename ${desk.name(turn.chat)} to \"$title\"") {
             desk.act(
@@ -176,7 +177,7 @@ internal class PollTool(desks: TelegramDesks) : TelegramTool(desks) {
 
     override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned {
         val target = desk.target(turn.chat)
-        val question = arguments.required("question")
+        val question = arguments.requiredText("question")
         if (question.length > MAX_QUESTION) throw ToolRefusal("A question has $MAX_QUESTION characters at most.")
         val options = (arguments["options"] as? JsonArray)?.map { (it as? JsonPrimitive)?.contentOrNull?.trim() }
         val fits =
@@ -184,8 +185,8 @@ internal class PollTool(desks: TelegramDesks) : TelegramTool(desks) {
         if (options == null || !fits) {
             throw ToolRefusal("Give 'options' as 2 to $MAX_OPTIONS answers of 1 to $MAX_OPTION characters.")
         }
-        val anonymous = arguments.flag("anonymous") ?: true
-        val multiple = arguments.flag("multiple") ?: false
+        val anonymous = arguments.booleanArgument("anonymous") ?: true
+        val multiple = arguments.booleanArgument("multiple") ?: false
         val kind = listOf(
             if (anonymous) "anonymous" else "votes shown",
             if (multiple) "several answers" else "one answer",
@@ -216,7 +217,7 @@ internal class StickerTool(desks: TelegramDesks) : TelegramTool(desks) {
 
     override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned {
         val target = desk.target(turn.chat)
-        val sticker = arguments.required("sticker")
+        val sticker = arguments.requiredText("sticker")
         val shown = "Send sticker $sticker to ${desk.name(turn.chat)}"
         return Planned(shown, RuleSubject(definition.name, emptyList(), "any sticker with telegram.sticker")) {
             val sent = desk.post(turn.chat, "sendSticker", inChat(target) { put("sticker", sticker) })
@@ -242,7 +243,7 @@ internal class MemberTool(desks: TelegramDesks) : TelegramTool(desks) {
 
     override suspend fun plan(arguments: JsonObject, turn: TurnInfo, desk: ChatDesk): Planned {
         val target = desk.target(turn.chat)
-        val asked = arguments.required("user")
+        val asked = arguments.requiredText("user")
         val user = desk.user(target.chat, asked)
         return Planned("Look up $asked in ${desk.name(turn.chat)}") {
             val member = desk.read(
@@ -284,14 +285,6 @@ private fun property(type: String, description: String): JsonObject = buildJsonO
     put("type", type)
     put("description", description)
 }
-
-/** The argument [name] as text, a number given for it included, null when it is absent. */
-private fun JsonObject.text(name: String): String? = (this[name] as? JsonPrimitive)?.contentOrNull
-
-private fun JsonObject.required(name: String): String =
-    text(name)?.trim()?.ifEmpty { null } ?: throw ToolRefusal("Give '$name'.")
-
-private fun JsonObject.flag(name: String): Boolean? = (this[name] as? JsonPrimitive)?.booleanOrNull
 
 private fun JsonObject?.string(name: String): String? = (this?.get(name) as? JsonPrimitive)?.contentOrNull
 

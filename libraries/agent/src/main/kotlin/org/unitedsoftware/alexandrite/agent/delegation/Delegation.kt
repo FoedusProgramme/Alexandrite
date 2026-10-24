@@ -9,6 +9,8 @@ import org.unitedsoftware.alexandrite.agent.job.Jobs
 import org.unitedsoftware.alexandrite.agent.job.jobPlan
 import org.unitedsoftware.alexandrite.agent.tool.DelegatingTurn
 import org.unitedsoftware.alexandrite.agent.tool.RunChain
+import org.unitedsoftware.alexandrite.agent.tool.ToolGlob
+import org.unitedsoftware.alexandrite.agent.tool.Toolset
 import org.unitedsoftware.alexandrite.agent.trust.TurnTaint
 import org.unitedsoftware.alexandrite.agent.turn.FollowUp
 import org.unitedsoftware.alexandrite.agent.turn.FollowUps
@@ -22,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.chat.TurnLineage
 import org.unitedsoftware.alexandrite.sdk.chat.UserAddress
 import org.unitedsoftware.alexandrite.sdk.store.ConversationInfo
+import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import java.time.Clock
 import java.time.Instant
 
@@ -46,6 +49,23 @@ internal class Delegation(
     /** Hands each untrusted content the run takes in to the call that delegated it, as it comes. */
     private val report: (String) -> Unit = {},
 ) {
+    /**
+     * The tools of [all] that the run offers: those its profile allows that the turn above may call, without
+     * [DELEGATE_TOOL] at the last depth, which the run may still call.
+     */
+    fun tools(all: List<Tool>): Toolset {
+        val allow = profile.toolsAllow.map(ToolGlob::of)
+        val deny = profile.toolsDeny.map(ToolGlob::of)
+        val chosen = all.filter { tool ->
+            val name = tool.definition.name
+            name in parent.callable && allow.any { it.matches(name) } && deny.none { it.matches(name) }
+        }
+        val last = lineage.depth >= MAX_DEPTH
+        val offered = chosen.filterNot { last && it.definition.name == DELEGATE_TOOL }
+        val withheld = (chosen - offered.toSet()).mapTo(mutableSetOf()) { it.definition.name }
+        return Toolset(offered, all - offered.toSet(), withheld)
+    }
+
     /** The run's turn, null until it started. */
     @Volatile
     var turn: TurnInfo? = null

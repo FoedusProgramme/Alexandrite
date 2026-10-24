@@ -1,7 +1,10 @@
 package org.unitedsoftware.alexandrite.sandbox.bubblewrap
 
 import org.slf4j.LoggerFactory
+import org.unitedsoftware.alexandrite.internal.path.OsFamily
 import org.unitedsoftware.alexandrite.internal.path.PathCanonicalizer
+import org.unitedsoftware.alexandrite.internal.sandbox.wrapped
+import org.unitedsoftware.alexandrite.internal.text.singleQuoted
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.sandbox.Boundary
@@ -62,18 +65,7 @@ internal class Bubblewrap : ExecutionEnvironment {
             arguments +=
                 listOf("--", SHELL, "-c", stageScript(tools.bwrap, tools.socat, inner, tools.filter), STAGE_NAME)
             arguments += command.command()
-            val wrapped = ProcessBuilder(arguments)
-                .directory(command.directory())
-                .redirectInput(command.redirectInput())
-                .redirectOutput(command.redirectOutput())
-                .redirectError(command.redirectError())
-                .redirectErrorStream(command.redirectErrorStream())
-            wrapped.environment().apply {
-                clear()
-                putAll(command.environment())
-                putAll(boundary.environment)
-            }
-            val process = start(wrapped)
+            val process = start(wrapped(command, arguments, boundary.environment))
             val placed = held
             process.onExit().whenComplete { _, _ ->
                 relay?.close()
@@ -134,7 +126,7 @@ internal class Bubblewrap : ExecutionEnvironment {
 private class Tools(val bwrap: String, val socat: String, val filter: ByteArray)
 
 private fun tools(): Tools? {
-    if (!System.getProperty("os.name").orEmpty().startsWith("Linux")) return null
+    if (OsFamily.HOST != OsFamily.LINUX) return null
     val filter = seccompFilter(System.getProperty("os.arch").orEmpty()) ?: return null
     val bwrap = executable("bwrap") ?: return null
     val socat = executable("socat") ?: return null
@@ -173,8 +165,8 @@ internal fun stageScript(bwrap: String, socat: String, relay: Pair<Path, Int>?, 
         val (socket, port) = relay
         require(socket.toString().none { it in SOCAT_SPECIAL }) { "The relay's socket path '$socket' is unusable." }
         val local = "0100007F:" + "%04X".format(port)
-        lines += "${quoted(socat)} TCP4-LISTEN:$port,bind=127.0.0.1,reuseaddr,fork,backlog=1024 " +
-            "${quoted("UNIX-CONNECT:$socket")} </dev/null >/dev/null 2>&1 &"
+        lines += "${singleQuoted(socat)} TCP4-LISTEN:$port,bind=127.0.0.1,reuseaddr,fork,backlog=1024 " +
+            "${singleQuoted("UNIX-CONNECT:$socket")} </dev/null >/dev/null 2>&1 &"
         lines += "n=0"
         lines += "while [ \"\$n\" -lt $LISTEN_POLLS ]; do"
         lines += "  while read -r _ local _ state _; do"
@@ -185,12 +177,10 @@ internal fun stageScript(bwrap: String, socat: String, relay: Pair<Path, Int>?, 
     }
     val bytes = filter.joinToString("") { "\\" + "%03o".format(it.toInt() and BYTE) }
     lines += "exec 4<&0"
-    lines += "printf '$bytes' | ${quoted(bwrap)} --unshare-user --unshare-pid --dev-bind / / --proc /proc " +
+    lines += "printf '$bytes' | ${singleQuoted(bwrap)} --unshare-user --unshare-pid --dev-bind / / --proc /proc " +
         "--die-with-parent --seccomp 3 -- \"\$@\" 3<&0 0<&4 4<&-"
     return lines.joinToString("\n", postfix = "\n")
 }
-
-private fun quoted(text: String): String = "'" + text.replace("'", "'\\''") + "'"
 
 private const val SHELL = "/bin/sh"
 private const val STAGE_NAME = "alexandrite-sandbox"

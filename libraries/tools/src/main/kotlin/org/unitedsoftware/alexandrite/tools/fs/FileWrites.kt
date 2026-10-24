@@ -67,8 +67,8 @@ internal suspend fun HardFloor.target(argument: String, context: ToolContext): T
 
             is FloorCheck.Ask -> check.canonical
 
-            is FloorCheck.Denied ->
-                throw ToolRefusal.blocked("$shown is protected (${check.reason}): no file tool may write it.")
+            else ->
+                throw ToolRefusal.blocked("$shown is protected (${check.denial}): no file tool may write it.")
         }
         val directory = context.conversationDirectory
         val person = (check as? FloorCheck.Ask)?.let { askedPlace(shown, it) }

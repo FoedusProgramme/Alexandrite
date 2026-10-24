@@ -1,12 +1,13 @@
 package org.unitedsoftware.alexandrite.mcp
 
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
+import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
 import java.util.Locale
 
 /** The names `mcp.<server>.<tool>` under which a server's tools are offered. */
 internal object McpNames {
     const val NAMESPACE: String = "mcp"
-    const val MAX_LENGTH: Int = 64
+    const val MAX_LENGTH: Int = ToolNames.MAX_LENGTH
     private const val HASH_LENGTH = 6
 
     /** [tool] lowercased, every character outside `[a-z0-9_]` as `_`, and prefixed when it starts with no letter. */

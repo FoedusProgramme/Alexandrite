@@ -5,13 +5,16 @@ import kotlinx.coroutines.ensureActive
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.i18n.Refused
 import org.unitedsoftware.alexandrite.agent.permission.CheckedCall
+import org.unitedsoftware.alexandrite.agent.permission.EXEC
 import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.permission.RuleEntry
 import org.unitedsoftware.alexandrite.agent.permission.session
 import org.unitedsoftware.alexandrite.agent.tool.GateCall
 import org.unitedsoftware.alexandrite.agent.tool.ToolRegistry
 import org.unitedsoftware.alexandrite.agent.tool.isWritten
+import org.unitedsoftware.alexandrite.agent.tool.writtenFile
 import org.unitedsoftware.alexandrite.internal.path.homeDirectory
+import org.unitedsoftware.alexandrite.internal.text.shellWord
 import org.unitedsoftware.alexandrite.sdk.channel.TrustRootKind
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
@@ -20,6 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.di.Binds
 import org.unitedsoftware.alexandrite.sdk.di.Singleton
 import org.unitedsoftware.alexandrite.sdk.tool.HardFloor
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import org.unitedsoftware.alexandrite.sdk.tool.Tool
 import org.unitedsoftware.alexandrite.sdk.tool.ToolRisk
 
 /** Foresees the untrusted content that a call would bring in, and trusts the roots that an approver chose. */
@@ -77,9 +81,9 @@ internal class TrustSources(
                 }
             }
         } else if (call.review.untrusted || isNetworkRead(call)) {
-            found += output(name, call.review.host, isNetworkRead(call))
+            found += output(gate.tool, call.review.host, isNetworkRead(call))
         }
-        val written = (call.review.preview as? ReviewPreview.Diff)?.path
+        val written = call.review.preview.writtenFile
         for (place in reads.places(gate.turn, call.review.reads.filterNot { it.isWritten(written) })) {
             val folder = place.folder
             val source = if (folder != null &&
@@ -144,8 +148,12 @@ internal class TrustSources(
         return ToolRisk.NETWORK_READ in setOf(tool.definition.risk, call.risk) && !tools.isBuiltIn(tool)
     }
 
-    /** Why the output of a call of [name] from [host] taints, and the rule that would trust it. */
-    private fun output(name: String, host: String?, network: Boolean): Pair<String, Source?> {
+    /**
+     * Why the output of a call of [tool] from [host] taints, and the rule that would trust it: the host's, else that of
+     * every tool that the tool's source offers under the tool's group, the second word of its name.
+     */
+    private fun output(tool: Tool, host: String?, network: Boolean): Pair<String, Source?> {
+        val name = tool.definition.name
         if (host != null) {
             val rule = "$name($host)"
             val root = Root.Rule(TrustRootKind.DOMAIN, host, rule).takeIf {
@@ -154,10 +162,11 @@ internal class TrustSources(
             }
             return "$name reads $host, whose content is untrusted" to root?.let(Source::Fixed)
         }
-        val server = name.split('.').takeIf { it.size >= 3 && it.first() == MCP }?.get(1)
-        if (server != null) {
-            return "$name returns the output of MCP server $server" to
-                Source.Fixed(Root.Rule(TrustRootKind.SERVER, server, "$MCP.$server.*"))
+        val namespace = tools.sourceOf(tool)?.namespace
+        val group = name.split('.').takeIf { it.size >= 3 && it.first() == namespace }?.get(1)
+        if (group != null) {
+            return "$name returns the output of $namespace.$group" to
+                Source.Fixed(Root.Rule(TrustRootKind.TOOL_SOURCE, "$namespace.$group", "$namespace.$group.*"))
         }
         return (if (network) "a call of $name, which reads the network" else "the output of $name is untrusted") to null
     }
@@ -165,8 +174,8 @@ internal class TrustSources(
     /** The trust rule of the program [program] as a command names it, null for one that runs any code it is given. */
     private fun program(program: String): Source? {
         if ('\'' in program || program.isEmpty()) return null
-        val word = if (program.all { it.isLetterOrDigit() || it in PLAIN }) program else "'$program'"
-        val rule = "$EXEC($word)"
+        val rule = "$EXEC(${shellWord(program)})"
+
         val entry = try {
             RuleEntry.parse(rule, homeDirectory(), trust = true)
         } catch (e: IllegalArgumentException) {
@@ -189,9 +198,6 @@ internal class TrustSources(
     }
 
     private companion object {
-        const val EXEC = "command.exec"
-        const val MCP = "mcp"
-        const val PLAIN = "-_./+@%:,="
 
         /** The most roots that one question offers to trust. */
         const val MAX_ROOTS = 3

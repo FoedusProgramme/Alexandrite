@@ -277,13 +277,12 @@ class WebTest {
     fun `fetch exposes only side model answer and taints before model failure`() = runBlocking {
         val context = testToolContext()
         val answers = Answers()
-        val tool = FetchTool(WebConfig(model = "test/model"), WebPages { WebPage(URI(it), "raw source") }, answers)
+        val tool = FetchTool(WebConfig(), WebPages { WebPage(URI(it), "raw source") }, answers)
         assertEquals(ToolRisk.NETWORK_READ, tool.definition.risk)
         val result = tool.execute(args("url" to "https://example.com", "prompt" to "question"), context)
         assertFalse(result.isError)
         assertEquals("answer", result.content.filterIsInstance<TextPart>().single().text)
         assertEquals("raw source", answers.text)
-        assertEquals(ModelRef.parse("test/model"), answers.model)
         assertEquals(1, context.untrustedReasons.size)
         answers.failure = IllegalStateException("source must not leak")
         val failure = tool.execute(args("url" to "https://example.com", "prompt" to "question"), context)
@@ -419,7 +418,6 @@ private fun args(vararg pairs: Pair<String, String>): JsonObject =
 
 private class Answers : WebModels {
     var text: String? = null
-    var model: ModelRef? = null
     var failure: Exception? = null
     var native: List<WebSearchResult>? = null
     var searched: Pair<ModelRef, WebQuery>? = null
@@ -427,7 +425,6 @@ private class Answers : WebModels {
     override suspend fun answer(question: PageQuestion): String {
         failure?.let { throw it }
         text = question.page
-        model = question.model
         return "answer"
     }
 

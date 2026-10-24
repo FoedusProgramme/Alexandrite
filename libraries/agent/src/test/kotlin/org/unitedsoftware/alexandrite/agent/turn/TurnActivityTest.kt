@@ -144,7 +144,7 @@ class TurnActivityTest {
                     TurnEvent.ToolCallUpdated(
                         id,
                         ToolCallStatus.COMPLETED,
-                        TurnEvent.Content.Diff(path, "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n"),
+                        TurnEvent.Content.Preview(ReviewPreview.Diff(path, "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n")),
                     ),
                 ),
                 activityOf(turn),

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.control.ConfigChangeView
 import org.unitedsoftware.alexandrite.app.tui.Choice
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
+import org.unitedsoftware.alexandrite.runtime.config.EnvReferences
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
@@ -309,7 +310,7 @@ private class ConfigMenu(private val cli: Cli) {
 
     private fun keyOf(endpoint: Endpoint): String? {
         val written = endpoint.config["apiKey"].text ?: return null
-        val variable = referencedVariable(written) ?: return written
+        val variable = EnvReferences.whole(written) ?: return written
         return try {
             withSecrets(cli.environment, cli.secrets)[variable]
         } catch (e: IOException) {
@@ -350,7 +351,7 @@ private class ConfigMenu(private val cli: Cli) {
                     it.startsWith("${endpoint.name}/")
                 }.map { "${agent.id}: ${it.substringAfter('/')}" }
             }
-            val key = endpoint.config["apiKey"].text?.let { referencedVariable(it) ?: t("menu.endpoint.key_written") }
+            val key = endpoint.config["apiKey"].text?.let { EnvReferences.whole(it) ?: t("menu.endpoint.key_written") }
             listOf(
                 item(t("menu.endpoint.base"), endpoint.base ?: t("menu.unset")) { setBase(endpoint) },
                 item(t("menu.endpoint.key"), key ?: t("menu.endpoint.no_key")) { setKey(endpoint) },
@@ -391,14 +392,14 @@ private class ConfigMenu(private val cli: Cli) {
             if (required) return ui.warn(t("init.model.key_needed"))
             return change(ConfigChangeView(path, remove = true))
         }
-        val held = endpoint.config["apiKey"].text?.let(::referencedVariable)
+        val held = endpoint.config["apiKey"].text?.let(EnvReferences::whole)
         val variable = held ?: variableOf(endpoint.provider, endpoint.name)
         if (held ==
             null
         ) {
             return saving(
                 mapOf(variable to key),
-                listOf(ConfigChangeView(path, JsonPrimitive(envReference(variable)))),
+                listOf(ConfigChangeView(path, JsonPrimitive(EnvReferences.of(variable)))),
             )
         }
         if (saved(mapOf(variable to key)) == null) return
@@ -440,7 +441,7 @@ private class ConfigMenu(private val cli: Cli) {
         val variable = variableOf(kind.id, name)
         val changes = mutableListOf<ConfigChangeView>()
         if (base != kind.defaultUrl) changes += ConfigChangeView("$root.baseUrl", JsonPrimitive(base))
-        if (key.isNotEmpty()) changes += ConfigChangeView("$root.apiKey", JsonPrimitive(envReference(variable)))
+        if (key.isNotEmpty()) changes += ConfigChangeView("$root.apiKey", JsonPrimitive(EnvReferences.of(variable)))
         if (changes.isEmpty()) changes += ConfigChangeView(root, JsonObject(emptyMap()))
         if (agent ==
             null
@@ -645,7 +646,7 @@ private class ConfigMenu(private val cli: Cli) {
 
     private fun otherKey() {
         val key = ui.ask(t("menu.other.key"), null) {
-            if (it.isBlank() || it.trim().split('.').any(String::isEmpty)) t("usage.no_key", "key" to it) else null
+            keyProblem(it.trim())?.let { reason -> t("usage.no_key", "key" to it, "reason" to reason) }
         }?.trim() ?: return
         val current = (cli.rawConfig() ?: return).at(key)
         ui.say(

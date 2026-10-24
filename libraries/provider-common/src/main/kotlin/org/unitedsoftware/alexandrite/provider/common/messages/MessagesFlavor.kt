@@ -26,6 +26,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ToolChoice
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.tool.ToolDefinition
 import org.unitedsoftware.alexandrite.sdk.tool.ToolNames
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
@@ -182,7 +183,7 @@ public open class MessagesReasoning {
     public open fun reasoningTokens(usage: JsonObject): Long? =
         usage.obj("output_tokens_details")?.long("thinking_tokens")
 
-    /** The warning that [info]'s model takes no [effort], so the request asks for none. */
+    /** The warning that [info]'s model does not accept [effort], so the request leaves the effort out. */
     protected fun unsupported(effort: ReasoningEffort, info: ModelInfo): Warning = unsupportedEffort(effort, info)
 }
 
@@ -209,12 +210,12 @@ public open class MessagesTools {
         val warnings = mutableListOf<Warning>()
         val parallel = request.options.parallelToolCalls
         if (parallel == true && !info.parallelToolCalls) {
-            warnings += Warning("unsupported_option", "Model '${info.id}' calls no tools in parallel.")
+            warnings += Warning(WarningKind.UNSUPPORTED_OPTION, "Model '${info.id}' calls no tools in parallel.")
         }
         var choice = request.toolChoice
         if ((choice == ToolChoice.Required || choice is ToolChoice.Named) && thinks) {
             warnings += Warning(
-                "unsupported_option",
+                WarningKind.UNSUPPORTED_OPTION,
                 "Model '${info.id}' takes no forced tool choice while it may think, so the model decides.",
             )
             choice = ToolChoice.Auto
@@ -229,7 +230,8 @@ public open class MessagesTools {
             is ToolChoice.Named -> "tool"
 
             else -> {
-                warnings += Warning("unsupported_option", "The tool choice $choice is unknown, so the model decides.")
+                warnings +=
+                    Warning(WarningKind.UNSUPPORTED_OPTION, "The tool choice $choice is unknown, so the model decides.")
                 "auto"
             }
         }

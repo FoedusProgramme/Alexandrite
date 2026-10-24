@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.sdk.channel
 
 import dev.drewhamilton.poko.Poko
 import kotlinx.serialization.Serializable
+import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 import org.unitedsoftware.alexandrite.sdk.chat.AgentId
 import org.unitedsoftware.alexandrite.sdk.chat.ChannelMessageRef
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
@@ -31,7 +32,8 @@ public interface Channel {
     public suspend fun title(chat: ChatAddress): String? = null
 
     /**
-     * Asks an approver about [request] and waits for the answer, within the channel's own limit.
+     * Asks an approver about [request] and waits for the answer, within the channel's own limit. A request of a turn
+     * of no chat, at [ChatAddress.AGENTS], comes to the channel of its agent's first attachment.
      *
      * The agent withdraws a request by cancelling the call: the channel then marks it withdrawn and rethrows.
      */
@@ -79,13 +81,16 @@ public interface ReplySink {
     /** Delivers the final reply, in place of the previews where the channel can. */
     public suspend fun complete(message: OutboundMessage): Delivery
 
-    /** Ends the reply without a final message and leaves the previews as they are. */
-    public suspend fun abandon(end: ReplyEnd)
+    /**
+     * Ends the reply without a final message and leaves the previews as they are, whose words the agent vouches for
+     * when [vouched], as [OutboundMessage.vouched] tells of a final message's.
+     */
+    public suspend fun abandon(end: ReplyEnd, vouched: Boolean = false)
 }
 
 /** A sub-agent [run] that [agent] runs for the tool call [call] of the run [under], or of the turn itself. */
 @Poko
-public class DelegatedRun(
+public class DelegatedRun @InternalAlexandriteApi constructor(
     public val call: ToolCallId,
     public val run: RunId,
     public val agent: AgentId,
@@ -105,19 +110,14 @@ public interface ReplyActivity {
     public suspend fun close(status: ToolCallStatus)
 }
 
-/** What a channel needs to open a turn's reply. */
+/** What a channel needs to open a turn's reply, as the agent asks for it. */
 @Poko
-public class ReplyRequest(
+public class ReplyRequest @InternalAlexandriteApi constructor(
     public val turn: TurnInfo,
     /** The message or interaction the turn answers, null when it answers none. */
     public val trigger: ChannelMessageRef?,
     /** The background run of [turn] whose activity alone this reply shows, null for the turn's own reply. */
     public val run: DelegatedRun? = null,
-    /**
-     * Whether the agent vouches for the reply's words — the turn is an operator's or a trusted person's in a clean
-     * conversation — so that a channel may tell a quote of them as trusted content.
-     */
-    public val vouched: Boolean = false,
 )
 
 /** Why a reply ended without a final message. */

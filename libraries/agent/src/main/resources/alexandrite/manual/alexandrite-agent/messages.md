@@ -15,8 +15,9 @@ An [alexandrite:message] header holds:
 - `Forwarded from:` for a forwarded message, and `Quoting:` with the quoted text for a reply, marked verified or
   unverified, with the quoted message's id when it is in the same chat.
 
-Files and pictures of a message follow in an [alexandrite:media] note: where each was saved (the conversation
-directory's `inbox/`), its type and size, and whether you are shown the image. Read saved files with the file tools.
+Attachments of a message follow in an [alexandrite:media] note: where each was saved (the conversation directory's
+`inbox/`), its type and size, and how it reaches you (see alexandrite-agent/config, `roles` and `media`). Read saved
+files with the file tools.
 
 Other headers: [alexandrite:initiated] for a turn that a plugin started (plugin, kind, trust, start, and the operator a
 scheduled task runs for) or another agent's message, [alexandrite:tools] when your tools changed, [alexandrite:commands] for commands run in the

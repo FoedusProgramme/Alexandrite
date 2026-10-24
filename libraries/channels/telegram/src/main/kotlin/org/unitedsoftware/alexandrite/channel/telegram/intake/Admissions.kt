@@ -83,6 +83,10 @@ internal class Admissions(
                     logger.warn("The agent refused a message of chat {} ({}), which is dropped", chat, admission.reason)
                 }
             }
+
+            else -> if (warned.passes(chat)) {
+                logger.warn("The agent did not take in a message of chat {} ({}), which is dropped", chat, admission)
+            }
         }
         return Dispatch.DONE
     }

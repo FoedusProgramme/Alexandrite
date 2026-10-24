@@ -23,6 +23,7 @@ import org.unitedsoftware.alexandrite.sdk.transcript.ToolCallPart
 import org.unitedsoftware.alexandrite.sdk.transcript.TranscriptEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.UserOrigin
+import org.unitedsoftware.alexandrite.sdk.transcript.UserPart
 
 /** The model a turn calls, as its endpoint lists it. */
 internal class SelectedModel(val ref: ModelRef, val endpoint: ModelEndpoint, val info: ModelInfo)
@@ -48,13 +49,24 @@ internal suspend fun SelectedModel.ask(
     maxTokens: Int,
     temperature: Double? = null,
     call: suspend (suspend () -> ModelEvent.Completed) -> ModelEvent.Completed = { it() },
+): SideAnswer = ask(ids, source, listOf(TextPart(input)), instructions, maxTokens, temperature, call)
+
+/** As the other [ask], with its single text input replaced by [parts], such as to carry media inline. */
+internal suspend fun SelectedModel.ask(
+    ids: RequestIds,
+    source: String,
+    parts: List<UserPart>,
+    instructions: List<PromptSection>,
+    maxTokens: Int,
+    temperature: Double? = null,
+    call: suspend (suspend () -> ModelEvent.Completed) -> ModelEvent.Completed = { it() },
 ): SideAnswer {
     val options = ModelOptions.builder()
         .maxOutputTokens(minOf(maxTokens, info.maxOutputTokens ?: maxTokens))
         .reasoning(leastReasoning(info))
         .temperature(temperature)
         .build()
-    val history = listOf(UserEntry(null, listOf(TextPart(input)), UserOrigin.SystemWritten(source)))
+    val history = listOf(UserEntry(null, parts, UserOrigin.SystemWritten(source)))
     val request = ModelRequest.builder(ref, history, 0, ids).instructions(instructions).options(options).build()
     val response = call { collectResponse(endpoint, request) }
     return SideAnswer(response.message.parts.filterIsInstance<TextPart>().joinToString("") { it.text }, response.usage)

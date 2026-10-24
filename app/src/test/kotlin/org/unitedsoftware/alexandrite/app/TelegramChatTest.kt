@@ -54,11 +54,10 @@ class TelegramChatTest {
         }
 
         assertEquals(first, answer.replyTo)
+        // The activity line of the send shows only when the call outlasts the board's delay
         assertEquals(
-            listOf("Noted.", "Sending 1 message\nhere", "About that one."),
-            app.fake.botMessages(ADA).map {
-                it.text
-            },
+            listOf("Noted.", "About that one."),
+            app.fake.botMessages(ADA).map { it.text }.filterNot { it.startsWith("Sending ") },
         )
     }
 

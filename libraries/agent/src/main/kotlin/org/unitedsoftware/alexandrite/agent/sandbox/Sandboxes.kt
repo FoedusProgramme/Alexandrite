@@ -13,7 +13,6 @@ import org.unitedsoftware.alexandrite.agent.permission.Containment
 import org.unitedsoftware.alexandrite.agent.permission.Containments
 import org.unitedsoftware.alexandrite.agent.permission.INSTRUCTION_NAMES
 import org.unitedsoftware.alexandrite.agent.permission.InstructionPlaces
-import org.unitedsoftware.alexandrite.agent.permission.alexandritePlaces
 import org.unitedsoftware.alexandrite.agent.permission.session
 import org.unitedsoftware.alexandrite.agent.trust.FolderTrust
 import org.unitedsoftware.alexandrite.agent.workspace.Workspaces
@@ -71,6 +70,7 @@ internal class Sandboxes(
     private val floor: AgentFloor,
     private val rules: CallRules,
     private val instructions: InstructionPlaces,
+    private val writes: WritePlaces,
 ) : Containments,
     CallSandboxes {
     private val canonicalizer = PathCanonicalizer()
@@ -114,12 +114,11 @@ internal class Sandboxes(
         val protect = Protect.of(config.protect)
         val protectedPaths =
             protect.paths.map { configuredPath(paths, "$key.protect", "the protected path", expandHome(it)) } +
-                if (protect.alexandrite) alexandritePlaces(paths) else emptyList()
+                if (protect.alexandrite) paths.alexandritePlaces else emptyList()
         logger.info("Agent '{}' runs its commands in the {} sandbox", agent, environment.name)
         return Configured(
             environment,
             config,
-            config.allowWrite.map { configuredPath(paths, "$key.allowWrite", "the writable path", expandHome(it)) },
             protectedPaths,
             protect.names,
             config.denyRead.map { configuredPath(paths, "$key.denyRead", "the unreadable path", expandHome(it)) },
@@ -143,14 +142,12 @@ internal class Sandboxes(
             val agent = turn.agent
             val workspace = workspaces.paths[agent]
             val conversation = this@Sandboxes.directories.path(turn)
-            val trusted = directories.mapNotNull { trust.covering(agent, real(it))?.path }
             val (denied, asked) = floor.sandboxPlaces()
             val closed = if (allowed) emptyList() else asked
             val steering = if (allowed) emptyList() else instructions.sandboxPaths()
             val names = if (allowed) emptyList() else INSTRUCTION_NAMES
             return Boundary(
-                writable = (listOfNotNull(workspace, conversation) + trusted + temporary() + configured.allowWrite)
-                    .map(::real).distinct(),
+                writable = writes.writable(turn, directories),
                 writeDenied = (configured.protectedPaths + closed + steering).map(::real).distinct(),
                 protectedNames = (configured.protectedNames + names).distinct(),
                 readDenied = (denied + closed + configured.denyRead).map(::real).distinct(),
@@ -162,22 +159,13 @@ internal class Sandboxes(
         override fun hostProblem(hosts: List<String>): String? {
             if (hosts.size > MAX_HOSTS) return "'network' names more than $MAX_HOSTS hosts."
             val wrong = hosts.firstOrNull { HostPattern.parse(it) == null } ?: return null
-            return "'$wrong' is no host: write a name such as example.com or *.example.com, or an address such as " +
-                "127.0.0.1, each with an optional :port."
+            return HostPattern.notAHost(wrong)
         }
 
         override suspend fun open(boundary: Boundary, hosts: List<String>): NetworkLease {
             val allowed = (allowed(turn, configured) + hosts.mapNotNull(HostPattern::parse)).distinct()
             val lease = withContext(Dispatchers.IO) { proxy.open(allowed) }
-            val opened = Boundary(
-                boundary.writable,
-                boundary.writeDenied,
-                boundary.protectedNames,
-                boundary.readDenied,
-                boundary.readable,
-                NetworkAccess.Proxy(lease.port),
-                boundary.environment + proxyVariables(lease.port),
-            )
+            val opened = boundary.withNetwork(NetworkAccess.Proxy(lease.port), proxyVariables(lease.port))
             return Lease(opened, lease)
         }
     }
@@ -191,7 +179,6 @@ internal class Sandboxes(
     private class Configured(
         val environment: ExecutionEnvironment,
         val config: SandboxConfig,
-        val allowWrite: List<Path>,
         val protectedPaths: List<Path>,
         val protectedNames: List<String>,
         val denyRead: List<Path>,
@@ -206,15 +193,11 @@ internal class Sandboxes(
 private fun environment(agent: AgentId, type: String, environments: List<ExecutionEnvironment>): ExecutionEnvironment? =
     try {
         selectEnvironment(type, environments, { it.name }, { it.available() }) { why ->
-            logger.warn("Agent '{}' asks for the platform's sandbox, but {}: its commands run on the host", agent, why)
+            logger.warn("Agent '{}' asks for a sandbox, but {}: its commands run on the host", agent, why)
         }
     } catch (e: IllegalArgumentException) {
         throw ConfigException("agent.agents.$agent.sandbox.type", e.message.orEmpty(), e)
     }
-
-/** The per-user temp directory. */
-private fun temporary(): List<Path> =
-    listOfNotNull(System.getProperty("java.io.tmpdir")?.takeIf { it.isNotBlank() }?.let { Path.of(it) })
 
 private const val MAX_HOSTS = 20
 

@@ -13,6 +13,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.Dialect
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 
 /** What the endpoints of every wire API share: the connection, the models and the checks of a request. */
 internal class EndpointCore(
@@ -20,12 +21,25 @@ internal class EndpointCore(
     settings: EndpointSettings,
     listing: ModelListing,
     dialect: Dialect,
+    /** The media kinds the wire API carries, which bound what any model of the endpoint is said to take. */
+    sends: Set<MediaKind>,
     own: Map<String, String> = emptyMap(),
-    /** The header that the wire API carries the API key in. */
-    authHeader: String = EndpointSettings.DEFAULT_AUTH_HEADER,
+    /** What the wire API sets itself, unless [settings] names otherwise. */
+    wire: WireHeaders = WireHeaders.BEARER,
 ) : AutoCloseable {
-    private val connection = EndpointConnection(settings, own, authHeader)
-    private val catalog = ModelCatalog(id, settings, listing, dialect, connection)
+    init {
+        if (settings.wire == null) {
+            val reserved = wire.own.map { it.lowercase() }
+            settings.headers.keys.firstOrNull { it.lowercase() in reserved }?.let {
+                throw IllegalArgumentException(
+                    "The headers of endpoint $id may not set ${it.lowercase()}, which the provider sets itself",
+                )
+            }
+        }
+    }
+
+    private val connection = EndpointConnection(settings, own, settings.wire ?: wire)
+    private val catalog = ModelCatalog(id, settings, listing, dialect, sends, connection)
 
     /** The models, which search the web natively when [nativeSearch] holds. */
     suspend fun models(nativeSearch: Boolean = false): List<ModelInfo> = catalog.models().let { models ->

@@ -10,6 +10,7 @@ import org.unitedsoftware.alexandrite.internal.http.HttpTransport
 import org.unitedsoftware.alexandrite.provider.common.EndpointCore
 import org.unitedsoftware.alexandrite.provider.common.EndpointSettings
 import org.unitedsoftware.alexandrite.provider.common.ErrorDetail
+import org.unitedsoftware.alexandrite.provider.common.WireHeaders
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.ModelErrorKind
 import org.unitedsoftware.alexandrite.sdk.model.ModelEvent
@@ -19,6 +20,7 @@ import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.Trust
 import org.unitedsoftware.alexandrite.sdk.model.TurnContextMode
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
+import org.unitedsoftware.alexandrite.sdk.transcript.MediaKind
 import org.unitedsoftware.alexandrite.sdk.web.WebQuery
 import org.unitedsoftware.alexandrite.sdk.web.WebSearchResult
 
@@ -59,8 +61,9 @@ public class MessagesEndpoint(
         settings,
         flavor.listing,
         flavor.dialect,
+        SENDS,
         mapOf("anthropic-version" to flavor.version),
-        AUTH_HEADER,
+        WIRE,
     )
 
     override suspend fun webSearch(model: String, query: WebQuery): List<WebSearchResult> {
@@ -102,14 +105,17 @@ public class MessagesEndpoint(
 
     private suspend fun FlowCollector<ModelEvent>.read(stream: HttpResponseStream, response: MessagesResponse) {
         when (stream.mediaType) {
-            "text/event-stream" -> stream.events().transformWhile { event ->
-                emit(event)
-                !response.done
-            }.collect { event ->
-                if (event.data.isNotBlank()) {
-                    val data = core.json(event.data, response.started)
-                    response.event(data, event.type, ::classify).forEach { emit(it) }
+            "text/event-stream" -> {
+                stream.events().transformWhile { event ->
+                    emit(event)
+                    !response.done
+                }.collect { event ->
+                    if (event.data.isNotBlank()) {
+                        val data = core.json(event.data, response.started)
+                        response.event(data, event.type, ::classify).forEach { emit(it) }
+                    }
                 }
+                if (response.done) stream.drain()
             }
 
             "application/json", null -> {
@@ -122,10 +128,10 @@ public class MessagesEndpoint(
     }
 
     public companion object {
-        /** The header that carries the API key unless [EndpointSettings.authHeader] names another. */
-        public const val AUTH_HEADER: String = "x-api-key"
-
-        /** The headers that a Messages endpoint sets on every request itself. */
-        public val PROVIDER_HEADERS: Set<String> = setOf("anthropic-version", "anthropic-beta")
+        /** What the Messages API sets on every request itself: the key in `x-api-key`, its version and betas. */
+        public val WIRE: WireHeaders = WireHeaders("x-api-key", setOf("anthropic-version", "anthropic-beta"))
     }
 }
+
+/** The media kinds that the Messages API carries here. */
+private val SENDS = setOf(MediaKind.IMAGE)

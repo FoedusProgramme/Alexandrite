@@ -137,7 +137,7 @@ public class ToolCallCheck @InternalAlexandriteApi constructor(
     public val definition: ToolDefinition,
     /** The call's effective risk. */
     public val risk: ToolRisk,
-    /** Why a human must approve the call, null when the permission mode decides. */
+    /** Why the call needs an approval, which the judge or a person gives, null when the permission mode decides. */
     public val requireApproval: String? = null,
 ) : TurnScoped {
     init {

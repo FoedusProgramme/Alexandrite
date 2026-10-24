@@ -5,13 +5,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runInterruptible
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import org.unitedsoftware.alexandrite.internal.path.expandHome
@@ -86,7 +83,7 @@ internal fun HardFloor.readRoot(path: Path, context: ToolContext): ReadRoot =
     when (val check = checkRead(path, context.turn.agent, context.turn.rootConversation)) {
         is FloorCheck.Allowed -> ReadRoot(check.canonical, false)
         is FloorCheck.Ask -> ReadRoot(check.canonical, true)
-        is FloorCheck.Denied -> throw ToolRefusal("$path is protected (${check.reason}): no file tool may read it.")
+        else -> throw ToolRefusal("$path is protected (${check.denial}): no file tool may read it.")
     }
 
 /** A canonical path that a read starts at, [asked] when a person allowed it as the floor asks one. */
@@ -133,31 +130,6 @@ internal fun checkRegular(file: Path, shown: Path, attributes: BasicFileAttribut
     }
 }
 
-internal fun JsonObject.string(name: String): String? {
-    val value = this[name]
-    if (value == null || value == JsonNull) return null
-    return (value as? JsonPrimitive)?.takeIf { it.isString }?.content
-        ?: throw ToolRefusal("'$name' must be a string.")
-}
-
-internal fun JsonObject.requiredString(name: String): String =
-    string(name)?.takeIf { it.isNotEmpty() } ?: throw ToolRefusal("Give '$name' as a non-empty string.")
-
-internal fun JsonObject.boolean(name: String): Boolean = when (val value = this[name]) {
-    null, JsonNull -> false
-
-    else -> (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
-        ?: throw ToolRefusal("'$name' must be true or false.")
-}
-
-/** The whole number [name] of at least 1, null when it is not given. */
-internal fun JsonObject.count(name: String): Int? = when (val value = this[name]) {
-    null, JsonNull -> null
-
-    else -> (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it >= 1 }
-        ?: throw ToolRefusal("'$name' must be a whole number of at least 1.")
-}
-
 /** A JSON Schema object of [properties], of which [required] must be given. */
 internal fun schema(vararg required: String, properties: JsonObjectBuilder.() -> Unit): JsonObject = buildJsonObject {
     put("type", "object")
@@ -172,3 +144,7 @@ internal fun JsonObjectBuilder.property(name: String, type: String, description:
         put("description", description)
     }
 }
+
+/** Why the floor refused, as [FloorCheck.Denied] says, or that it decided as this version does not know. */
+internal val FloorCheck.denial: String
+    get() = (this as? FloorCheck.Denied)?.reason ?: "a decision of the floor that this version does not know"

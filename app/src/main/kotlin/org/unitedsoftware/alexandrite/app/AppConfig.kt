@@ -2,10 +2,30 @@ package org.unitedsoftware.alexandrite.app
 
 import kotlinx.serialization.Serializable
 import org.unitedsoftware.alexandrite.internal.time.zoneOrNull
+import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.config.ConfigSection
 import org.unitedsoftware.alexandrite.sdk.plugin.PluginIds
 import java.time.ZoneId
+
+/** The root of the app's own section in the config file. */
+internal const val APP_ROOT = "app"
+
+/** The built-in plugins with those that [names] name, and why each named one that cannot load does not. */
+internal class AppPlugins(val set: PluginSet, val problems: List<String>)
+
+internal fun appPlugins(names: List<String>): AppPlugins {
+    val problems = mutableListOf<String>()
+    val set = names.fold(PluginSet.builtIn()) { set, id ->
+        try {
+            set.named(id)
+        } catch (e: IllegalArgumentException) {
+            problems += "Cannot load the plugin '$id' that '$APP_ROOT.plugins' names: ${e.message}"
+            set
+        }
+    }
+    return AppPlugins(set, problems)
+}
 
 @ConfigSection
 @Serializable

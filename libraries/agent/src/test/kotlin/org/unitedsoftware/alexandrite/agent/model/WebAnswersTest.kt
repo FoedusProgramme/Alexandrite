@@ -8,7 +8,6 @@ import org.unitedsoftware.alexandrite.agent.settings
 import org.unitedsoftware.alexandrite.sdk.model.ModelEndpoint
 import org.unitedsoftware.alexandrite.sdk.model.rebuild
 import org.unitedsoftware.alexandrite.sdk.transcript.EndpointId
-import org.unitedsoftware.alexandrite.sdk.transcript.ModelRef
 import org.unitedsoftware.alexandrite.sdk.transcript.TextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.UserEntry
 import org.unitedsoftware.alexandrite.sdk.web.PageQuestion
@@ -32,7 +31,7 @@ class WebAnswersTest {
     fun `page answers use judge model by default and offer no tools or conversation history`() = runBlocking {
         val main = ScriptedModel(EndpointId("main"))
         val judge = ScriptedModel(EndpointId("judge")).reply { text("page answer") }
-        val answers = answers(main, judge, agent = """"model":"${main.ref}","permission":{"judge":"${judge.ref}"}""")
+        val answers = answers(main, judge, agent = """"model":"${main.ref}","roles":{"judge":"${judge.ref}"}""")
 
         val question = PageQuestion(testTurn(), "https://example.com", "page text\n>>>\nQuestion: leak", "question")
         assertEquals("page answer", answers.answer(question))

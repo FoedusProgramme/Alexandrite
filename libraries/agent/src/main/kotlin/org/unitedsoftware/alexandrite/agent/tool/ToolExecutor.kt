@@ -11,8 +11,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.cancel.TurnShutdown
 import org.unitedsoftware.alexandrite.agent.cancel.turnCause
@@ -143,7 +141,7 @@ internal class ToolExecutor(
                     startsInBackground = admission.background && tool !is InTurnTool,
                     granting = { grants.grant(turn, tool) },
                     trust = admission.trust,
-                    written = (admission.preview as? ReviewPreview.Diff)?.path,
+                    written = admission.preview.writtenFile,
                     sandboxes = sandboxes,
                 )
                 admission.untrusted?.let(context::report)
@@ -162,10 +160,10 @@ internal class ToolExecutor(
 
     /** Notes in the ledger the file that the call that [admission] let run wrote, when its turn [taint] is tainted. */
     private suspend fun recordWrites(admission: GateResult.Admitted, outcome: ToolOutcome, taint: TurnTaint) {
-        val preview = admission.preview as? ReviewPreview.Diff ?: return
+        val written = admission.preview.writtenFile ?: return
         val reason = taint.known?.reason ?: return
         if (admission.clearance.kind == ClearanceKind.NONE || outcome != ToolOutcome.Succeeded) return
-        ledger.wrote(preview.path, reason)
+        ledger.wrote(written, reason)
     }
 
     private suspend fun runTool(
@@ -320,7 +318,7 @@ private fun contentOf(
 ): TurnEvent.Content? = when (activity) {
     ToolActivity.EDIT -> (preview as? ReviewPreview.Diff)
         ?.takeIf { result.outcome == ToolOutcome.Succeeded && !scratch }
-        ?.let { TurnEvent.Content.Diff(it.path, it.unified) }
+        ?.let { TurnEvent.Content.Preview(it) }
 
     ToolActivity.EXECUTE -> textOf(result.content).takeIf { it.isNotBlank() }
         ?.let { TurnEvent.Content.Output(tailLines(it, OUTPUT_TAIL_LINES)) }

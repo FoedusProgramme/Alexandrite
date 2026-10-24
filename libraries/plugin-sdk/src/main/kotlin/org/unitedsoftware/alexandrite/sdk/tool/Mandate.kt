@@ -1,4 +1,4 @@
-package org.unitedsoftware.alexandrite.sdk.turn
+package org.unitedsoftware.alexandrite.sdk.tool
 
 import kotlinx.serialization.Serializable
 

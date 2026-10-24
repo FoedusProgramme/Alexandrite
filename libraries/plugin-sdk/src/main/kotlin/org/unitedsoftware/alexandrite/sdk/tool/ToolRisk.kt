@@ -1,5 +1,7 @@
 package org.unitedsoftware.alexandrite.sdk.tool
 
+import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
+
 /** The kind of effect a tool call has; a `when` over it needs an `else` branch. */
 public enum class ToolRisk(
     /** Higher for a risk that the permission layer gates more often. */
@@ -20,7 +22,10 @@ public enum class ToolRisk(
     /** Actions on an external system. */
     EXTERNAL_ACTION(4),
 
-    /** Any file write the floor allows; `allowedit` runs it without asking. */
+    /**
+     * Any file write the floor allows; `allowedit` runs it without asking where the review's diff shows a file where
+     * the turn's writes may land, as [PermissionMode.ALLOW_EDIT] tells.
+     */
     WORKSPACE_WRITE(4),
 
     /** Program execution. */

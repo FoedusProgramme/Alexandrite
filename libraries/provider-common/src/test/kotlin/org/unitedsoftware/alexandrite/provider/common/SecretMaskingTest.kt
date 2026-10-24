@@ -45,23 +45,21 @@ class SecretMaskingTest {
         server.close()
     }
 
-    private fun settings(baseUrl: String, authHeader: String = "authorization", provider: Set<String> = emptySet()) =
-        EndpointSettings(
-            baseUrl = baseUrl,
-            apiKey = Secret(FIXTURE_API_KEY),
-            headers = mapOf("X-Team" to Secret(TEAM)),
-            models = mapOf("m" to ModelConfig()),
-            discover = false,
-            timeouts = FIXTURE_TIMEOUTS,
-            authHeader = authHeader,
-            providerHeaders = provider,
-        )
+    private fun settings(baseUrl: String, wire: WireHeaders = WireHeaders.BEARER) = EndpointSettings(
+        baseUrl = baseUrl,
+        apiKey = Secret(FIXTURE_API_KEY),
+        headers = mapOf("X-Team" to Secret(TEAM)),
+        models = mapOf("m" to ModelConfig()),
+        discover = false,
+        timeouts = FIXTURE_TIMEOUTS,
+        wire = wire,
+    )
 
     private fun chat() = ChatEndpoint(EndpointId("test"), settings("${server.baseUrl}/v1"), ChatFlavor.STANDARD)
 
     private fun messages() = MessagesEndpoint(
         EndpointId("test"),
-        settings(server.baseUrl, MessagesEndpoint.AUTH_HEADER, MessagesEndpoint.PROVIDER_HEADERS),
+        settings(server.baseUrl, MessagesEndpoint.WIRE),
         MessagesFlavor.STANDARD,
     )
 

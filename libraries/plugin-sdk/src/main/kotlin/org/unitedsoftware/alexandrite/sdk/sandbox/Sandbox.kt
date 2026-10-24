@@ -39,10 +39,11 @@ public interface NetworkLease : AutoCloseable {
     override fun close()
 }
 
-/** That a call runs inside the sandbox [environment] within [boundary], asking to reach [hosts] beside the allowed. */
+/** That a call runs inside the sandbox [environmentName] within [boundary], asking to reach [hosts] beside the allowed. */
 @Poko
 public class Contained private constructor(
-    public val environment: String,
+    /** The [ExecutionEnvironment.name] of the sandbox. */
+    public val environmentName: String,
     /** As reviewed, whose network opens when the call runs. */
     public val boundary: Boundary,
     /** Each as the call names it. */
@@ -50,9 +51,9 @@ public class Contained private constructor(
 ) {
     public companion object {
         public operator fun invoke(
-            environment: String,
+            environmentName: String,
             boundary: Boundary,
             hosts: List<String> = emptyList(),
-        ): Contained = Contained(environment, boundary, hosts.toList())
+        ): Contained = Contained(environmentName, boundary, hosts.toList())
     }
 }

@@ -17,10 +17,10 @@ import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
 import org.unitedsoftware.alexandrite.agent.tool.InTurnResult
 import org.unitedsoftware.alexandrite.agent.tool.InTurnTool
 import org.unitedsoftware.alexandrite.agent.tool.RenderedTool
-import org.unitedsoftware.alexandrite.agent.tool.flag
 import org.unitedsoftware.alexandrite.agent.tool.property
 import org.unitedsoftware.alexandrite.agent.tool.stringOrNull
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.booleanArgument
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.di.Contribute
@@ -71,7 +71,7 @@ internal class DelegateTool(
 
     override suspend fun call(arguments: JsonObject, context: AgentToolContext): InTurnResult {
         val background = try {
-            arguments.flag("background") ?: false
+            arguments.booleanArgument("background") ?: false
         } catch (e: ToolRefusal) {
             return problem(e.message)
         }

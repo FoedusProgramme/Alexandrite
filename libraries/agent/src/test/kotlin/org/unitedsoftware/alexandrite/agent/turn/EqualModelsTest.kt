@@ -7,6 +7,7 @@ import org.unitedsoftware.alexandrite.agent.blocking
 import org.unitedsoftware.alexandrite.agent.control.Choice
 import org.unitedsoftware.alexandrite.agent.control.SettingsStates
 import org.unitedsoftware.alexandrite.agent.execute
+import org.unitedsoftware.alexandrite.agent.model.LARGE_PROMPT_TOKENS
 import org.unitedsoftware.alexandrite.agent.model.crossedTo
 import org.unitedsoftware.alexandrite.runtime.chat.standaloneChatStates
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
@@ -153,6 +154,25 @@ class EqualModelsTest {
                 assertEquals("Hello", channel().reply(admission.ticket.turn).completed?.text, why)
                 assertEquals(switched(why), channel().sent.single().message.text, why)
                 assertEquals(0, run.main.remaining, why)
+            }
+        }
+    }
+
+    @Test
+    fun `a large request is sent at most twice to each model, a small one as often as its retries allow`() {
+        for (large in listOf(true, false)) {
+            val run = Run()
+            val sends = if (large) 2 else 4
+            repeat(sends) { run.main.fail(error(ModelErrorKind.TIMEOUT)) }
+            run.other.reply { text("Hello") }
+
+            run.harness(retries = 3).execute {
+                val text = if (large) "x".repeat(LARGE_PROMPT_TOKENS.toInt() * 4) else "Hi"
+                val admission = channel().receive(text, sender = channel().user("operator")) as Admission.Accepted
+
+                assertIs<TurnOutcome.Completed>(admission.ticket.outcome(), "large: $large")
+                assertEquals(sends, run.main.requests.size, "large: $large")
+                assertEquals(1, run.other.requests.size, "large: $large")
             }
         }
     }

@@ -1,10 +1,13 @@
 package org.unitedsoftware.alexandrite.runtime.config
 
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import org.unitedsoftware.alexandrite.sdk.InternalAlexandriteApi
 
 /** What the text of a config file may start with, which is no part of its JSON. */
-internal const val BYTE_ORDER_MARK: String = "﻿"
+internal const val BYTE_ORDER_MARK: String = "\uFEFF"
 
 /** The index after the JSON string literal that starts at [start] of [text]. */
 internal fun jsonStringEnd(text: String, start: Int): Int {
@@ -16,3 +19,11 @@ internal fun jsonStringEnd(text: String, start: Int): Int {
 /** The value at [keys], null when there is none. */
 internal fun JsonObject.at(keys: List<String>): JsonElement? =
     keys.fold(this as JsonElement?) { element, key -> (element as? JsonObject)?.get(key) }
+
+/** The object that a config file's [text] holds as written, null when it holds none. */
+@InternalAlexandriteApi
+public fun writtenConfig(text: String): JsonObject? = try {
+    Json.parseToJsonElement(text.removePrefix(BYTE_ORDER_MARK)) as? JsonObject
+} catch (e: SerializationException) {
+    null
+}

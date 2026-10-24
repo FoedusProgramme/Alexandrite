@@ -1,12 +1,12 @@
 package org.unitedsoftware.alexandrite.commands.support
 
-import org.unitedsoftware.alexandrite.sdk.chat.AgentSource
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.TurnInfo
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.permission.PermissionMode
+import org.unitedsoftware.alexandrite.sdk.turn.AgentSource
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettingsSnapshot
 import org.unitedsoftware.alexandrite.sdk.turn.CommandSpec
 import java.time.Duration
 import java.time.Instant
@@ -46,7 +46,7 @@ internal class Replies(private val texts: Texts, private val language: LanguageT
     fun mode(snapshot: ChatSettingsSnapshot): Setting = when {
         snapshot.mode != null -> Setting("${snapshot.mode}", text(TextKeys.SOURCE_CHAT))
         snapshot.defaultMode != null -> Setting("${snapshot.defaultMode}", text(TextKeys.SOURCE_AGENT))
-        else -> Setting("${PermissionMode.ASK}", text(TextKeys.SOURCE_DEFAULT))
+        else -> Setting("${snapshot.effectiveMode}", text(TextKeys.SOURCE_DEFAULT))
     }
 
     /** How long the chat's bypass of [snapshot] lasts after [now], null when the chat is in no bypass. */

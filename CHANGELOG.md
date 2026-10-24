@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0-alpha.2
+
+- Config keys with dots, like model names, are written in brackets: `models["gpt-6.1-sol"]`.
+- A model with an unknown context window is managed as if it had 128k tokens.
+- A large request, or an answer that breaks off, is retried once.
+- Proxies no longer count streamed answers as failed.
+- `alexandrite uninstall` also removes the PATH lines the install script added.
+
 ## 1.0.0-alpha.1
 
 - Publish every library module on Maven Central.

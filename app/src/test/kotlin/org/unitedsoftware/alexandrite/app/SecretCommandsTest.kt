@@ -2,6 +2,7 @@ package org.unitedsoftware.alexandrite.app
 
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.io.TempDir
+import org.unitedsoftware.alexandrite.runtime.config.EnvReferences
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
@@ -94,8 +95,8 @@ class SecretCommandsTest {
 
     @Test
     fun `a reference names its variable when it is the whole text, and is found anywhere in a text`() {
-        assertEquals("TOKEN", referencedVariable(envReference("TOKEN")))
-        assertEquals(null, referencedVariable("Bearer ${envReference("TOKEN")}"))
-        assertEquals(listOf("HOST", "TOKEN"), referencedVariables("https://\${env:HOST}/\${env:TOKEN}").toList())
+        assertEquals("TOKEN", EnvReferences.whole(EnvReferences.of("TOKEN")))
+        assertEquals(null, EnvReferences.whole("Bearer ${EnvReferences.of("TOKEN")}"))
+        assertEquals(listOf("HOST", "TOKEN"), EnvReferences.all("https://\${env:HOST}/\${env:TOKEN}").toList())
     }
 }

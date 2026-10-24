@@ -21,6 +21,8 @@ internal class ProviderKind(
     val anthropic: Boolean = false,
     /** The path of a request that only a valid key gets an answer to, where the models request needs none. */
     val keyPath: String? = null,
+    /** Whether its models request gives the context windows that its endpoints list. */
+    val listsWindows: Boolean = true,
 )
 
 /** The providers in the order `init` offers them. */
@@ -52,7 +54,15 @@ internal val PROVIDER_KINDS: List<ProviderKind> = listOf(
         false,
         anthropic = true,
     ),
-    ProviderKind("lmstudio", "lmstudio", "http://localhost:1234/v1", "/models", "LMSTUDIO_API_KEY", false),
+    ProviderKind(
+        "lmstudio",
+        "lmstudio",
+        "http://localhost:1234/v1",
+        "/models",
+        "LMSTUDIO_API_KEY",
+        false,
+        listsWindows = false,
+    ),
     ProviderKind(
         "openai-responses",
         "openai",

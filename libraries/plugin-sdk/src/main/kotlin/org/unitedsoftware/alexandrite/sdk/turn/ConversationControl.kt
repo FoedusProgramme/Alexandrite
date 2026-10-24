@@ -62,7 +62,7 @@ public interface ConversationControl {
 
 /** The conversation of [agent] in a chat whose mark [ConversationControl.untaint] cleared. */
 @Poko
-public class UntaintedConversation(
+public class UntaintedConversation @InternalAlexandriteApi constructor(
     public val agent: AgentId,
     /** The mark it had. */
     public val taint: ConversationTaint,
@@ -70,7 +70,7 @@ public class UntaintedConversation(
 
 /** What a compaction folded into the rolling summary. */
 @Poko
-public class CompactionReport(
+public class CompactionReport @InternalAlexandriteApi constructor(
     /** The stored entries that the compaction folded into the summary. */
     public val folded: Int,
     /** The prompt tokens before the compaction, as the agent estimates them. */
@@ -79,9 +79,9 @@ public class CompactionReport(
     public val tokensAfter: Long,
 )
 
-/** How much of its model's context window a conversation takes. */
+/** How much of its model's context window a conversation takes, as the agent reports it. */
 @Poko
-public class ContextStatus(
+public class ContextStatus @InternalAlexandriteApi constructor(
     public val conversation: ConversationId,
     /** The model the conversation's turns call now, null when its agent has none. */
     public val model: ModelRef?,
@@ -89,7 +89,7 @@ public class ContextStatus(
     public val promptTokens: Long?,
     /** When [promptTokens] was counted. */
     public val measuredAt: Instant?,
-    /** Null when the model's window is unknown. */
+    /** The context window the conversation is kept within, null without a [model]. */
     public val window: Int?,
     /** The prompt tokens from which the conversation is compacted, null without a [window]. */
     public val trigger: Long?,
@@ -99,4 +99,6 @@ public class ContextStatus(
     public val compactedAt: Instant?,
     /** The stored entries that the conversation's summary stands in for. */
     public val summarized: Int,
+    /** Whether [window] is assumed, as the model's endpoint gives none. */
+    public val windowAssumed: Boolean = false,
 )

@@ -17,6 +17,7 @@ import org.unitedsoftware.alexandrite.provider.common.resultHeading
 import org.unitedsoftware.alexandrite.sdk.model.ModelInfo
 import org.unitedsoftware.alexandrite.sdk.model.ModelRequest
 import org.unitedsoftware.alexandrite.sdk.model.Warning
+import org.unitedsoftware.alexandrite.sdk.model.WarningKind
 import org.unitedsoftware.alexandrite.sdk.transcript.AssistantEntry
 import org.unitedsoftware.alexandrite.sdk.transcript.ContextPart
 import org.unitedsoftware.alexandrite.sdk.transcript.InlineMedia
@@ -107,12 +108,12 @@ internal class ChatRequest(
         val parallel = request.options.parallelToolCalls ?: return
         when {
             parallel && !info.parallelToolCalls ->
-                warnings += Warning("unsupported_option", "Model '${info.id}' calls no tools in parallel.")
+                warnings += Warning(WarningKind.UNSUPPORTED_OPTION, "Model '${info.id}' calls no tools in parallel.")
 
             flavor.tools.acceptsParallelToolCalls -> put("parallel_tool_calls", parallel)
 
             !parallel -> warnings += Warning(
-                "unsupported_option",
+                WarningKind.UNSUPPORTED_OPTION,
                 "The backend of model '${info.id}' cannot keep it from calling tools in parallel.",
             )
         }
@@ -164,7 +165,8 @@ internal class ChatRequest(
             )
             return Content.Text(placeholder(part, "it is in no format the model takes"))
         }
-        warnings += Warning("unsupported_media", "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
+        warnings +=
+            Warning(WarningKind.UNSUPPORTED_MEDIA, "Model '${info.id}' cannot take ${part.kind} ${part.mediaType}.")
         return Content.Text(placeholder(part, "the model cannot take it"))
     }
 

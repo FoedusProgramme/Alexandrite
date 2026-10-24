@@ -29,8 +29,6 @@ internal class CompactionConfig(
     /** The newest turns before the running one that a compaction keeps verbatim. */
     val keepTurns: Int = 2,
     val maxSummaryTokens: Int = 4000,
-    /** `<endpoint>/<model>` of the summarizer, the turn's model when null. */
-    val model: String? = null,
 )
 
 /** A prompt size: a fraction of the model's context window, a number of tokens, or none. */

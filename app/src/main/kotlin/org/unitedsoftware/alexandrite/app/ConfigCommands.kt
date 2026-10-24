@@ -15,17 +15,22 @@ import kotlinx.serialization.json.put
 import org.unitedsoftware.alexandrite.app.control.ConfigChangeView
 import org.unitedsoftware.alexandrite.app.control.ControlReply
 import org.unitedsoftware.alexandrite.app.control.ControlRequest
-import org.unitedsoftware.alexandrite.provider.common.apiPathIn
+import org.unitedsoftware.alexandrite.internal.path.hasPosixPermissions
 import org.unitedsoftware.alexandrite.runtime.ConfigFile
 import org.unitedsoftware.alexandrite.runtime.ConfigFileException
 import org.unitedsoftware.alexandrite.runtime.config.HostConfigFile
 import org.unitedsoftware.alexandrite.runtime.config.referencedSecrets
 import org.unitedsoftware.alexandrite.runtime.config.splicedConfig
+import org.unitedsoftware.alexandrite.runtime.config.writtenConfig
 import org.unitedsoftware.alexandrite.runtime.configProblems
+import org.unitedsoftware.alexandrite.runtime.decodeSection
 import org.unitedsoftware.alexandrite.runtime.plugin.PluginSet
 import org.unitedsoftware.alexandrite.sdk.config.ConfigChanges
 import org.unitedsoftware.alexandrite.sdk.config.ConfigEditException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigException
+import org.unitedsoftware.alexandrite.sdk.config.ConfigPath
 import org.unitedsoftware.alexandrite.sdk.config.HostConfig
+import org.unitedsoftware.alexandrite.sdk.config.JsonConfigSource
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -53,8 +58,16 @@ internal fun valueOf(text: String): JsonElement {
 }
 
 internal fun requireKey(key: String): String {
-    if (key.split('.').any(String::isEmpty)) throw UsageException("usage.no_key", "key" to key)
+    keyProblem(key)?.let { throw UsageException("usage.no_key", "key" to key, "reason" to it) }
     return key
+}
+
+/** What is malformed in the config path [key], null when nothing is. */
+internal fun keyProblem(key: String): String? = try {
+    ConfigPath.parse(key)
+    null
+} catch (e: IllegalArgumentException) {
+    e.message?.removeSuffix(".")
 }
 
 /** Tells the person how a written change came out, and returns the exit code. */
@@ -78,7 +91,7 @@ internal fun writeChanges(cli: Cli, changes: List<ConfigChangeView>): Written? {
     val spliced = previous?.let {
         try {
             changes.filterNot { it.remove }.fold(it) { text, change ->
-                splicedConfig(text, change.path.split('.'), change.value)
+                splicedConfig(text, ConfigPath.parse(change.path), change.value)
             }
         } catch (e: IllegalArgumentException) {
             null
@@ -238,21 +251,35 @@ internal fun localConfig(cli: Cli): HostConfig = HostConfigFile(
     "alexandrite",
 )
 
-/** The plugins the app runs with the config file as it is. */
+/**
+ * The app's section of the config file read with its secrets apart from the other sections, whose values may refer to
+ * variables this shell does not set, null when the file or the section cannot be read.
+ */
+internal fun appConfig(cli: Cli): AppConfig? = try {
+    val file = cli.locations.configFile
+    val written = writtenConfig(Files.readString(file))
+    val section = written?.get(APP_ROOT) ?: JsonObject(emptyMap())
+    if (written == null || section !is JsonObject) {
+        null
+    } else {
+        val environment = withSecrets(cli.environment, cli.secrets)
+        JsonConfigSource(ConfigFile.resolve(JsonObject(mapOf(APP_ROOT to section)), environment, "$file"))
+            .decodeSection(APP_ROOT, AppConfig.serializer())
+    }
+} catch (e: IOException) {
+    null
+} catch (e: ConfigException) {
+    null
+}
+
+/**
+ * The plugins the app runs with the config file as it is, warning on the error stream, which leaves a command's output
+ * as it is, about each named one that cannot load.
+ */
 internal fun plugins(cli: Cli): PluginSet {
-    val named = try {
-        val raw = writtenConfig(Files.readString(cli.locations.configFile))
-        (raw?.at("app.plugins") as? JsonArray)?.mapNotNull { it.text }.orEmpty()
-    } catch (e: IOException) {
-        emptyList()
-    }
-    return named.fold(PluginSet.builtIn()) { set, id ->
-        try {
-            set.named(id)
-        } catch (e: IllegalArgumentException) {
-            set
-        }
-    }
+    val loaded = appPlugins(appConfig(cli)?.plugins.orEmpty())
+    loaded.problems.forEach { cli.err.println("alexandrite: $it") }
+    return loaded.set
 }
 
 internal fun configGet(cli: Cli, key: String?, json: Boolean): Int {
@@ -265,7 +292,10 @@ internal fun configGet(cli: Cli, key: String?, json: Boolean): Int {
 
 /** The problems of the config file read with [environment], empty when it passes. */
 internal fun configFileProblems(cli: Cli, environment: Map<String, String>): List<String> = try {
-    configProblems(plugins(cli), ConfigFile.read(cli.locations.configFile, environment)).map { it.message }
+    val loaded = appPlugins(appConfig(cli)?.plugins.orEmpty())
+    loaded.problems + configProblems(loaded.set, ConfigFile.read(cli.locations.configFile, environment)).map {
+        it.message
+    }
 } catch (e: ConfigFileException) {
     listOf(e.message.orEmpty())
 }
@@ -365,7 +395,7 @@ internal fun configEdit(cli: Cli, report: Report): Int {
 
 private fun editableCopy(file: Path, text: String): Path {
     val directory = file.toAbsolutePath().parent
-    val copy = if ("posix" in directory.fileSystem.supportedFileAttributeViews()) {
+    val copy = if (hasPosixPermissions(directory)) {
         val owner = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))
         Files.createTempFile(directory, ".${file.fileName}.", ".edit.json", owner)
     } else {
@@ -374,3 +404,11 @@ private fun editableCopy(file: Path, text: String): Path {
     Files.writeString(copy, text)
     return copy
 }
+
+/** The path of a wire API that [baseUrl] ends with, null when there is none. */
+internal fun apiPathIn(baseUrl: String): String? {
+    val base = baseUrl.trimEnd('/')
+    return API_PATHS.firstOrNull { base.endsWith(it, ignoreCase = true) }
+}
+
+private val API_PATHS = listOf("/v1/messages", "/chat/completions", "/responses", "/messages")

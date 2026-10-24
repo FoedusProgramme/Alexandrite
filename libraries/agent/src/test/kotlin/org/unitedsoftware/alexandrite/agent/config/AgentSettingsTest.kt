@@ -74,20 +74,20 @@ class AgentSettingsTest {
     fun `an agent compacts from 95 percent of the window down to 20, and clears tool results from 60`() {
         val defaults = settings(agents(""""coder": {"description": "Codes."}""")).agents.getValue("coder").compaction
         val compaction = """{"trigger": 150000, "target": 0.1, "clearAt": "off", "clearAtLeast": 2000, """ +
-            """"keepToolRounds": 3, "keepTurns": 1, "maxSummaryTokens": 2000, "model": "scripted/fast"}"""
+            """"keepToolRounds": 3, "keepTurns": 1, "maxSummaryTokens": 2000}"""
         val set = settings(agents(""""coder": {"description": "Codes.", "compaction": $compaction}"""))
             .agents.getValue("coder").compaction
 
         assertEquals(listOf(190_000L, 40_000L, 120_000L, 10_000L), defaults.limits(200_000).values())
         assertEquals(
-            listOf(5, 2, 4000, null),
-            listOf(defaults.keepToolRounds, defaults.keepTurns, defaults.maxSummaryTokens, defaults.model),
+            listOf(5, 2, 4000),
+            listOf(defaults.keepToolRounds, defaults.keepTurns, defaults.maxSummaryTokens),
         )
         assertEquals(listOf(150_000L, 20_000L, null, 2000L), set.limits(200_000).values())
         assertEquals(listOf(100_000L, 10_000L, null, 2000L), set.limits(100_000).values())
         assertEquals(
-            listOf(3, 1, 2000, "scripted/fast"),
-            listOf(set.keepToolRounds, set.keepTurns, set.maxSummaryTokens, set.model),
+            listOf(3, 1, 2000),
+            listOf(set.keepToolRounds, set.keepTurns, set.maxSummaryTokens),
         )
     }
 
@@ -118,8 +118,6 @@ class AgentSettingsTest {
             """{"keepToolRounds": -1}""" to "keepToolRounds may not be negative",
             """{"keepTurns": -1}""" to "keepTurns may not be negative",
             """{"maxSummaryTokens": 0}""" to "maxSummaryTokens must be positive",
-            """{"model": "fast"}""" to
-                "model is no model reference: write <endpoint>/<model>, such as \"anthropic/claude-sonnet-5-5\"",
         )
 
         for ((compaction, message) in cases) {
@@ -261,8 +259,8 @@ class AgentSettingsTest {
     @Test
     fun `a judge that is no model reference or a judge timeout or length that is not positive fails the start`() {
         assertConfigFails(
-            agents(""""coder": {"permission": {"judge": "haiku"}}"""),
-            "agents.coder.permission.judge is no model reference: write <endpoint>/<model>, such as " +
+            agents(""""coder": {"roles": {"judge": "haiku"}}"""),
+            "agents.coder.roles.judge is no model reference: write <endpoint>/<model>, such as " +
                 "\"anthropic/claude-haiku-5-5\"",
         )
         assertConfigFails(
@@ -273,6 +271,30 @@ class AgentSettingsTest {
             agents(""""coder": {"permission": {"judgeMaxChars": 0}}"""),
             "agents.coder.permission.judgeMaxChars must be positive",
         )
+    }
+
+    @Test
+    fun `a role that is no model reference, a media value that is none of the four, or a reader-less delegate fails`() {
+        for (role in listOf("judge", "summary", "web", "image", "audio", "video", "file")) {
+            assertConfigFails(
+                agents(""""coder": {"roles": {"$role": "haiku"}}"""),
+                "agents.coder.roles.$role is no model reference: write <endpoint>/<model>, such as " +
+                    "\"anthropic/claude-haiku-5-5\"",
+            )
+        }
+        for (kind in listOf("image", "audio", "video", "file")) {
+            assertConfigFails(
+                agents(""""coder": {"media": {"$kind": "sometimes"}}"""),
+                "agents.coder.media.$kind must be one of auto, native, delegate, off",
+            )
+        }
+        assertConfigFails(
+            agents(""""coder": {"media": {"image": "delegate"}}"""),
+            "agents.coder.media.image is ***, which needs a reader: set agents.coder.roles.image",
+        )
+        val delegated =
+            """"coder": {"description": "Codes.", "media": {"image": "delegate"}, "roles": {"image": "haiku/model"}}"""
+        agentHarness(agents(delegated)).execute {}
     }
 
     @Test

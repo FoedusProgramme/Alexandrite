@@ -34,7 +34,9 @@ Each chat has a mode per agent, set with `/mode <mode>` by an operator; a chat t
 - `plan`: no gated call runs; describe the exact call you would make and why.
 - `manual`: a person is asked about every gated call; allow rules do not apply.
 - `ask` (the default): allow rules first, then a person.
-- `allowedit`: file writes that the floor allows run (not writes to instruction places), the rest as in `ask`.
+- `allowedit`: file writes run where the turn's writes may land (the workspace, the conversation's directory, trusted
+  folders, the temp directory and a sandboxed agent's `allowWrite` paths), not writes to instruction places; the rest
+  as in `ask`.
 - `auto`: allow rules, then the judge, then a person when the judge asks.
 - `bypass`: every gated call runs, for a limited time: `/mode bypass 2h`, one hour by default, 24 hours at most, after
   which the agent's default mode applies.
@@ -70,7 +72,7 @@ decides.
 
 ## The judge
 
-In `auto`, a side model judges each gated call that no rule allows: `agent.agents.<id>.permission.judge`
+In `auto`, a side model judges each gated call that no rule allows: `agent.agents.<id>.roles.judge`
 (`<endpoint>/<model>`, the agent's own model when unset), waiting `judgeTimeoutSeconds` (20). It sees only the call,
 what the operator wrote in the turn and the taint, and answers allow, deny or ask; ask goes to a person. It never allows
 writes to the config, secrets, persona or skills, and an opaque program of a tainted conversation goes straight to a
@@ -80,7 +82,8 @@ person.
 
 An approval request shows the call, its preview (a diff, the command and its working directory, the sandbox, the hosts
 it asks for), why it was asked and, in a tainted conversation, where the taint came from. On Telegram it is posted in
-the chat for an operator's turn and in the admins' direct chats otherwise, and waits
+the chat for an operator's turn and in the admins' direct chats otherwise; a turn of no chat, such as a heartbeat,
+asks through the channel of its agent's first attachment. It waits
 `channels.telegram.instances.<name>.approvalMinutes` (10); only admins can answer. It has at most three buttons: Allow
 ("Allow, mark tainted" when the call would taint), Deny, and one of "Always allow 〈rule〉", "Allow and trust 〈root〉",
 "Always allow and trust 〈root〉" or "Allow, keep clean" (see alexandrite-agent/taint-and-trust). A person who writes in

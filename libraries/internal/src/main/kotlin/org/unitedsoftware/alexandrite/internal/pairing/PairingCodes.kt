@@ -109,12 +109,7 @@ public class PairingCodes<K : Any, P : Any>(
         codes.remove(code)?.let { owned.remove(it.purpose to it.owner) }
     }
 
-    /** 40 random bits as 8 code characters. */
-    private fun draw(): String {
-        val bytes = ByteArray(5).also(random::nextBytes)
-        val bits = bytes.fold(0L) { value, byte -> (value shl 8) or (byte.toLong() and 0xFF) }
-        return String(CharArray(LENGTH) { index -> ALPHABET[(bits shr (LENGTH - 1 - index) * 5).toInt() and 31] })
-    }
+    private fun draw(): String = drawCode(random)
 
     private class Live<K, P>(val purpose: String, val owner: K, val payload: P, val expiresAt: Instant)
 
@@ -128,23 +123,48 @@ public class PairingCodes<K : Any, P : Any>(
     }
 }
 
+/** A new code as people read it, two groups of four characters such as `7K3M-Q9TD`. */
+public fun newPairingCode(): String {
+    val code = drawCode(SecureRandom())
+    return "${code.take(PairingCodes.GROUP)}-${code.drop(PairingCodes.GROUP)}"
+}
+
 /** Whether [input] holds the eight characters of a code, however it is written. */
 public fun isPairingCode(input: String): Boolean = normalize(input) != null
 
+/** Whether [text] holds the code [code], however either is written and whatever separates its characters. */
+public fun holdsPairingCode(text: String, code: String): Boolean = alphanumeric(code) in alphanumeric(text)
+
+/** The code characters of [text] without anything but ASCII letters and digits. */
+private fun alphanumeric(text: String): String = codeCharacters(text).filter { it in 'A'..'Z' || it in '0'..'9' }
+
+/** 40 random bits from [random] as 8 code characters. */
+private fun drawCode(random: SecureRandom): String {
+    val bytes = ByteArray(5).also(random::nextBytes)
+    val bits = bytes.fold(0L) { value, byte -> (value shl 8) or (byte.toLong() and 0xFF) }
+    val length = PairingCodes.LENGTH
+    return String(
+        CharArray(length) { index ->
+            PairingCodes.ALPHABET[(bits shr (length - 1 - index) * 5).toInt() and 31]
+        },
+    )
+}
+
 /** The code characters of [input], null when it holds no code. */
-private fun normalize(input: String): String? {
-    val code = StringBuilder()
-    for (char in input.trim()) {
+private fun normalize(input: String): String? = codeCharacters(input.trim()).takeIf { text ->
+    text.length == PairingCodes.LENGTH && text.all { it in PairingCodes.ALPHABET }
+}
+
+/** [text] as code characters: without dashes and spaces, upper case, and the letters that read as digits as those. */
+private fun codeCharacters(text: String): String = buildString {
+    for (char in text) {
         when (char) {
             '-', ' ' -> {}
-            'I', 'i', 'L', 'l' -> code.append('1')
-            'O', 'o' -> code.append('0')
-            in 'a'..'z' -> code.append(char.uppercaseChar())
-            else -> code.append(char)
+            'I', 'i', 'L', 'l' -> append('1')
+            'O', 'o' -> append('0')
+            in 'a'..'z' -> append(char.uppercaseChar())
+            else -> append(char)
         }
-    }
-    return code.toString().takeIf { text ->
-        text.length == PairingCodes.LENGTH && text.all { it in PairingCodes.ALPHABET }
     }
 }
 

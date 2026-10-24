@@ -13,17 +13,18 @@ import kotlinx.serialization.json.putJsonObject
 import org.slf4j.LoggerFactory
 import org.unitedsoftware.alexandrite.agent.permission.Principal
 import org.unitedsoftware.alexandrite.agent.permission.askedPlace
+import org.unitedsoftware.alexandrite.agent.permission.denial
 import org.unitedsoftware.alexandrite.agent.tool.AgentToolContext
 import org.unitedsoftware.alexandrite.agent.tool.CompanionTool
-import org.unitedsoftware.alexandrite.agent.tool.flag
 import org.unitedsoftware.alexandrite.agent.tool.property
 import org.unitedsoftware.alexandrite.agent.tool.review
-import org.unitedsoftware.alexandrite.agent.tool.text
 import org.unitedsoftware.alexandrite.internal.hash.sha256Hex
 import org.unitedsoftware.alexandrite.internal.path.expandHome
 import org.unitedsoftware.alexandrite.internal.path.hardLinks
 import org.unitedsoftware.alexandrite.internal.path.openRegularFile
 import org.unitedsoftware.alexandrite.internal.tool.ToolRefusal
+import org.unitedsoftware.alexandrite.internal.tool.booleanArgument
+import org.unitedsoftware.alexandrite.internal.tool.stringArgument
 import org.unitedsoftware.alexandrite.sdk.channel.Channel
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelCapabilities
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelDirectory
@@ -154,10 +155,10 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
 
     /** What the call asks for. */
     private suspend fun requested(arguments: JsonObject, context: ToolContext): Request {
-        val path = arguments.text("path")?.takeIf { it.isNotEmpty() }
+        val path = arguments.stringArgument("path")?.takeIf { it.isNotEmpty() }
             ?: throw ToolRefusal("Give 'path', the file to send.")
-        val caption = arguments.text("caption")?.takeIf { it.isNotBlank() }
-        val asFile = arguments.flag("asFile") ?: false
+        val caption = arguments.stringArgument("caption")?.takeIf { it.isNotBlank() }
+        val asFile = arguments.booleanArgument("asFile") ?: false
         return Request(absolute(path, context), caption, asFile)
     }
 
@@ -170,8 +171,8 @@ internal class SendFileTool(private val floor: HardFloor, private val channels: 
 
             is FloorCheck.Ask -> check.canonical.also { person = askedPlace(path, check) }
 
-            is FloorCheck.Denied ->
-                throw ToolRefusal("$path is protected (${check.reason}): no file of it may be sent.", blocked = true)
+            else ->
+                throw ToolRefusal("$path is protected (${check.denial}): no file of it may be sent.", blocked = true)
         }
         val attributes = runInterruptible(Dispatchers.IO) {
             Files.readAttributes(file, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)

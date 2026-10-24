@@ -9,6 +9,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.TurnKind
 import org.unitedsoftware.alexandrite.sdk.di.PluginLocal
 import org.unitedsoftware.alexandrite.sdk.model.Trust
+import org.unitedsoftware.alexandrite.sdk.tool.Mandate
 
 /** Starts turns that are not user input in the plugin's name, which carry no user's authority. */
 @PluginLocal
@@ -79,18 +80,14 @@ public class InitiatedTurn private constructor(
         .mandate(mandate)
 
     public class Builder internal constructor(
-        private var chat: ChatAddress,
-        private var agent: AgentId?,
+        private val chat: ChatAddress,
+        private val agent: AgentId?,
         private var kind: TurnKind,
         private var prompt: String,
     ) {
         private var trust: Trust = Trust.UNTRUSTED
         private var route: ReplyRoute = ReplyRoute.None
         private var mandate: Mandate? = null
-
-        public fun chat(chat: ChatAddress): Builder = apply { this.chat = chat }
-
-        public fun agent(agent: AgentId?): Builder = apply { this.agent = agent }
 
         public fun kind(kind: TurnKind): Builder = apply { this.kind = kind }
 

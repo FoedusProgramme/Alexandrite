@@ -7,7 +7,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
@@ -17,6 +16,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import org.unitedsoftware.alexandrite.internal.process.destroyTree
+import org.unitedsoftware.alexandrite.internal.process.stopAll
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -27,7 +27,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /** How to start a stdio server. */
@@ -157,10 +156,7 @@ internal class McpStdioConnection private constructor(
             }
             val exited = withTimeoutOrNull(stopGrace) { process.onExit().await() } != null
             if (!exited) destroyTree(process, stopGrace)
-            val left = family.filter { it.isAlive }
-            left.forEach { stop(it, forcibly = false) }
-            withTimeoutOrNull(stopGrace) { while (left.any { it.isAlive }) delay(POLL) }
-            left.filter { it.isAlive }.forEach { stop(it, forcibly = true) }
+            stopAll(family, stopGrace)
             finish(McpConnectionException("The connection was closed."))
             scope.cancel()
         }
@@ -223,7 +219,6 @@ internal class McpStdioConnection private constructor(
 
         private const val INVALID_QUOTE = 200
         private val EXIT_WAIT = 1.seconds
-        private val POLL = 10.milliseconds
         private val DEFAULT_GRACE = 2.seconds
 
         /**
@@ -254,16 +249,6 @@ internal class McpStdioConnection private constructor(
             }
             return McpStdioConnection(process, onStderr, onInvalid, stopGrace, launch.held).also { it.startReaders() }
         }
-    }
-}
-
-private fun stop(handle: ProcessHandle, forcibly: Boolean) {
-    try {
-        if (forcibly) handle.destroyForcibly() else handle.destroy()
-    } catch (e: IllegalStateException) {
-        // The handle is this process.
-    } catch (e: SecurityException) {
-        // Not allowed to signal it.
     }
 }
 

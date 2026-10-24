@@ -21,24 +21,28 @@ public class ModelFacts(
     public val price: ModelPrice? = null,
 )
 
-/** The model [id] as [configured], [listed] and [defaults] describe it, in that order, [listed] token limits first. */
+/**
+ * The model [id] as [configured], [listed] and [defaults] describe it, in that order, taking only the media kinds of
+ * [sends] that its wire API carries.
+ */
 internal fun modelInfo(
     id: String,
     dialect: Dialect,
     configured: ModelFacts?,
     listed: ModelFacts?,
     defaults: ModelFacts,
+    sends: Set<MediaKind>,
 ): ModelInfo {
     val sources = listOfNotNull(configured, listed, defaults)
     fun <T : Any> first(field: (ModelFacts) -> T?): T? = sources.firstNotNullOfOrNull(field)
     val nativeTools = first { it.nativeTools } ?: false
     return ModelInfo.builder(id, dialect)
         .displayName(first { it.displayName })
-        .contextWindow(listed?.contextWindow ?: configured?.contextWindow)
-        .maxOutputTokens(listed?.maxOutputTokens ?: configured?.maxOutputTokens)
+        .contextWindow(configured?.contextWindow ?: listed?.contextWindow)
+        .maxOutputTokens(configured?.maxOutputTokens ?: listed?.maxOutputTokens)
         .nativeTools(nativeTools)
         .parallelToolCalls(nativeTools && first { it.parallelToolCalls } == true)
-        .inputMedia(first { it.inputMedia }.orEmpty())
+        .inputMedia(first { it.inputMedia }.orEmpty() intersect sends)
         .reasoningEfforts(first { it.reasoningEfforts }.orEmpty())
         .streaming(true)
         .price(first { it.price })
