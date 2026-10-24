@@ -270,7 +270,8 @@ internal class OneBotChannel(
             return message.rebuild { replyTo(trigger) }
         }
 
-        override suspend fun abandon(end: ReplyEnd) {
+        @Suppress("UNUSED_PARAMETER")
+        override suspend fun abandon(end: ReplyEnd, vouched: Boolean) {
             logger.info(
                 "The turn of {} was abandoned: its {} waiting steps are told, and its reply closes",
                 request.turn.chat,

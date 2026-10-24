@@ -376,16 +376,14 @@ class QqBotChannelIntegrationTest {
                         assertTrue(platform.awaitConnection(), "the gateway was not connected")
                         val channel = get(directory).channel(instance) ?: error("the instance has no channel")
                         val chat = ChatAddress(instance, "private:u1")
-                        val request = ApprovalRequest(
+                        val request = ApprovalRequest.builder(
                             "req1",
                             testTurn(chat = chat),
                             "command.exec",
                             ToolRisk.EXEC,
                             "{}",
-                            null,
                             "it runs a command",
-                            emptyList(),
-                        )
+                        ).build()
                         val waiting = async(start = CoroutineStart.UNDISPATCHED) { channel.askApproval(request) }
                         assertTrue(sendReached.await(5, TimeUnit.SECONDS), "the approval message was not sent")
                         val shown = assertNotNull(api.awaitRequest(SEND_DIRECT))
@@ -429,16 +427,14 @@ class QqBotChannelIntegrationTest {
                         assertTrue(platform.awaitConnection(), "the gateway was not connected")
                         val channel = get(directory).channel(instance) ?: error("the instance has no channel")
                         val chat = ChatAddress(instance, "private:u1")
-                        val request = ApprovalRequest(
+                        val request = ApprovalRequest.builder(
                             "req1",
                             testTurn(chat = chat),
                             "command.exec",
                             ToolRisk.EXEC,
                             "{}",
-                            null,
                             "it runs a command",
-                            emptyList(),
-                        )
+                        ).build()
                         val waiting = async(start = CoroutineStart.UNDISPATCHED) { channel.askApproval(request) }
                         assertNotNull(api.awaitRequest(SEND_DIRECT))
                         platform.push(APPROVAL_DENY)

@@ -23,13 +23,13 @@ import org.unitedsoftware.alexandrite.sdk.channel.Delivery
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
 import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
-import org.unitedsoftware.alexandrite.sdk.chat.ChatSettings
 import org.unitedsoftware.alexandrite.sdk.chat.ChatUser
 import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.di.ChannelInstanceScoped
 import org.unitedsoftware.alexandrite.sdk.di.Lifecycle
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
 import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
+import org.unitedsoftware.alexandrite.sdk.turn.ChatSettings
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Duration.Companion.minutes
@@ -52,6 +52,8 @@ internal class OneBotApprovals(
     private val config: OneBotInstanceConfig,
     private val sender: OneBotSender,
     private val texts: Texts,
+    /** The chats this instance serves, whose pairing a chat of no operator may need before it can answer. */
+    private val gate: OneBotAccessGate,
     /** The language of each chat, null while the runtime has no agent to ask. */
     private val settings: ChatSettings?,
 ) : Lifecycle {
@@ -62,7 +64,16 @@ internal class OneBotApprovals(
     /** The answer of the first admin who answers [request], else how the request ended. */
     suspend fun ask(request: ApprovalRequest): ApprovalAnswer {
         val chats = recipients(request)
-        if (chats.isEmpty()) return UNREACHABLE
+        if (chats.isEmpty()) {
+            // A chat that never paired is offered its code when somebody addresses the bot in it, never sent a
+            // request it cannot answer.
+            logger.warn(
+                "{} cannot ask for approval {}: no administrator chat of it is paired",
+                instance.id,
+                request.id,
+            )
+            return UNREACHABLE
+        }
         val waiting = Pending(request)
         if (pending.putIfAbsent(request.id, waiting) != null) {
             return ApprovalAnswer.Unavailable("another request has the id ${request.id}")
@@ -132,13 +143,20 @@ internal class OneBotApprovals(
         pending.values.forEach { it.ending.complete(Ending.Answered(ApprovalAnswer.Unavailable("the bot stopped"))) }
     }
 
-    /** The chats [request] is shown in: the chat of an admin's own turn, else the direct chats of the admins. */
+    /**
+     * The chats [request] is shown in: the chat of an admin's own turn, else the paired direct chats of the admins.
+     *
+     * The pairing gate is not bypassed for an approval: a chat that never paired is offered its code when somebody
+     * addresses the bot in it, and a request is not sent where it could not be answered.
+     */
     private fun recipients(request: ApprovalRequest): List<ChatAddress> {
         val turn = request.turn
         return if (turn.actorIsOperator) {
             listOf(turn.chat)
         } else {
-            config.admins.distinct().map { OneBotChats.privateChat(instance.id, UserId(it)) }
+            config.admins.distinct()
+                .map { OneBotChats.privateChat(instance.id, UserId(it)) }
+                .filter { gate.isPaired(it) }
         }
     }
 
@@ -227,7 +245,7 @@ internal class OneBotApprovals(
         val waiting = pending[id] ?: return text(TextKeys.APPROVAL_NOT_PENDING, language)
         val request = waiting.request
         val answer = if (allowed) {
-            ApprovalAnswer.Allowed(by, always && request.always != null)
+            ApprovalAnswer.Allowed(by, always && request.alwaysRules.isNotEmpty())
         } else {
             ApprovalAnswer.Denied(by)
         }
@@ -298,7 +316,7 @@ internal class OneBotApprovals(
                     language,
                     "id" to request.id,
                     "name" to named(answer.by),
-                    "rule" to request.always?.display.orEmpty(),
+                    "rule" to request.alwaysRules.firstOrNull()?.display.orEmpty(),
                 )
             } else {
                 text(
@@ -340,7 +358,7 @@ internal class OneBotApprovals(
         ).append("\n\n")
         append(body(request, language))
         append("\n\n").append(text(TextKeys.APPROVAL_ANSWER, language))
-        request.always?.let {
+        request.alwaysRules.firstOrNull()?.let {
             append(' ').append(text(TextKeys.APPROVAL_ALWAYS_RULE, language, "rule" to it.display))
         }
     }

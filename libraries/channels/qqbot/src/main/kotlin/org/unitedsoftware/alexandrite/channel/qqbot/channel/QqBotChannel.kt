@@ -234,7 +234,8 @@ internal class QqBotChannel(
             }
         }
 
-        override suspend fun abandon(end: ReplyEnd) = lock.withLock {
+        @Suppress("UNUSED_PARAMETER")
+        override suspend fun abandon(end: ReplyEnd, vouched: Boolean) = lock.withLock {
             logger.info("The reply of {} was abandoned: {}", request.turn.id, end)
             replies.close(request.turn.id)
             progress.abandon(request.turn.id)

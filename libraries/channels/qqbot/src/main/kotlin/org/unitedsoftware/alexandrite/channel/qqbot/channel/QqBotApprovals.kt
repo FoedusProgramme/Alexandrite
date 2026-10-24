@@ -89,7 +89,7 @@ internal class QqBotApprovals(
         val answer = if (name == QqBotApprovalCommands.DENY) {
             ApprovalAnswer.Denied(by)
         } else {
-            ApprovalAnswer.Allowed(by, always && waiting.request.always != null)
+            ApprovalAnswer.Allowed(by, always && waiting.request.alwaysRules.isNotEmpty())
         }
         if (!waiting.ending.complete(answer)) return null
         logger.info("{}: approval {} of {} answered by {}", instance.id, id, waiting.request.tool, by.address)
@@ -114,7 +114,9 @@ internal class QqBotApprovals(
                 request.id,
                 text(TextKeys.APPROVAL_ALLOW, request.turn.language),
                 text(TextKeys.APPROVAL_DENY, request.turn.language),
-                request.always?.let { text(TextKeys.APPROVAL_ALWAYS, request.turn.language, "rule" to it.display) },
+                request.alwaysRules.firstOrNull()?.let {
+                    text(TextKeys.APPROVAL_ALWAYS, request.turn.language, "rule" to it.display)
+                },
             )
             if (delivery is Delivery.Delivered) {
                 shown += chat

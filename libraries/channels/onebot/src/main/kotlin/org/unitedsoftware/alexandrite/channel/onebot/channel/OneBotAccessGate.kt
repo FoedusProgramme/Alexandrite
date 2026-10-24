@@ -5,7 +5,9 @@ import org.unitedsoftware.alexandrite.channel.common.pairing.InstancePairing
 import org.unitedsoftware.alexandrite.channel.onebot.config.OneBotInstanceConfig
 import org.unitedsoftware.alexandrite.channel.onebot.config.configPath
 import org.unitedsoftware.alexandrite.channel.onebot.i18n.TextKeys
+import org.unitedsoftware.alexandrite.channel.onebot.mapping.OneBotChats
 import org.unitedsoftware.alexandrite.channel.onebot.pairing.OneBotPairingDesk
+import org.unitedsoftware.alexandrite.channel.onebot.protocol.UserId
 import org.unitedsoftware.alexandrite.sdk.channel.ChannelInstance
 import org.unitedsoftware.alexandrite.sdk.channel.MessageKind
 import org.unitedsoftware.alexandrite.sdk.channel.OutboundMessage
@@ -91,10 +93,19 @@ internal class OneBotAccessGate(
         }
     }
 
-    /** Warns once of each home chat and linked chat of this instance that is not paired. */
+    /** Warns once of each home chat, linked chat and administrator chat of this instance that is not paired. */
     private fun warnUnpaired(pairing: InstancePairing) {
-        if (catalog == null && links == null) return
         val uses = LinkedHashMap<ChatAddress, MutableSet<String>>()
+        for (admin in config.admins) {
+            uses.getOrPut(OneBotChats.privateChat(instance.id, UserId(admin)), ::LinkedHashSet) +=
+                "the chat of administrator $admin"
+        }
+        if (config.admins.isEmpty()) {
+            logger.warn(
+                "{} names no admins, so no administrator can answer an approval and nobody is an operator",
+                instance.id,
+            )
+        }
         try {
             for (agent in catalog?.agents(instance.id).orEmpty()) {
                 agent.home?.let { uses.getOrPut(it.parent, ::LinkedHashSet) += "the home chat of agent ${agent.id}" }
@@ -108,7 +119,6 @@ internal class OneBotAccessGate(
             throw e
         } catch (e: Exception) {
             logger.warn("Cannot tell whether the home chats and linked chats of {} are paired: {}", instance.id, "$e")
-            return
         }
         for ((chat, use) in uses.filterKeys { !pairing.isPaired(it) }) {
             logger.warn(

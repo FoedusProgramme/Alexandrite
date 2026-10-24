@@ -8,6 +8,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.LanguageTag
 import org.unitedsoftware.alexandrite.sdk.chat.RunId
 import org.unitedsoftware.alexandrite.sdk.chat.ToolCallId
 import org.unitedsoftware.alexandrite.sdk.i18n.Texts
+import org.unitedsoftware.alexandrite.sdk.tool.ReviewPreview
 import org.unitedsoftware.alexandrite.sdk.tool.ToolActivity
 import kotlin.jvm.Synchronized
 
@@ -309,7 +310,9 @@ private fun suffix(call: ProgressCall, texts: Texts, language: LanguageTag?): St
             return " — " + texts.text(TextKeys.ACTIVITY_CALL_EXIT, language, "code" to it)
         }
 
-        is TurnEvent.Content.Diff -> lineCounts(content.unified)?.let { (added, removed) ->
+        is TurnEvent.Content.Preview -> (content.preview as? ReviewPreview.Diff)?.let {
+            lineCounts(it.unified)
+        }?.let { (added, removed) ->
             return " (" + texts.text(TextKeys.ACTIVITY_CALL_DIFF, language, "added" to added, "removed" to removed) +
                 ")"
         }

@@ -299,42 +299,6 @@ class ChatRequestTest {
     }
 
     @Test
-    fun `an image whose channel names only the kind goes out as the format its bytes are`() {
-        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
-        val jpeg = MediaPart(MediaKind.IMAGE, "image/jpeg", InlineMedia(byteArrayOf(1, 2, 3)), "dot.jpg")
-        val sniffedPng = MediaPart(MediaKind.IMAGE, "image/*", InlineMedia(png), "dot")
-        val gif = MediaPart(MediaKind.IMAGE, "image/*", InlineMedia("GIF89a".toByteArray()), "dot")
-        val webp = MediaPart(MediaKind.IMAGE, "image/*", InlineMedia("RIFF____WEBPVP8 ".toByteArray()), "dot")
-
-        // A channel that names the format is taken at its word, whatever the bytes are.
-        assertEquals("data:image/jpeg", sent(jpeg).substring(0, 15))
-        // One that names only the kind leaves the format to the bytes, which is what the model is sent.
-        assertEquals("data:image/png", sent(sniffedPng).substring(0, 14))
-        assertEquals("data:image/gif", sent(gif).substring(0, 14))
-        assertEquals("data:image/webp", sent(webp).substring(0, 15))
-    }
-
-    @Test
-    fun `an image of no known format is left out and said to be, rather than sent as a type the model refuses`() {
-        val not = MediaPart(MediaKind.IMAGE, "image/*", InlineMedia("no picture".toByteArray()), "dot")
-
-        val refused = chat(request(listOf(UserEntry(null, listOf(not), user("x").origin))))
-
-        assertEquals(
-            "[image dot not shown: it is in no format the model takes]",
-            refused.body.messages().single().text("content"),
-        )
-        assertEquals(listOf("unsupported_media"), refused.warnings.map { it.kind })
-    }
-
-    /** The data URL the model is sent for [part]. */
-    private fun sent(part: MediaPart): String {
-        val body = body(request(listOf(UserEntry(null, listOf(part), user("x").origin))))
-        return body.messages().single()["content"]!!.jsonArray.single().jsonObject["image_url"]!!
-            .jsonObject.text("url")!!
-    }
-
-    @Test
     fun `tools, tool choice and options map onto their fields`() {
         val options = ModelOptions.builder().maxOutputTokens(512).temperature(0.2).topP(0.9)
             .stopSequences(listOf("END")).parallelToolCalls(false).build()

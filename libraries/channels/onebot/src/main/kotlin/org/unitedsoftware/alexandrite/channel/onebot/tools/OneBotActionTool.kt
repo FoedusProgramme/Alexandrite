@@ -308,6 +308,10 @@ internal suspend fun withFiles(
                 )
 
                 is FloorCheck.Allowed -> check.canonical
+
+                else -> return Prepared.Refused(
+                    "The action '${row.name}' may not read '$given': the floor gave no answer this version knows.",
+                )
             }
             val size = try {
                 withContext(Dispatchers.IO) { Files.size(allowed) }

@@ -183,6 +183,26 @@ class OneBotApprovalIntegrationTest {
     }
 
     @Test
+    fun `an approval of a member is not sent to a chat that never paired`() {
+        val peer = ApprovalPeer()
+        val port = peer.startAndPort()
+        try {
+            runBlocking {
+                harness(peer, port, allowedChats = listOf("group:987654")) {
+                    val answer = front().askApproval(requestOfMember("m1x2"))
+                    assertIs<ApprovalAnswer.Unavailable>(answer)
+                    assertTrue(
+                        waiting { peer.awaitQuiet() }.isEmpty(),
+                        "an approval reached a chat that never paired",
+                    )
+                }
+            }
+        } finally {
+            peer.stop()
+        }
+    }
+
+    @Test
     fun `an answer that is taken is said once`() {
         val peer = ApprovalPeer()
         val port = peer.startAndPort()
@@ -208,10 +228,15 @@ class OneBotApprovalIntegrationTest {
         }
     }
 
-    /** Runs [block] with the plugin built over the peer on [port]. */
-    private suspend fun harness(peer: ApprovalPeer, port: Int, block: suspend Running.() -> Unit) {
+    /** Runs [block] with the plugin built over the peer on [port], serving [allowedChats]. */
+    private suspend fun harness(
+        peer: ApprovalPeer,
+        port: Int,
+        allowedChats: List<String> = listOf("group:987654", "private:12345678"),
+        block: suspend Running.() -> Unit,
+    ) {
         PluginHarness.builder(AlexandriteChannelOnebotIndex())
-            .config(config(port))
+            .config(config(port, allowedChats))
             .turnSubmitter(RecordingTurnSubmitter())
             .build()
             .run {
@@ -228,16 +253,24 @@ class OneBotApprovalIntegrationTest {
         get(directory).channel(instance) ?: error("the instance has no channel")
 
     /** An approval request of [id] that the user of the group asks for. */
-    private fun request(id: String): ApprovalRequest = ApprovalRequest(
+    private fun request(id: String): ApprovalRequest = ApprovalRequest.builder(
         id = id,
         turn = testTurn(chat = group) { actor(admin) },
         tool = "fs.write",
         risk = ToolRisk.WORKSPACE_WRITE,
         arguments = """{"path":"notes.md"}""",
-        preview = null,
         reason = "the chat is in ask mode",
-        alwaysRules = emptyList(),
-    )
+    ).build()
+
+    /** An approval request of [id] that a member of the group asks for, which no operator's chat can answer. */
+    private fun requestOfMember(id: String): ApprovalRequest = ApprovalRequest.builder(
+        id = id,
+        turn = testTurn(chat = group) { actor(member) },
+        tool = "fs.write",
+        risk = ToolRisk.WORKSPACE_WRITE,
+        arguments = """{"path":"notes.md"}""",
+        reason = "the chat is in ask mode",
+    ).build()
 
     /** A report of the group that answers the message [replyTo] with [text], sent by [from]. */
     private fun command(replyTo: String? = null, text: String, from: String = USER, role: String = "admin"): String =
@@ -257,7 +290,10 @@ class OneBotApprovalIntegrationTest {
     private val admin: ChatUser =
         ChatUser(UserAddress(instance, USER), "someone", null, isBot = false, isOperator = true)
 
-    private fun config(port: Int): String = """
+    private val member: ChatUser =
+        ChatUser(UserAddress(instance, MEMBER), "someone", null, isBot = false, isOperator = false)
+
+    private fun config(port: Int, allowedChats: List<String>): String = """
         {
           "settings": {"eventQueueCapacity": 64},
           "instances": {
@@ -268,7 +304,7 @@ class OneBotApprovalIntegrationTest {
               "firstByteTimeoutMillis": 5000,
               "idleTimeoutMillis": 5000,
               "reconnectIntervalMillis": 200,
-          "allowedChats": ["group:987654", "private:12345678"],
+              "allowedChats": [${allowedChats.joinToString(",") { "\"$it\"" }}],
               "admins": ["$USER"],
               "approvalMinutes": 1
             }
@@ -278,6 +314,8 @@ class OneBotApprovalIntegrationTest {
 
     private companion object {
         const val USER = "12345678"
+
+        const val MEMBER = "99999999"
     }
 
     /** An implementation that serves the API, numbering the messages it is told to send, and reports what the test says. */

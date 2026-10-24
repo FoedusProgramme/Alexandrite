@@ -235,7 +235,7 @@ public object OneBotMessages {
         else -> DeliveryFailure.UNKNOWN
     }
 
-    /** Who sent [event], as an operator of the instance when the report or the list of [admins] says so. */
+    /** Who sent [event], an operator of the instance when the configured [admins] name them and nobody else. */
     public fun senderOf(instance: ChannelInstanceId, event: OneBotEvent.Message, admins: Set<String>): ChatUser =
         sender(instance, event, admins)
 
@@ -248,7 +248,8 @@ public object OneBotMessages {
             displayName = card ?: reported.nickname ?: id,
             username = null,
             isBot = reported.userId == event.selfId.value,
-            isOperator = id in admins || (event is OneBotEvent.Message.Group && reported.isOperator),
+            // A platform role is not an operator of this bot: only the accounts the instance names in `admins` are.
+            isOperator = id in admins,
         )
     }
 

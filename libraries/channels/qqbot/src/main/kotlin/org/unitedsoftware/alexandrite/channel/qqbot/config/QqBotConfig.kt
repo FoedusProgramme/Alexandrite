@@ -33,7 +33,10 @@ public class QqBotInstanceConfig(
     public val progress: Boolean = true,
     /** Whether a single chat is answered with the platform's streaming message, false to send one message instead. */
     public val streaming: Boolean = true,
-    /** The accounts that may operate this instance, by their open id in the chat they write in. */
+    /**
+     * The accounts that may operate this instance, by the open id a single chat names them by, which is the chat an
+     * approval of theirs is shown in. A group's administrators are its platform `member_role`, not this list.
+     */
     public val admins: Set<String> = emptySet(),
     /** Whether the bot publishes its slash commands as the single-chat menu and command panels when it opens. */
     @SerialName("syncCommands") public val syncCommands: Boolean = true,

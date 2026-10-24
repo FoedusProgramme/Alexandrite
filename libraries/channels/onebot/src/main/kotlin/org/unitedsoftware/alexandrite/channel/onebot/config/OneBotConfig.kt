@@ -150,6 +150,16 @@ public class OneBotInstanceConfig(
                 "selfId is the number the implementation reports, was '$selfId'"
             }
         }
+        for (admin in admins) {
+            require(admin.isNotEmpty() && admin.all(Char::isDigit)) {
+                "admins holds the numbers of the accounts that operate this instance, was '$admin'"
+            }
+        }
+        for (chat in allowedChats) {
+            require(ALLOWED_CHAT.matches(chat)) {
+                "allowedChats holds chats as private:<number> or group:<number>, was '$chat'"
+            }
+        }
     }
 
     public companion object {
@@ -166,6 +176,9 @@ public class OneBotInstanceConfig(
         public const val DEFAULT_APPROVAL_MINUTES: Int = 10
 
         public const val MAX_PORT: Int = 65_535
+
+        /** The shape of a chat key in [OneBotInstanceConfig.allowedChats]. */
+        private val ALLOWED_CHAT: Regex = Regex("(private|group):[0-9]+")
     }
 }
 

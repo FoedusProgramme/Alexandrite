@@ -24,6 +24,7 @@ import org.unitedsoftware.alexandrite.sdk.chat.ChatAddress
 import org.unitedsoftware.alexandrite.sdk.chat.ChatKind
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -44,11 +45,11 @@ class OneBotMessagesTest {
     }
 
     @Test
-    fun `a group message keeps its group and marks an administrator`() {
+    fun `a group message keeps its group and takes no operator from a platform role`() {
         val message = OneBotMessages.incoming(instance, groupEvent(role = "admin"))
         assertEquals("group:100100", message.chat.chat)
         assertEquals(ChatKind.GROUP, message.chatInfo.kind)
-        assertTrue(message.sender.isOperator)
+        assertFalse(message.sender.isOperator, "a platform administrator was treated as an operator")
         assertEquals("the card", message.sender.displayName)
     }
 
@@ -56,6 +57,14 @@ class OneBotMessagesTest {
     fun `an instance admin is an admin even when the platform reports a plain member`() {
         val message = OneBotMessages.incoming(instance, groupEvent(role = "member"), admins = setOf("12345678"))
         assertTrue(message.sender.isOperator)
+    }
+
+    @Test
+    fun `an operator is named by the instance and not by the group owner role`() {
+        val owner = OneBotMessages.incoming(instance, groupEvent(role = "owner"))
+        assertFalse(owner.sender.isOperator, "a group owner was treated as an operator")
+        val named = OneBotMessages.incoming(instance, groupEvent(role = "owner"), admins = setOf("12345678"))
+        assertTrue(named.sender.isOperator)
     }
 
     @Test
